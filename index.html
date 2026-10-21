@@ -33,6 +33,7 @@
         <div class="day-tabs" id="dayTabs" aria-label="Conference days"></div>
 
         <div class="hero-card" id="statusCard"></div>
+        <div id="announcementPanel" class="announcement-panel" hidden></div>
 
         <div class="toolbar-card">
           <label class="search-wrap">
@@ -40,6 +41,7 @@
             <input id="programSearch" type="search" placeholder="Search talks, speakers, sessions…" autocomplete="off">
           </label>
           <div class="chip-row" id="roomFilters"></div>
+          <div class="chip-row" id="trackFilters"></div>
         </div>
 
         <div id="programMeta" class="section-meta"></div>
@@ -126,6 +128,24 @@
         <div id="posterList" class="poster-list"></div>
       </section>
 
+
+      <section id="friendView" class="view" data-view="friends" hidden>
+        <div class="view-heading">
+          <div><div class="eyebrow">PRIVATE CONTACTS</div><h2>Friend Book</h2></div>
+          <span id="friendCount" class="count-badge">0</span>
+        </div>
+        <div id="myCardSummary" class="friend-profile-card"></div>
+        <div class="button-row friend-actions">
+          <button id="friendShareBtn" class="primary-btn" type="button">Share my card</button>
+          <button id="downloadVcardBtn" class="secondary-btn" type="button">Download vCard</button>
+          <button id="scanFriendBtn" class="secondary-btn" type="button">Scan QR</button>
+          <button id="importVcardBtn" class="secondary-btn" type="button">Import vCard</button>
+          <input id="friendScanInput" type="file" accept="image/*" capture="environment" hidden>
+          <input id="friendVcardInput" type="file" accept="text/vcard,.vcf,text/plain" hidden>
+        </div>
+        <div id="friendList" class="friend-list"></div>
+      </section>
+
       <section id="settingsView" class="view" data-view="settings">
         <div class="view-heading">
           <div>
@@ -171,13 +191,28 @@
         </div>
 
         <div class="settings-section" id="profileSection" hidden>
-          <h3>My profile</h3>
-          <div class="profile-share-card">
-            <div class="profile-info"><strong class="profile-name">Profile sharing will be configured through Friend Book.</strong></div>
-            <div class="profile-qr">
-              <button id="shareQrBtn" class="qr-preview-btn" type="button" hidden></button>
-              <button id="shareQrFullBtn" class="secondary-btn qr-full-btn" type="button" hidden></button>
-            </div>
+          <h3>My conference card</h3>
+          <div class="profile-editor">
+            <label>Name<input id="profileName" autocomplete="name"></label>
+            <label>Position<input id="profilePosition"></label>
+            <label>Affiliation<input id="profileAffiliation" autocomplete="organization"></label>
+            <label>Email<input id="profileEmail" type="email" autocomplete="email"></label>
+            <label>ORCID<input id="profileOrcid" placeholder="0000-0000-0000-0000"></label>
+            <label>LinkedIn<input id="profileLinkedin" type="url"></label>
+            <label>Website<input id="profileWebsite" type="url"></label>
+            <label>Profile photo<input id="profilePhotoInput" type="file" accept="image/*"></label>
+            <div class="profile-photo-cell"><img id="profilePhotoPreview" alt="Profile preview" hidden><button id="clearProfilePhotoBtn" class="secondary-btn" type="button" hidden>Remove photo</button></div>
+            <label class="profile-wide">Research interests / bio<textarea id="profileBio" rows="3"></textarea></label>
+            <label class="profile-wide">Selected papers / DOI links <small>One per line</small><textarea id="profilePapers" rows="3"></textarea></label>
+          </div>
+          <div class="button-row"><button id="saveProfileBtn" class="primary-btn" type="button">Save card</button><button id="shareQrBtn" class="secondary-btn" type="button">Show QR</button><button id="shareQrFullBtn" class="secondary-btn" type="button">Open Friend Book</button></div>
+        </div>
+
+        <div class="settings-section" id="calendarSection" hidden>
+          <h3>Calendar</h3>
+          <div class="setting-card column">
+            <div><strong>Calendar export</strong><p>Export standards-based .ics files in the conference timezone.</p></div>
+            <div class="button-row"><button id="exportStarredIcsBtn" class="secondary-btn" type="button">Export starred schedule</button><button id="exportFullIcsBtn" class="secondary-btn" type="button">Export full programme</button></div>
           </div>
         </div>
 
@@ -185,14 +220,14 @@
           <h3>Data</h3>
           <div class="setting-card column">
             <div>
-              <strong>Backup</strong>
-              <p>Export a JSON backup for app data, or download notes and presentation photos as a PowerPoint slideshow.</p>
+              <strong>Personal-data backup</strong>
+              <p>Export or restore favorites, notes, Friend Book data and locally stored photos. PPTX export remains available separately.</p>
             </div>
             <div class="button-row">
-              <button id="exportBtn" class="secondary-btn" type="button">Export JSON</button>
-              <button id="importBtn" class="secondary-btn" type="button">Import JSON</button>
+              <button id="exportBtn" class="secondary-btn" type="button">Export backup ZIP</button>
+              <button id="importBtn" class="secondary-btn" type="button">Import backup</button>
               <button id="exportPptxBtn" class="secondary-btn" type="button">Export PPTX</button>
-              <input id="importInput" type="file" accept="application/json" hidden>
+              <input id="importInput" type="file" accept="application/zip,.zip,application/json,.json" hidden>
             </div>
           </div>
           <div class="setting-card">
@@ -201,6 +236,18 @@
               <p>Remove all starred talks and posters from this device.</p>
             </div>
             <button id="clearBtn" class="danger-btn" type="button">Clear</button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Conference data</h3>
+          <div class="setting-card column">
+            <div>
+              <strong>Programme release</strong>
+              <p id="dataReleaseStatus">Loading validated conference data…</p>
+              <div id="dataReleaseChanges" class="data-release-changes"></div>
+            </div>
+            <div class="button-row"><button id="rollbackDataBtn" class="secondary-btn" type="button" hidden>Use previous validated release</button></div>
           </div>
         </div>
 
@@ -235,6 +282,7 @@
       <button class="nav-btn" data-target="my"><span class="nav-icon">★</span><span>My schedule</span></button>
       <button class="nav-btn" data-target="gallery"><span class="nav-icon">▧</span><span>Gallery</span></button>
       <button class="nav-btn" id="postersNavBtn" data-target="posters"><span class="nav-icon">▤</span><span>Posters</span></button>
+      <button class="nav-btn" id="friendsNavBtn" data-target="friends" hidden><span class="nav-icon">◎</span><span>Friend Book</span></button>
       <button class="nav-btn" data-target="settings"><span class="nav-icon">⚙</span><span>Settings</span></button>
     </nav>
   </div>
@@ -272,7 +320,7 @@
 
   <div id="shareQrViewer" class="share-qr-viewer" role="dialog" aria-modal="true" aria-label="Share QR code" hidden>
     <button id="shareQrClose" class="share-qr-close" type="button" aria-label="Close QR code">×</button>
-    <div class="share-qr-full-card"><strong>Profile sharing not configured</strong></div>
+    <div class="share-qr-full-card"><strong id="shareQrName">My conference card</strong><canvas id="shareQrCanvas" aria-label="QR code"></canvas><p id="shareQrHint">Scan to save this vCard.</p></div>
   </div>
 
   <div id="photoViewer" class="photo-viewer" role="dialog" aria-modal="true" aria-label="Photo viewer" hidden>
@@ -307,6 +355,6 @@
       </div>
     </div>
   </div>
-  <script src="./bootstrap.js"></script>
+  <script type="module" src="./bootstrap.js"></script>
 </body>
 </html>

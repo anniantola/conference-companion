@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#000000">
+  <title>Conference Builder</title>
+  <link rel="stylesheet" href="./builder.css">
+</head>
+<body>
+  <header class="builder-topbar">
+    <div><div class="eyebrow">CONFERENCE COMPANION</div><h1>Conference Builder</h1><p>Import → review → validate → brand → export a conference data package.</p></div>
+    <div class="top-actions"><a href="./" class="ghost-btn">Open attendee app</a><button id="exportBuilderProject" class="ghost-btn" type="button">Export project</button><button id="importBuilderProject" class="ghost-btn" type="button">Import project</button><input id="builderProjectInput" type="file" accept="application/zip,.zip" hidden><button id="resetProject" class="ghost-btn danger">Reset project</button></div>
+  </header>
+
+  <main class="builder-shell">
+    <section class="panel">
+      <div class="step-title"><span>1</span><div><h2>Conference details</h2><p>These fields become <code>conference.json</code>.</p></div></div>
+      <div class="form-grid" id="conferenceForm">
+        <label>Name<input data-config="name" placeholder="NEURONICS 2027"></label>
+        <label>Short name<input data-config="shortName" placeholder="NEURONICS 2027"></label>
+        <label>Start date<input data-config="startDate" type="date"></label>
+        <label>End date<input data-config="endDate" type="date"></label>
+        <label>Timezone<input data-config="timezone" value="Europe/Helsinki"></label>
+        <label>City<input data-config="city"></label>
+        <label>Country<input data-config="country"></label>
+        <label>Official website<input data-config="officialWebsite" type="url"></label>
+        <label>Contact email<input data-config="contactEmail" type="email"></label>
+        <label>Main venue<input data-config="venueName" placeholder="Conference venue"></label>
+        <label class="wide">Venue address<input data-config="venueAddress"></label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="step-title"><span>2</span><div><h2>Programme import</h2><p>PDF is extracted for review. XLSX/CSV/JSON use deterministic column mapping.</p></div></div>
+      <div class="import-row">
+        <input id="programmeFile" type="file" accept=".pdf,.xlsx,.xls,.csv,.json,application/pdf,application/json,text/csv">
+        <button id="importProgramme" class="primary-btn">Import file</button>
+        <span id="importStatus" class="muted"></span>
+      </div>
+      <div id="mappingCard" class="mapping-card" hidden>
+        <h3>Column mapping</h3>
+        <div id="mappingGrid" class="mapping-grid"></div>
+        <button id="applyMapping" class="secondary-btn">Apply mapping</button>
+      </div>
+      <details id="pdfExtract" hidden><summary>PDF extracted text</summary><textarea id="pdfText" rows="10" spellcheck="false"></textarea></details>
+    </section>
+
+    <section class="panel">
+      <div class="step-title"><span>3</span><div><h2>Review & fix</h2><p>Edit imported rows directly. All changes are autosaved as private Builder project state.</p></div></div>
+      <div class="table-actions"><button id="addRow" class="secondary-btn">+ Add row</button><span id="rowCount" class="muted">0 rows</span></div>
+      <div class="table-wrap"><table id="reviewTable"><thead><tr><th>Date</th><th>Start</th><th>End</th><th>Type</th><th>Session</th><th>Title</th><th>Speaker / author</th><th>Chair</th><th>Affiliation</th><th>Location</th><th>Track</th><th>Poster #</th><th>Abstract</th><th>DOI / link</th><th></th></tr></thead><tbody></tbody></table></div>
+    </section>
+
+    <section class="panel split-panel">
+      <div>
+        <div class="step-title"><span>4</span><div><h2>People</h2><p>Generated from reviewed programme rows.</p></div></div>
+        <div class="table-actions"><button id="addPerson" class="secondary-btn" type="button">+ Add person</button></div><div id="peoplePreview" class="preview-list"></div>
+      </div>
+      <div>
+        <div class="step-title"><span>5</span><div><h2>Locations & tracks</h2><p>Locations and tracks are normalized to immutable IDs.</p></div></div>
+        <div class="table-actions"><button id="addLocation" class="secondary-btn" type="button">+ Add location</button></div><div id="locationsPreview" class="preview-list"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="step-title"><span>6</span><div><h2>Branding</h2><p>Visual identity lives in <code>branding.json</code>; install assets remain deployment assets.</p></div></div>
+      <div class="form-grid">
+        <label>Primary color<input id="primaryColor" type="color" value="#5b4b9a"></label>
+        <label>Secondary color<input id="secondaryColor" type="color" value="#2f7d68"></label>
+        <label>Accent color<input id="accentColor" type="color" value="#5b4b9a"></label>
+        <label>Header style<select id="headerStyle"><option value="text">Text + optional logo</option><option value="logo">Logo-first</option></select></label>
+        <label>Typography<select id="typography"><option value="system">System sans</option><option value="serif">Editorial serif</option><option value="condensed">Compact sans</option></select></label>
+        <label><span>Default dark appearance</span><input id="brandingDarkMode" type="checkbox" checked></label>
+        <label>Conference logo<input id="logoFile" type="file" accept="image/png,image/jpeg,image/svg+xml"></label>
+        <label>App icon artwork<input id="appIconFile" type="file" accept="image/png,image/jpeg,image/svg+xml"></label>
+        <label class="wide">Sponsor / partner logos<input id="sponsorFiles" type="file" accept="image/png,image/jpeg,image/svg+xml" multiple></label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="step-title"><span>7</span><div><h2>Features</h2><p>Turn optional attendee modules on or off for this conference.</p></div></div>
+      <div class="feature-grid">
+        <label><input type="checkbox" data-feature="photos" checked> Photos</label>
+        <label><input type="checkbox" data-feature="notes" checked> Notes</label>
+        <label><input type="checkbox" data-feature="pptxExport" checked> PPTX export</label>
+        <label><input type="checkbox" data-feature="friendBook" checked> Friend Book</label>
+        <label><input type="checkbox" data-feature="calendarExport" checked> Calendar export</label>
+        <label><input type="checkbox" data-feature="announcements" checked> Announcements</label>
+      </div>
+      <div class="policy-grid">
+        <strong>Review policy</strong>
+        <label><input type="checkbox" data-policy="requireAffiliation"> Warn when speaker affiliation is missing</label>
+        <label><input type="checkbox" data-policy="requireAbstract"> Warn when a presentation abstract is missing</label>
+        <label><input type="checkbox" data-policy="requireChair"> Warn when a scientific session has no chair</label>
+      </div>
+      <div class="announcement-builder">
+        <div class="table-actions"><h3>Announcements</h3><button id="addAnnouncement" class="secondary-btn" type="button">+ Add announcement</button></div>
+        <div id="announcementRows" class="announcement-rows"></div>
+      </div>
+    </section>
+
+    <section class="panel publish-panel">
+      <div class="step-title"><span>8</span><div><h2>Preview, validate & publish</h2><p>Publishing is blocked by structural errors. Warnings remain reviewable.</p></div></div>
+      <div class="publish-grid">
+        <div class="phone-preview"><div class="phone-head" id="previewBrand">Conference</div><div id="phoneSchedule" class="phone-body"></div></div>
+        <div>
+          <div class="release-grid">
+            <label>Data version<input id="dataVersion" type="number" min="1" value="1"></label>
+            <label>Release note<input id="releaseMessage" value="Initial Builder release"></label>
+          </div>
+          <div id="validationReport" class="validation-report"></div>
+          <div class="publish-actions"><button id="validateProject" class="secondary-btn">Validate</button><button id="downloadPackage" class="primary-btn">Download repository-ready deployment ZIP</button></div>
+          <p class="muted">The ZIP contains the validated conference package, stable attendee engine, branded PWA assets, validator and GitHub Pages workflow. Upload it to a conference deployment repository. GitHub credentials are never embedded in the attendee app.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+  <div id="toast" class="toast"></div>
+  <script type="module" src="./src/builder/main.js"></script>
+</body>
+</html>

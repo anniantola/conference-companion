@@ -3,21 +3,28 @@
   const CONFIG = window.CONFERENCE_CONFIG || {};
   const CONFERENCE = CONFIG.conference || {};
   const BRANDING = CONFIG.branding || {};
-  const DATA = window.CONFERENCE_DATA;
+  const MODEL = window.CONFERENCE_MODEL;
+  const SERVICES = window.CONFERENCE_SERVICES || {};
+  const USER_STORE = SERVICES.userStore;
+  const LOAD_INFO = window.CONFERENCE_LOAD_INFO || {};
+  const DAYS = MODEL?.days || [];
+  const ITEMS = MODEL?.items || [];
+  const POSTERS = MODEL?.posters || [];
   const LOCATION_ROWS = CONFIG.locations?.locations || [];
   const LOCATIONS = Object.fromEntries(LOCATION_ROWS.map(x => [x.id, x]));
-  const POSTER_SESSION = CONFIG.posterSession || null;
-  const STORAGE_KEY = `conferenceCompanion:${CONFERENCE.id || "default"}:state:v1`;
+  const POSTER_SESSION = MODEL?.posterSession || null;
+  const PREFS_KEY = `conferenceCompanion:${CONFERENCE.id || "default"}:preferences:v1`;
   const PHOTO_DB = `conferenceCompanion:${CONFERENCE.id || "default"}:photos`;
 
   const PHOTO_STORE = "photos";
   const defaultState = {
     favorites: [],
     posterFavorites: [],
-    theme: "system",
+    theme: BRANDING.darkMode ? "dark" : "system",
     compact: false,
     timeMode: "conference",
     room: "all",
+    track: "all",
     day: null,
     posterCategory: "all",
     view: "program",
@@ -27,8 +34,8 @@
 
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => [...document.querySelectorAll(s)];
-  const byId = new Map(DATA.schedule.map(x => [x.id, x]));
-  const posterById = new Map(DATA.posters.map(x => [x.id, x]));
+  const byId = new Map(ITEMS.map(x => [x.id, x]));
+  const posterById = new Map(POSTERS.map(x => [x.id, x]));
   let currentModal = null;
   let deferredInstallPrompt = null;
   let pendingPhotoImports = [];
@@ -40,23 +47,37 @@
   let galleryNoteCount = 0;
   let galleryPhotoQuery = "";
   let galleryNoteQuery = "";
+  let profile = {};
+  let friends = [];
+  let profilePhotoUrl = "";
 
   function loadState() {
-    try {
-      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
-      return {...defaultState, ...saved};
-    } catch {
-      return {...defaultState};
-    }
+    let prefs = {};
+    try { prefs = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}"); } catch {}
+    const owned = window.CONFERENCE_USER_STATE || {};
+    return {...defaultState, ...prefs, ...owned, notes:{...(owned.notes || {})}};
   }
   let state = loadState();
+  let userSaveTimer = null;
 
   function saveState() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    const prefs = {
+      theme:state.theme, compact:state.compact, timeMode:state.timeMode, room:state.room, track:state.track,
+      day:state.day, posterCategory:state.posterCategory, view:state.view, galleryMode:state.galleryMode
+    };
+    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+    clearTimeout(userSaveTimer);
+    userSaveTimer = setTimeout(() => {
+      USER_STORE?.saveState({favorites:[...(state.favorites||[])],posterFavorites:[...(state.posterFavorites||[])],notes:{...(state.notes||{})}}).catch(console.error);
+    }, 60);
   }
 
   function esc(v="") {
     return String(v).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
+  }
+
+  function packageAssetUrl(value) {
+    if(!value)return "";if(/^(?:[a-z]+:|\/)/i.test(value))return value;return `${CONFIG.packageBase||"./conference"}/${String(value).replace(/^\.\//,"")}`;
   }
 
 
@@ -100,6 +121,17 @@
 
 
   function openShareQr() {
+    if (!CONFERENCE.features?.friendBook) return;
+    if (!String(profile?.name || "").trim()) return toast("Add your name to My conference card first");
+    try {
+      const card = SERVICES.vcard.compactProfileVCard(profile);
+      SERVICES.qr.drawQr($("#shareQrCanvas"), card, {scale:7, margin:4});
+      $("#shareQrName").textContent = profile.name || "My conference card";
+      $("#shareQrHint").textContent = "Scan to save this compact vCard. Your private Friend Book notes are never shared.";
+    } catch (err) {
+      console.error(err);
+      return toast("Could not create QR card");
+    }
     const viewer = $("#shareQrViewer");
     viewer.hidden = false;
     viewer.setAttribute("aria-hidden", "false");
@@ -261,6 +293,26 @@
       req.onsuccess = () => resolve(req.result || null);
       req.onerror = () => reject(req.error);
       tx.oncomplete = () => db.close();
+    });
+  }
+
+  async function replaceAllPhotos(photoMeta=[], photoFiles=new Map()) {
+    const db = await openPhotoDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(PHOTO_STORE, "readwrite");
+      const store = tx.objectStore(PHOTO_STORE);
+      store.clear();
+      for (const meta of photoMeta || []) {
+        const blob = photoFiles.get(meta.file);
+        if (!blob) continue;
+        const row = {...meta, blob};
+        delete row.file; delete row.type;
+        row.ownerKey = row.ownerKey || photoOwnerKey(row.ownerType || "unclassified", row.ownerId || "unclassified");
+        store.put(row);
+      }
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onerror = () => { db.close(); reject(tx.error); };
+      tx.onabort = () => { db.close(); reject(tx.error || new Error("Photo restore aborted")); };
     });
   }
 
@@ -469,7 +521,7 @@
   function photoSuggestions(capture) {
     if (!capture?.date || !capture?.time) return [];
     const minute = timeValue(capture.time);
-    const dateEvents = DATA.schedule.filter(e => e.date === capture.date && !["break","meal"].includes(e.kind));
+    const dateEvents = ITEMS.filter(e => e.date === capture.date && !["break","meal"].includes(e.kind));
     const posterSession = dateEvents.find(e => e.kind === "poster-session" && minute >= timeValue(e.start)-5 && minute <= timeValue(e.end)+5);
     const ranked = [];
 
@@ -519,7 +571,7 @@
       }).join("") + `</optgroup>`;
     }
     if (item.capture.date) {
-      const others = DATA.schedule
+      const others = ITEMS
         .filter(e => e.date===item.capture.date && !["break","meal","poster-session"].includes(e.kind))
         .filter(e => !suggestedKeys.has(assignmentKey("event",e.id)))
         .sort((a,b)=>timeValue(a.start)-timeValue(b.start) || a.track-b.track);
@@ -1093,7 +1145,7 @@
     }
 
     if (capture.date) {
-      const events = DATA.schedule
+      const events = ITEMS
         .filter(e => e.date === capture.date && !["break","meal","poster-session"].includes(e.kind))
         .sort((a,b) => timeValue(a.start)-timeValue(b.start) || a.track-b.track);
       for (const e of events) {
@@ -1231,17 +1283,17 @@
 
   function detectConferenceDay() {
     const n = conferenceNowParts();
-    const d = DATA.days.find(x => x.date === n.date);
+    const d = DAYS.find(x => x.date === n.date);
     return d ? d.day : 1;
   }
 
   function currentTimeTarget() {
     const now = conferenceNowParts();
-    const day = DATA.days.find(d => d.date === now.date);
+    const day = DAYS.find(d => d.date === now.date);
     if (!day) return null;
 
     const minute = timeValue(now.time);
-    const events = DATA.schedule
+    const events = ITEMS
       .filter(e => e.day === day.day)
       .sort((a,b) => timeValue(a.start)-timeValue(b.start) || a.track-b.track);
 
@@ -1347,7 +1399,7 @@
   }
 
   function renderDays() {
-    $("#dayTabs").innerHTML = DATA.days.map(d => `
+    $("#dayTabs").innerHTML = DAYS.map(d => `
       <button class="day-tab ${state.day===d.day?"active":""}" data-day="${d.day}">
         <strong>${esc(d.weekday.slice(0,3))}</strong>
         <span>${esc(d.dateLabel)}</span>
@@ -1362,20 +1414,20 @@
   }
 
   function searchTextEvent(e) {
-    return [e.title,e.speaker,e.affiliation,e.session,e.chair,e.room,locationLabel(e.room)].join(" ").toLowerCase();
+    return [e.title,e.speaker,e.affiliation,e.session,e.chair,e.room,locationLabel(e.room),e.trackName,e.abstract,...(e.keywords||[])].filter(Boolean).join(" ").toLowerCase();
   }
 
   function statusForSelectedDay() {
     const now = conferenceNowParts();
-    const day = DATA.days.find(d => d.day === state.day);
-    const events = DATA.schedule.filter(e => e.day===state.day).sort((a,b)=>timeValue(a.start)-timeValue(b.start));
+    const day = DAYS.find(d => d.day === state.day);
+    const events = ITEMS.filter(e => e.day===state.day).sort((a,b)=>timeValue(a.start)-timeValue(b.start));
     const first = events[0];
     const last = events.reduce((a,b)=>timeValue(a.end)>timeValue(b.end)?a:b, events[0]);
 
-    if (now.date < DATA.days[0].date) {
-      return {title:`Conference starts ${DATA.days[0].weekday}`, sub:`First item ${DATA.days[0].dateLabel} at ${first.start} · ${CONFERENCE.timezoneLabel || "Conference time"}`};
+    if (now.date < DAYS[0].date) {
+      return {title:`Conference starts ${DAYS[0].weekday}`, sub:`First item ${DAYS[0].dateLabel} at ${first.start} · ${CONFERENCE.timezoneLabel || "Conference time"}`};
     }
-    if (now.date > DATA.days.at(-1).date) {
+    if (now.date > DAYS.at(-1).date) {
       return {title:"Conference finished", sub:"Your starred talks and posters remain saved on this device."};
     }
     if (day.date !== now.date) {
@@ -1394,7 +1446,7 @@
 
   function renderStatus() {
     const s = statusForSelectedDay();
-    const today = DATA.days.some(d => d.date === conferenceNowParts().date);
+    const today = DAYS.some(d => d.date === conferenceNowParts().date);
     $("#statusCard").classList.toggle("status-clickable", today);
     $("#statusCard").setAttribute("role", today ? "button" : "status");
     $("#statusCard").setAttribute("tabindex", today ? "0" : "-1");
@@ -1447,11 +1499,20 @@
     });
   }
 
+  function renderAnnouncements() {
+    const panel=$("#announcementPanel");if(!panel)return;
+    const rows=CONFIG.programme?.announcements || [];
+    panel.hidden=!rows.length;
+    panel.innerHTML=rows.map((a,i)=>`<div class="announcement-card"><strong>${esc(a.timestamp ? new Date(a.timestamp).toLocaleString(CONFERENCE.locale||"en-GB") : "Conference update")}</strong><p>${esc(a.message||"")}</p>${(a.affectedIds||[]).some(id=>byId.has(id))?`<button class="secondary-btn" type="button" data-announcement-open="${esc((a.affectedIds||[]).find(id=>byId.has(id)))}">Open affected item</button>`:""}</div>`).join("");
+    panel.querySelectorAll("[data-announcement-open]").forEach(btn=>btn.addEventListener("click",()=>openEvent(btn.dataset.announcementOpen)));
+  }
+
   function renderProgram() {
     renderStatus();
     const q = $("#programSearch").value.trim().toLowerCase();
-    let events = DATA.schedule.filter(e => q ? searchTextEvent(e).includes(q) : e.day===state.day);
+    let events = ITEMS.filter(e => q ? searchTextEvent(e).includes(q) : e.day===state.day);
     if (state.room !== "all") events = events.filter(e => !e.room || e.room.toLowerCase()===state.room);
+    if (state.track !== "all") events = events.filter(e => (e.trackId || "common")===state.track);
     events.sort((a,b) => a.date.localeCompare(b.date) || timeValue(a.start)-timeValue(b.start) || a.track-b.track);
 
     $("#programMeta").innerHTML = `<span>${q ? `${events.length} search results` : `${events.length} program items`}</span><span>${state.timeMode==="conference"?(CONFERENCE.timezoneLabel || "Conference time"):"Device time"}</span>`;
@@ -1490,7 +1551,7 @@
 
   function posterSessionMeta() {
     if (!POSTER_SESSION) return "Poster session";
-    const day = DATA.days.find(d=>d.date===POSTER_SESSION.date);
+    const day = DAYS.find(d=>d.date===POSTER_SESSION.date);
     const loc = locationRow(POSTER_SESSION.locationId);
     return `${day?.weekday || POSTER_SESSION.date} ${day?.dateLabel || ""} · ${POSTER_SESSION.start}–${POSTER_SESSION.end}${loc?` · ${loc.name}`:""}`;
   }
@@ -1517,7 +1578,7 @@
     });
 
     let html = [...byDay.entries()].map(([day,items]) => {
-      const meta = DATA.days.find(d=>d.day===day);
+      const meta = DAYS.find(d=>d.day===day);
       return `<section class="my-day">
         <div class="my-day-head">${esc(meta.weekday)} · ${esc(meta.dateLabel)}</div>
         <div class="timeline">
@@ -1570,9 +1631,9 @@
   }
 
   function renderPosters() {
-    if (!CONFERENCE.features?.posters || !DATA.posters.length) return;
+    if (!CONFERENCE.features?.posters || !POSTERS.length) return;
     const q = $("#posterSearch").value.trim().toLowerCase();
-    let posters = DATA.posters.filter(p => !q || posterSearchText(p).includes(q));
+    let posters = POSTERS.filter(p => !q || posterSearchText(p).includes(q));
     if (state.posterCategory !== "all") posters = posters.filter(p => p.category===state.posterCategory);
     $("#posterMeta").innerHTML = `<span>${posters.length} posters</span><span>${state.posterFavorites.length} starred</span>`;
     $("#posterList").innerHTML = posters.length ? posters.map(p=>posterCard(p)).join("") :
@@ -1635,6 +1696,7 @@
         ${e.chair?`<div class="detail-box"><span>Session chair</span><strong>${esc(e.chair)}</strong></div>`:""}
         ${e.sourcePage?`<div class="detail-box"><span>Programme</span><strong>PDF page ${e.sourcePage}</strong></div>`:""}
       </div>
+      ${CONFERENCE.features?.calendarExport && e.calendarUid?`<button id="modalCalendarBtn" class="secondary-btn calendar-inline-btn" type="button">Add to calendar</button>`:""}
       ${noteSectionHtml("event", e.id)}
       ${photoSectionHtml()}
       ${e.sourcePage && CONFERENCE.programmePdf?`<a class="pdf-link" href="${esc(CONFERENCE.programmePdf)}#page=${e.sourcePage}" target="_blank" rel="noopener">Open this page in the PDF ↗</a>`:""}`;
@@ -1676,6 +1738,7 @@
     if (name==="my") renderMySchedule();
     if (name==="gallery") renderGallery();
     if (name==="posters") renderPosters();
+    if (name==="friends") renderFriendBook();
     window.scrollTo({top:0,behavior:"smooth"});
   }
 
@@ -2095,33 +2158,156 @@
     }
   }
 
-  function exportState() {
-    const payload = {version:1, exportedAt:new Date().toISOString(), state:{
-      favorites:state.favorites, posterFavorites:state.posterFavorites,
-      theme:state.theme, compact:state.compact, timeMode:state.timeMode,
-      notes:state.notes || {}
-    }};
-    const blob = new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
-    const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
-    a.download=`${safeFilenamePart(CONFERENCE.id || "conference")}-backup.json`; a.click(); URL.revokeObjectURL(a.href);
+  function profileFromForm() {
+    return {
+      ...profile,
+      name:$("#profileName")?.value.trim() || "",
+      position:$("#profilePosition")?.value.trim() || "",
+      affiliation:$("#profileAffiliation")?.value.trim() || "",
+      affiliations:[$("#profileAffiliation")?.value.trim() || ""].filter(Boolean),
+      email:$("#profileEmail")?.value.trim() || "",
+      emails:[$("#profileEmail")?.value.trim() || ""].filter(Boolean),
+      orcid:$("#profileOrcid")?.value.trim() || "",
+      linkedin:$("#profileLinkedin")?.value.trim() || "",
+      website:$("#profileWebsite")?.value.trim() || "",
+      bio:$("#profileBio")?.value.trim() || "",
+      papers:$("#profilePapers")?.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean) || []
+    };
+  }
+
+  function renderProfilePhoto() {
+    if(profilePhotoUrl){URL.revokeObjectURL(profilePhotoUrl);profilePhotoUrl="";}
+    const img=$("#profilePhotoPreview"),clear=$("#clearProfilePhotoBtn");if(!img)return;
+    if(profile?.photoBlob instanceof Blob){profilePhotoUrl=URL.createObjectURL(profile.photoBlob);img.src=profilePhotoUrl;img.hidden=false;if(clear)clear.hidden=false;}
+    else{img.removeAttribute("src");img.hidden=true;if(clear)clear.hidden=true;}
+  }
+
+  function fillProfileForm() {
+    if (!$("#profileName")) return;
+    $("#profileName").value=profile.name||"";
+    $("#profilePosition").value=profile.position||"";
+    $("#profileAffiliation").value=profile.affiliation||(profile.affiliations||[])[0]||"";
+    $("#profileEmail").value=profile.email||(profile.emails||[])[0]||"";
+    $("#profileOrcid").value=profile.orcid||"";
+    $("#profileLinkedin").value=profile.linkedin||"";
+    $("#profileWebsite").value=profile.website||"";
+    $("#profileBio").value=profile.bio||"";
+    $("#profilePapers").value=(profile.papers||[]).map(x=>typeof x==="string"?x:(x.doi||x.title||"")).filter(Boolean).join("\n");
+    renderProfilePhoto();
+  }
+
+  async function saveProfile() {
+    profile=profileFromForm();
+    await USER_STORE?.saveProfile(profile);
+    renderFriendBook();
+    toast("Conference card saved");
+  }
+
+  function friendContactHtml(friend) {
+    const email=(friend.emails||[])[0]||friend.email||"";
+    const affiliation=(friend.affiliations||[])[0]||friend.affiliation||"";
+    const links=[friend.orcid?`<a href="https://orcid.org/${esc(String(friend.orcid).replace("https://orcid.org/","").replace("http://orcid.org/",""))}" target="_blank" rel="noopener">ORCID ↗</a>`:"",friend.linkedin?`<a href="${esc(friend.linkedin)}" target="_blank" rel="noopener">LinkedIn ↗</a>`:"",friend.website?`<a href="${esc(friend.website)}" target="_blank" rel="noopener">Website ↗</a>`:""] .filter(Boolean).join(" · ");
+    return `<div class="friend-card" data-friend-id="${esc(friend.id)}">
+      <div class="friend-card-head"><div><h3>${esc(friend.name||"Contact")}</h3><p>${esc([friend.position,affiliation].filter(Boolean).join(" · "))}</p>${email?`<p><a href="mailto:${esc(email)}">${esc(email)}</a></p>`:""}${links?`<p>${links}</p>`:""}</div><button class="friend-delete" data-friend-delete="${esc(friend.id)}" type="button" aria-label="Delete contact">×</button></div>
+      ${friend.bio?`<p>${esc(friend.bio)}</p>`:""}
+      <div class="friend-private"><label>Met at<input data-friend-met-at="${esc(friend.id)}" value="${esc(friend.metAt||CONFERENCE.shortName||CONFERENCE.name||"")}" placeholder="Poster session, conference dinner…"></label><label>Private notes<textarea rows="2" data-friend-note="${esc(friend.id)}">${esc(friend.privateNotes||"")}</textarea></label><label>Private tags<input data-friend-tags="${esc(friend.id)}" value="${esc((friend.tags||[]).join(", "))}" placeholder="met at dinner, memristors"></label></div>
+      <p>Saved locally · ${esc(friend.metAtConferenceId||CONFERENCE.id||"")}</p>
+    </div>`;
+  }
+
+  function renderFriendBook() {
+    if (!CONFERENCE.features?.friendBook) return;
+    const summary=$("#myCardSummary");
+    if(summary) summary.innerHTML=profile?.name?`<h3>${esc(profile.name)}</h3><p>${esc([profile.position,profile.affiliation||(profile.affiliations||[])[0]].filter(Boolean).join(" · "))}</p><p>${esc(profile.email||(profile.emails||[])[0]||"")}</p>`:`<h3>Create your conference card</h3><p>Add your details in Settings, then share a compact vCard by QR.</p>`;
+    const list=$("#friendList");if(list) list.innerHTML=friends.length?friends.map(friendContactHtml).join(""):`<div class="empty-state"><strong>No contacts saved yet</strong>Scan a conference card QR or import a .vcf file.</div>`;
+    if($("#friendCount")) $("#friendCount").textContent=String(friends.length);
+  }
+
+  async function saveFriendPrivate(id, field, value) {
+    const idx=friends.findIndex(x=>x.id===id);if(idx<0)return;
+    const friend={...friends[idx]};
+    if(field==="privateNotes")friend.privateNotes=value;
+    if(field==="tags")friend.tags=String(value||"").split(",").map(x=>x.trim()).filter(Boolean);
+    if(field==="metAt")friend.metAt=String(value||"").trim();
+    friends[idx]=await USER_STORE.saveFriend(friend);
+  }
+
+  async function addFriendFromVCard(text) {
+    try {
+      const parsed=SERVICES.vcard.parseVCard(text);
+      const signature=[parsed.name,(parsed.emails||[])[0]||"",(parsed.affiliations||[])[0]||""].join("|").toLowerCase();
+      const existing=friends.find(x=>[x.name,(x.emails||[])[0]||x.email||"",(x.affiliations||[])[0]||x.affiliation||""].join("|").toLowerCase()===signature);
+      const saved=await USER_STORE.saveFriend({...existing,...parsed,id:existing?.id||crypto.randomUUID(),metAtConferenceId:CONFERENCE.id,metAt:existing?.metAt||CONFERENCE.shortName||CONFERENCE.name||"",savedAt:existing?.savedAt||Date.now(),privateNotes:existing?.privateNotes||"",tags:existing?.tags||[]});
+      friends=existing?friends.map(x=>x.id===saved.id?saved:x):[...friends,saved];
+      renderFriendBook();toast(existing?"Contact updated":"Contact saved to Friend Book");
+    } catch(err){console.error(err);toast("Could not read that vCard");}
+  }
+
+  async function scanFriendQr(file) {
+    if(!file)return;
+    if(!('BarcodeDetector' in window)){toast("QR scanning is not supported by this browser; import a .vcf instead");return;}
+    try{
+      const detector=new BarcodeDetector({formats:['qr_code']});const bitmap=await createImageBitmap(file);const found=await detector.detect(bitmap);bitmap.close?.();
+      const raw=found[0]?.rawValue;if(!raw)throw new Error("No QR code found");await addFriendFromVCard(raw);
+    }catch(err){console.error(err);toast("No readable conference-card QR found");}
+  }
+
+  function downloadMyVcard() {
+    if(!profile?.name)return toast("Create your conference card first");
+    SERVICES.vcard.downloadVCard(profile,`${safeFilenamePart(profile.name)}-${safeFilenamePart(CONFERENCE.id||"conference")}.vcf`);
+  }
+
+  function calendarLocationLabel(locationId) {
+    const resolved=resolvedVenue(locationId);if(!resolved)return locationLabel(locationId);
+    return resolved.room?.name?`${resolved.room.name}, ${resolved.venue.name}`:resolved.venue.name;
+  }
+
+  function downloadCalendar(items, filename) {
+    if(!items.length)return toast("No calendar items to export");
+    SERVICES.calendar.downloadICS(filename,{conference:CONFERENCE,manifest:CONFIG.manifest,items,locationLabel:calendarLocationLabel});
+    toast("Calendar exported");
+  }
+
+  function exportStarredCalendar() {
+    const items=state.favorites.map(id=>byId.get(id)).filter(Boolean);
+    if(state.posterFavorites.length&&POSTER_SESSION){const posterItem=byId.get(POSTER_SESSION.id);if(posterItem&&!items.some(x=>x.id===posterItem.id))items.push(posterItem);}
+    downloadCalendar(items,`${safeFilenamePart(CONFERENCE.id||"conference")}-starred.ics`);
+  }
+
+  function exportFullCalendar() {
+    downloadCalendar(MODEL.calendarItems(),`${safeFilenamePart(CONFERENCE.id||"conference")}-programme.ics`);
+  }
+
+  function exportSingleCalendar(id) {
+    const item=byId.get(id);if(!item)return;
+    downloadCalendar([item],`${safeFilenamePart(CONFERENCE.id||"conference")}-${safeFilenamePart(item.title)}.ics`);
+  }
+
+  async function exportState() {
+    const btn=$("#exportBtn"),old=btn?.textContent;if(btn){btn.disabled=true;btn.textContent="Building…";}
+    try{
+      const photos=await getAllPhotos();
+      const blob=await SERVICES.backup.createPersonalBackup({conferenceId:CONFERENCE.id,state:{...state},profile,friends,photos});
+      const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`${safeFilenamePart(CONFERENCE.id||"conference")}-personal-backup-${new Date().toISOString().slice(0,10)}.zip`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);toast("Backup exported");
+    }catch(err){console.error(err);toast("Could not create backup");}finally{if(btn){btn.disabled=false;btn.textContent=old||"Export backup ZIP";}}
   }
 
   async function importState(file) {
     try {
-      const payload=JSON.parse(await file.text());
+      const {payload,photoFiles}=await SERVICES.backup.parsePersonalBackup(file);
+      if(payload.conferenceId&&payload.conferenceId!==CONFERENCE.id&&!confirm(`This backup belongs to ${payload.conferenceId}. Import compatible personal data into ${CONFERENCE.id} anyway?`))return;
       const incoming=payload.state||payload;
       state={...state,...incoming};
       state.favorites=(state.favorites||[]).filter(id=>byId.has(id));
       state.posterFavorites=(state.posterFavorites||[]).filter(id=>posterById.has(id));
-      if (!state.notes || typeof state.notes !== "object" || Array.isArray(state.notes)) state.notes = {};
-      state.notes = Object.fromEntries(Object.entries(state.notes).filter(([key,value]) => {
-        const [type,id] = String(key).split(":");
-        return typeof value === "string" &&
-          ((type === "event" && byId.has(id)) || (type === "poster" && posterById.has(id)));
-      }));
-      saveState(); applyTheme(); syncSettings(); renderProgram(); renderPosters(); renderMySchedule();
-      toast("Backup imported");
-    } catch { toast("Could not import that file"); }
+      if(!state.notes||typeof state.notes!=="object"||Array.isArray(state.notes))state.notes={};
+      state.notes=Object.fromEntries(Object.entries(state.notes).filter(([key,value])=>{const idx=String(key).indexOf(":");const type=idx>=0?key.slice(0,idx):"event",id=idx>=0?key.slice(idx+1):key;return typeof value==="string"&&((type==="event"&&byId.has(id))||(type==="poster"&&posterById.has(id)));}));
+      profile=payload.profile||profile||{};friends=Array.isArray(payload.friends)?payload.friends:friends;
+      await USER_STORE?.saveState({favorites:state.favorites,posterFavorites:state.posterFavorites,notes:state.notes});
+      await USER_STORE?.saveProfile(profile);if(Array.isArray(payload.friends))await USER_STORE?.replaceFriends(friends);
+      if(Array.isArray(payload.photos)&&photoFiles.size)await replaceAllPhotos(payload.photos,photoFiles);
+      saveState();fillProfileForm();renderFriendBook();applyTheme();syncSettings();renderProgram();renderPosters();renderMySchedule();renderGalleryNotes();await renderGallery();toast("Backup imported");
+    } catch(err){console.error(err);toast("Could not import that backup");}
   }
 
   function isStandalone() {
@@ -2171,17 +2357,26 @@
   }
 
   function setupConferenceUi() {
-    const roomIds=[...new Set(DATA.schedule.map(e=>e.room).filter(Boolean))];
+    const roomIds=[...new Set(ITEMS.map(e=>e.room).filter(Boolean))];
     const roomFilters=$("#roomFilters");
-    if (roomFilters) roomFilters.innerHTML = `<button class="chip active" data-room="all">All rooms</button>` + roomIds.map(id=>`<button class="chip" data-room="${esc(id)}">${esc(locationLabel(id))}</button>`).join("");
+    if (roomFilters) roomFilters.innerHTML = `<button class="chip active" data-room="all">All locations</button>` + roomIds.map(id=>`<button class="chip" data-room="${esc(id)}">${esc(locationLabel(id))}</button>`).join("");
 
-    const categories=[...new Set(DATA.posters.map(p=>p.category).filter(Boolean))];
+    const trackIds=[...new Set(ITEMS.map(e=>e.trackId).filter(Boolean))];
+    const trackFilters=$("#trackFilters");
+    if (trackFilters) trackFilters.innerHTML = trackIds.length>1 ? `<button class="chip active" data-track="all">All tracks</button>` + trackIds.map(id=>`<button class="chip" data-track="${esc(id)}">${esc(MODEL.trackById.get(id)?.name || id)}</button>`).join("") : "";
+
+    const categories=[...new Set(POSTERS.map(p=>p.category).filter(Boolean))];
     const posterFilters=$("#posterFilters");
     if (posterFilters) posterFilters.innerHTML = `<button class="chip active" data-category="all">All</button>` + categories.map(c=>`<button class="chip" data-category="${esc(c)}">${esc(c)}</button>`).join("");
 
-    const postersEnabled=!!CONFERENCE.features?.posters && DATA.posters.length>0;
+    const postersEnabled=!!CONFERENCE.features?.posters && POSTERS.length>0;
     $("#postersView")?.toggleAttribute("hidden",!postersEnabled);
     $("#postersNavBtn")?.toggleAttribute("hidden",!postersEnabled);
+    const friendsEnabled=!!CONFERENCE.features?.friendBook;
+    $("#friendView")?.toggleAttribute("hidden",!friendsEnabled);
+    $("#friendsNavBtn")?.toggleAttribute("hidden",!friendsEnabled);
+    $("#profileSection")?.toggleAttribute("hidden",!friendsEnabled);
+    $("#calendarSection")?.toggleAttribute("hidden",!CONFERENCE.features?.calendarExport);
 
     const timeHelp=$("#conferenceTimeHelp"); if(timeHelp) timeHelp.textContent=`Programme times use ${CONFERENCE.timezoneLabel || CONFERENCE.timezone || "the conference timezone"}.`;
     const timeOption=$("#timeModeSelect option[value=conference]"); if(timeOption) timeOption.textContent=CONFERENCE.city || "Conference";
@@ -2195,7 +2390,23 @@
     const info=$("#officialConferenceInfo");
     if(info){
       const links=(CONFERENCE.links||[]).map(l=>`<a class="source-card" href="${esc(l.url)}" target="_blank" rel="noopener"><div><strong>${esc(l.label)}</strong><p>${esc(l.description||"")}</p></div><span>↗</span></a>`).join("");
-      info.innerHTML=`<div class="official-info-card"><strong>${esc(CONFERENCE.fullName || CONFERENCE.name || "Conference")}</strong><p>${esc(CONFERENCE.startDate||"")}–${esc(CONFERENCE.endDate||"")}${CONFERENCE.city?` · ${esc(CONFERENCE.city)}`:""}</p>${CONFERENCE.contactEmail?`<a href="mailto:${esc(CONFERENCE.contactEmail)}">${esc(CONFERENCE.contactEmail)}</a>`:""}</div>${links?`<div class="location-list source-links">${links}</div>`:""}`;
+      const sponsors=(BRANDING.sponsorAssets||[]).map(src=>`<img src="${esc(packageAssetUrl(src))}" alt="Sponsor or partner logo" loading="lazy">`).join("");
+      info.innerHTML=`<div class="official-info-card"><strong>${esc(CONFERENCE.fullName || CONFERENCE.name || "Conference")}</strong><p>${esc(CONFERENCE.startDate||"")}–${esc(CONFERENCE.endDate||"")}${CONFERENCE.city?` · ${esc(CONFERENCE.city)}`:""}</p>${CONFERENCE.contactEmail?`<a href="mailto:${esc(CONFERENCE.contactEmail)}">${esc(CONFERENCE.contactEmail)}</a>`:""}</div>${links?`<div class="location-list source-links">${links}</div>`:""}${sponsors?`<div class="sponsor-grid">${sponsors}</div>`:""}`;
+    }
+  }
+
+  async function setupDataReleaseUi() {
+    const manifest=CONFIG.manifest||{};
+    const status=$("#dataReleaseStatus"),changes=$("#dataReleaseChanges"),rollback=$("#rollbackDataBtn");
+    const published=manifest.publishedAt?new Date(manifest.publishedAt):null;
+    const publishedText=published&&!Number.isNaN(published.getTime())?published.toLocaleString(undefined,{dateStyle:"medium",timeStyle:"short"}):String(manifest.publishedAt||"");
+    if(status) status.textContent=`Data v${manifest.dataVersion ?? "?"} · schema ${manifest.schemaVersion ?? "?"}${publishedText?` · published ${publishedText}`:""} · ${CONFIG.packageSource||"validated package"}`;
+    const releaseChanges=(LOAD_INFO.changes?.length?LOAD_INFO.changes:(manifest.changelog||[]).slice(-3)).slice(-5).reverse();
+    const warnings=CONFIG.packageWarnings||[];
+    if(changes) changes.innerHTML=[...releaseChanges.map(c=>`<div class="data-release-change"><strong>v${esc(c.version ?? "?")}</strong>${esc(c.message||"Conference data release")}</div>`),...warnings.map(w=>`<div class="data-release-change"><strong>Notice</strong>${esc(w)}</div>`)].join("");
+    if(rollback){
+      try{const diag=await SERVICES.getPackageDiagnostics?.();rollback.hidden=!(diag?.records?.length>1);}
+      catch{rollback.hidden=true;}
     }
   }
 
@@ -2204,6 +2415,7 @@
     $("#timeModeSelect").value=state.timeMode;
     $("#compactToggle").setAttribute("aria-checked",state.compact?"true":"false");
     $$("#roomFilters .chip").forEach(x=>x.classList.toggle("active",x.dataset.room===state.room));
+    $$("#trackFilters .chip").forEach(x=>x.classList.toggle("active",x.dataset.track===state.track));
     $$("#posterFilters .chip").forEach(x=>x.classList.toggle("active",x.dataset.category===state.posterCategory));
   }
 
@@ -2213,6 +2425,9 @@
 
     $$("#roomFilters .chip").forEach(btn => btn.addEventListener("click",()=>{
       state.room=btn.dataset.room; saveState(); syncSettings(); renderProgram();
+    }));
+    $$("#trackFilters .chip").forEach(btn => btn.addEventListener("click",()=>{
+      state.track=btn.dataset.track; saveState(); syncSettings(); renderProgram();
     }));
     $$("#posterFilters .chip").forEach(btn => btn.addEventListener("click",()=>{
       state.posterCategory=btn.dataset.category; saveState(); syncSettings(); renderPosters();
@@ -2324,9 +2539,32 @@
     $("#importBtn").addEventListener("click",()=>$("#importInput").click());
     $("#importInput").addEventListener("change",e=>{if(e.target.files[0])importState(e.target.files[0]);e.target.value="";});
     $("#installBtn").addEventListener("click", installApp);
+    $("#exportStarredIcsBtn")?.addEventListener("click",exportStarredCalendar);
+    $("#exportFullIcsBtn")?.addEventListener("click",exportFullCalendar);
+    $("#rollbackDataBtn")?.addEventListener("click",async()=>{
+      if(!SERVICES.rollbackConferencePackage)return;
+      if(!confirm("Switch to the previous locally validated conference-data release? You can return to the newest published release on the next successful online launch."))return;
+      try{await SERVICES.rollbackConferencePackage();location.reload();}catch(err){console.error(err);toast(err?.message||"No previous release is available");}
+    });
 
-    $("#shareQrBtn").addEventListener("click", openShareQr);
-    $("#shareQrFullBtn").addEventListener("click", openShareQr);
+    $("#saveProfileBtn")?.addEventListener("click",saveProfile);
+    $("#profilePhotoInput")?.addEventListener("change",async e=>{const file=e.target.files?.[0];if(!file)return;profile={...profile,photoBlob:await prepareImageBlob(file)};await USER_STORE?.saveProfile(profile);renderProfilePhoto();toast("Profile photo saved locally");e.target.value="";});
+    $("#clearProfilePhotoBtn")?.addEventListener("click",async()=>{if(profile?.photoBlob)delete profile.photoBlob;await USER_STORE?.saveProfile(profile);renderProfilePhoto();toast("Profile photo removed");});
+    $("#shareQrBtn")?.addEventListener("click", openShareQr);
+    $("#shareQrFullBtn")?.addEventListener("click",()=>showView("friends"));
+    $("#friendShareBtn")?.addEventListener("click",openShareQr);
+    $("#downloadVcardBtn")?.addEventListener("click",downloadMyVcard);
+    $("#scanFriendBtn")?.addEventListener("click",()=>$("#friendScanInput")?.click());
+    $("#importVcardBtn")?.addEventListener("click",()=>$("#friendVcardInput")?.click());
+    $("#friendScanInput")?.addEventListener("change",async e=>{if(e.target.files[0])await scanFriendQr(e.target.files[0]);e.target.value="";});
+    $("#friendVcardInput")?.addEventListener("change",async e=>{const f=e.target.files[0];if(f)await addFriendFromVCard(await f.text());e.target.value="";});
+    $("#friendList")?.addEventListener("input",e=>{
+      const metAt=e.target.closest("[data-friend-met-at]");if(metAt){clearTimeout(metAt._saveTimer);metAt._saveTimer=setTimeout(()=>saveFriendPrivate(metAt.dataset.friendMetAt,"metAt",metAt.value),250);return;}
+      const note=e.target.closest("[data-friend-note]");if(note){clearTimeout(note._saveTimer);note._saveTimer=setTimeout(()=>saveFriendPrivate(note.dataset.friendNote,"privateNotes",note.value),250);return;}
+      const tags=e.target.closest("[data-friend-tags]");if(tags){clearTimeout(tags._saveTimer);tags._saveTimer=setTimeout(()=>saveFriendPrivate(tags.dataset.friendTags,"tags",tags.value),250);}
+    });
+    $("#friendList")?.addEventListener("click",async e=>{const del=e.target.closest("[data-friend-delete]");if(!del)return;if(confirm("Delete this Friend Book contact?")){await USER_STORE.deleteFriend(del.dataset.friendDelete);friends=friends.filter(x=>x.id!==del.dataset.friendDelete);renderFriendBook();toast("Contact deleted");}});
+
     $("#shareQrClose").addEventListener("click", closeShareQr);
     $("#shareQrViewer").addEventListener("click", e => {
       if (e.target === $("#shareQrViewer")) closeShareQr();
@@ -2363,6 +2601,11 @@
     });
 
     $("#modalContent").addEventListener("click", async e => {
+      const calendarBtn = e.target.closest("#modalCalendarBtn");
+      if (calendarBtn && currentModal?.type === "event") {
+        exportSingleCalendar(currentModal.id);
+        return;
+      }
       const takeBtn = e.target.closest("#modalTakePhoto");
       if (takeBtn) {
         $("#cameraInput").click();
@@ -2559,21 +2802,43 @@
     matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change",()=>{if(state.theme==="system")applyTheme();});
   }
 
-  function init() {
+  function showEngineUpdateNotice() {
+    if (document.querySelector(".update-banner")) return;
+    const banner=document.createElement("div");banner.className="update-banner";banner.textContent="App update ready — it will apply on the next clean launch.";document.body.appendChild(banner);
+    setTimeout(()=>banner.remove(),8000);
+  }
+
+  async function registerServiceWorker() {
+    if (!("serviceWorker" in navigator)) return;
+    try {
+      const reg=await navigator.serviceWorker.register("./service-worker.js", {scope:"./",updateViaCache:"none"});
+      if (reg.waiting) showEngineUpdateNotice();
+      reg.addEventListener("updatefound",()=>{const worker=reg.installing;if(!worker)return;worker.addEventListener("statechange",()=>{if(worker.state==="installed"&&navigator.serviceWorker.controller)showEngineUpdateNotice();});});
+    } catch (err) { console.warn("Service worker registration failed",err); }
+  }
+
+  async function init() {
+    profile=await USER_STORE?.getProfile().catch(()=>({})) || {};
+    friends=await USER_STORE?.listFriends().catch(()=>([])) || [];
     state.day = state.day || detectConferenceDay();
     setupConferenceUi();
+    await setupDataReleaseUi();
+    if(LOAD_INFO.updated){const latest=(LOAD_INFO.changes||[]).at(-1);toast(`Programme updated to data v${CONFIG.manifest?.dataVersion}${latest?.message?` · ${latest.message}`:""}`);}
+    fillProfileForm();
+    renderFriendBook();
     applyTheme();
     renderDays();
     syncSettings();
     wire();
     renderProgram();
+    renderAnnouncements();
     renderPosters();
     renderMySchedule();
     renderGalleryNotes();
-    renderGallery();
+    await renderGallery();
     showView(state.view || "program");
     updateInstallUI();
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register("./service-worker.js", { scope: "./", updateViaCache: "none" }).catch(()=>{});
+    registerServiceWorker();
   }
 
   window.addEventListener("beforeinstallprompt", event => {

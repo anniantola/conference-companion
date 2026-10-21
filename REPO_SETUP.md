@@ -1,21 +1,17 @@
-# Fresh GitHub repository setup
+# Repository setup
 
-Create a completely new, empty GitHub repository for this project.
+This repository is a standalone Conference Companion development repository.
 
-Recommended name:
+## GitHub Pages
 
-```text
-conference-companion
-```
+1. Push the repository contents to `main`.
+2. Open **Settings → Pages**.
+3. Select **GitHub Actions** as the Pages source.
+4. The workflow runs `npm test` before deployment.
+5. When the workflow is green, the attendee app is served from the repository Pages URL and the Builder is available at `/builder.html`.
 
-Then:
+## Creating a conference deployment
 
-1. Extract the repository ZIP.
-2. Upload or push the extracted contents to the repository root.
-3. Commit to `main`.
-4. Open **Settings → Pages**.
-5. Set the Pages source to **GitHub Actions**.
-6. Let `.github/workflows/deploy.yml` publish the site.
+Use the Conference Builder and choose **Download repository-ready deployment ZIP**. The generated ZIP contains the stable attendee engine, a validated conference package, PWA identity assets, JSON Schema/semantic validators and a GitHub Pages workflow.
 
-The repository is standalone and contains its own app engine, conference package,
-validation tooling, PWA manifest, service worker, icons and deployment workflow.
+Upload the generated ZIP contents to a conference-specific repository root and enable GitHub Pages through GitHub Actions.
