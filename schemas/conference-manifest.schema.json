@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://conference-companion.local/schema/conference-manifest.json",
+  "title": "Conference Companion release manifest",
+  "type": "object",
+  "required": ["schemaVersion", "dataVersion", "minimumEngineVersion", "publishedAt", "files", "checksums", "changelog"],
+  "properties": {
+    "schemaVersion": {"type": "integer", "minimum": 1},
+    "dataVersion": {"type": "integer", "minimum": 1},
+    "minimumEngineVersion": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "publishedAt": {"type": "string"},
+    "files": {"type": "array", "minItems": 5, "items": {"type": "string"}},
+    "checksums": {"type": "object"},
+    "changelog": {"type": "array", "items": {"type": "object", "required": ["version", "publishedAt", "message"], "properties": {"version": {"type": "integer", "minimum": 1}, "publishedAt": {"type": "string"}, "message": {"type": "string"}}}}
+  }
+}

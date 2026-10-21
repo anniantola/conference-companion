@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://conference-companion.local/schema/programme.json",
+  "title": "Conference programme",
+  "type": "object",
+  "required": ["tracks", "sessions", "presentations", "posters", "announcements"],
+  "properties": {
+    "tracks": {"type": "array", "items": {"type": "object", "required": ["id", "name"], "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "order": {"type": "integer"}}}},
+    "sessions": {"type": "array", "items": {"type": "object", "required": ["id", "type", "title", "date", "start", "end", "trackId", "chairIds", "presentationIds"], "properties": {"id": {"type": "string"}, "type": {"type": "string"}, "title": {"type": "string"}, "date": {"type": "string"}, "start": {"type": "string"}, "end": {"type": "string"}, "locationId": {"type": "string"}, "trackId": {"type": "string"}, "chairIds": {"type": "array", "items": {"type": "string"}}, "presentationIds": {"type": "array", "items": {"type": "string"}}, "calendarUid": {"type": "string"}, "sequence": {"type": "integer"}}}},
+    "presentations": {"type": "array", "items": {"type": "object", "required": ["id", "sessionId", "type", "start", "end", "title", "speakerIds", "calendarUid"], "properties": {"id": {"type": "string"}, "sessionId": {"type": "string"}, "type": {"type": "string"}, "start": {"type": "string"}, "end": {"type": "string"}, "title": {"type": "string"}, "speakerIds": {"type": "array", "items": {"type": "string"}}, "abstract": {"type": "string"}, "keywords": {"type": "array"}, "links": {"type": "array"}, "calendarUid": {"type": "string"}, "sequence": {"type": "integer"}}}},
+    "posters": {"type": "array", "items": {"type": "object", "required": ["id", "title", "authorIds"], "properties": {"id": {"type": "string"}, "posterSessionId": {"type": "string"}, "number": {"type": "string"}, "title": {"type": "string"}, "authorIds": {"type": "array", "items": {"type": "string"}}, "abstract": {"type": "string"}, "calendarUid": {"type": "string"}, "sequence": {"type": "integer"}}}},
+    "announcements": {"type": "array", "items": {"type": "object", "required": ["id", "timestamp", "message"], "properties": {"id": {"type": "string"}, "timestamp": {"type": "string"}, "message": {"type": "string"}, "affectedIds": {"type": "array", "items": {"type": "string"}}}}}
+  }
+}

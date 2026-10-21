@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://conference-companion.local/schema/locations.json",
+  "title": "Conference locations",
+  "type": "object",
+  "required": ["locations"],
+  "properties": {"locations": {"type": "array", "items": {"type": "object", "required": ["id", "type", "name"], "properties": {"id": {"type": "string"}, "type": {"type": "string"}, "name": {"type": "string"}, "parentLocationId": {"type": "string"}, "address": {"type": "string"}, "mapUrl": {"type": "string"}, "lat": {"type": "number"}, "lon": {"type": "number"}, "description": {"type": "string"}}}}}
+}

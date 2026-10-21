@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://conference-companion.local/schema/branding.json",
+  "title": "Conference branding",
+  "type": "object",
+  "required": ["primary", "secondary", "accent", "trackColors", "locationColors"],
+  "properties": {"logo": {"type": ["string", "null"]}, "headerStyle": {"type": "string"}, "typography": {"type": "string"}, "primary": {"type": "string"}, "secondary": {"type": "string"}, "accent": {"type": "string"}, "darkMode": {"type": "boolean"}, "trackColors": {"type": "object"}, "locationColors": {"type": "object"}, "sponsorAssets": {"type": "array", "items": {"type": "string"}}}
+}

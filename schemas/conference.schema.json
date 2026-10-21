@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://conference-companion.local/schema/conference.json",
+  "title": "Conference metadata",
+  "type": "object",
+  "required": ["id", "name", "startDate", "endDate", "timezone", "features"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9._:-]+$"},
+    "name": {"type": "string"},
+    "shortName": {"type": "string"},
+    "fullName": {"type": "string"},
+    "startDate": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "endDate": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "timezone": {"type": "string"},
+    "timezoneLabel": {"type": "string"},
+    "locale": {"type": "string"},
+    "language": {"type": "string"},
+    "city": {"type": "string"},
+    "country": {"type": "string"},
+    "officialWebsite": {"type": "string"},
+    "contactEmail": {"type": "string"},
+    "mainVenueId": {"type": "string"},
+    "features": {"type": "object"},
+    "links": {"type": "array"}
+  }
+}
