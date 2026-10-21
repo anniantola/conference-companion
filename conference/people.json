@@ -1,0 +1,25 @@
+{
+  "people": [
+    {
+      "id": "tp-1",
+      "name": "Ada Example",
+      "affiliations": [
+        "Example University"
+      ]
+    },
+    {
+      "id": "tp-2",
+      "name": "Lin Test",
+      "affiliations": [
+        "Research Institute"
+      ]
+    },
+    {
+      "id": "tp-3",
+      "name": "Sam Demo",
+      "affiliations": [
+        "Demo Lab"
+      ]
+    }
+  ]
+}
