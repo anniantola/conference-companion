@@ -19,8 +19,9 @@
     "photos": true,
     "notes": true,
     "pptxExport": true,
-    "friendBook": false,
-    "calendarExport": false
+    "friendBook": true,
+    "calendarExport": true,
+    "announcements": true
   },
   "links": []
 }
