@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Conference Companion">
+  <meta name="description" content="Offline-first conference companion.">
+  <title>Conference Companion</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icon-192.png">
+  <link rel="apple-touch-icon" href="./icon-180.png">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand-lockup" href="#" target="_blank" rel="noopener" aria-label="Open official conference website">
+        <span class="brand-logo-wrap">
+          <img class="conference-logo" alt="Conference logo" hidden>
+          <span class="conference-logo-fallback">Conference</span>
+        </span>
+        <span class="brand-subtitle">Loading conference…</span>
+      </a>
+      <button id="nowBtn" class="icon-btn" type="button" aria-label="Jump to what is happening now">Now</button>
+    </header>
+
+    <main id="main" class="main">
+      <section id="programView" class="view active" data-view="program">
+        <div class="day-tabs" id="dayTabs" aria-label="Conference days"></div>
+
+        <div class="hero-card" id="statusCard"></div>
+
+        <div class="toolbar-card">
+          <label class="search-wrap">
+            <span class="search-icon">⌕</span>
+            <input id="programSearch" type="search" placeholder="Search talks, speakers, sessions…" autocomplete="off">
+          </label>
+          <div class="chip-row" id="roomFilters"></div>
+        </div>
+
+        <div id="programMeta" class="section-meta"></div>
+        <div id="programList" class="timeline"></div>
+      </section>
+
+      <section id="myView" class="view" data-view="my">
+        <div class="view-heading">
+          <div>
+            <div class="eyebrow">PERSONAL AGENDA</div>
+            <h2>My schedule</h2>
+          </div>
+          <span id="favoriteCount" class="count-badge">0</span>
+        </div>
+        <div id="mySchedule"></div>
+      </section>
+
+      <section id="galleryView" class="view" data-view="gallery">
+        <div class="view-heading">
+          <div>
+            <div class="eyebrow">CONFERENCE ARCHIVE</div>
+            <h2>Gallery</h2>
+          </div>
+          <span id="galleryCount" class="count-badge">0</span>
+        </div>
+
+        <div class="gallery-tabs" role="tablist" aria-label="Gallery sections">
+          <button class="gallery-tab active" type="button" data-gallery-panel="photos" role="tab" aria-selected="true">Photos</button>
+          <button class="gallery-tab" type="button" data-gallery-panel="notes" role="tab" aria-selected="false">Notes <span id="galleryNotesCount" class="gallery-tab-count">0</span></button>
+        </div>
+
+        <div id="galleryPhotosPanel" class="gallery-panel">
+          <label class="search-wrap gallery-photo-search">
+            <span class="search-icon">⌕</span>
+            <input id="galleryPhotoSearch" type="search" placeholder="Search photo titles and notes…" autocomplete="off">
+          </label>
+
+          <div class="gallery-import-card">
+            <div>
+              <strong>Import photos by time</strong>
+              <p>Select conference photos from your phone. Capture times are compared with the programme, with starred sessions suggested first.</p>
+            </div>
+            <button id="smartPhotoImportBtn" class="primary-btn" type="button">Import photos</button>
+          </div>
+
+          <div id="galleryMeta" class="section-meta">
+            <span>Stored locally on this device</span>
+          </div>
+          <div id="galleryContent" class="gallery-content">
+            <div class="photo-loading">Loading gallery…</div>
+          </div>
+        </div>
+
+        <div id="galleryNotesPanel" class="gallery-panel" hidden>
+          <label class="search-wrap gallery-note-search">
+            <span class="search-icon">⌕</span>
+            <input id="galleryNoteSearch" type="search" placeholder="Search all notes, titles, speakers…" autocomplete="off">
+          </label>
+          <div id="galleryNotesMeta" class="section-meta">
+            <span>All presentation notes</span>
+          </div>
+          <div id="galleryNotesContent" class="gallery-notes-content"></div>
+        </div>
+      </section>
+
+      <section id="postersView" class="view" data-view="posters">
+        <div class="view-heading">
+          <div>
+            <div class="eyebrow" id="posterHeadingEyebrow">POSTERS</div>
+            <h2>Poster session</h2>
+          </div>
+          <span class="small-muted" id="posterHeadingVenue"></span>
+        </div>
+
+        <div class="toolbar-card">
+          <label class="search-wrap">
+            <span class="search-icon">⌕</span>
+            <input id="posterSearch" type="search" placeholder="Search poster, abstract, author…" autocomplete="off">
+          </label>
+          <div class="chip-row" id="posterFilters"></div>
+        </div>
+
+        <div id="posterMeta" class="section-meta"></div>
+        <div id="posterList" class="poster-list"></div>
+      </section>
+
+      <section id="settingsView" class="view" data-view="settings">
+        <div class="view-heading">
+          <div>
+            <div class="eyebrow">PREFERENCES</div>
+            <h2>Settings</h2>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Appearance</h3>
+          <div class="setting-card">
+            <div>
+              <strong>Theme</strong>
+              <p>Dark mode uses a true black background.</p>
+            </div>
+            <select id="themeSelect" aria-label="Theme">
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </div>
+          <div class="setting-card">
+            <div>
+              <strong>Compact schedule</strong>
+              <p>Reduce card spacing so more of the program fits on screen.</p>
+            </div>
+            <button id="compactToggle" class="toggle" type="button" role="switch" aria-checked="false"><span></span></button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Time</h3>
+          <div class="setting-card">
+            <div>
+              <strong>Display times</strong>
+              <p id="conferenceTimeHelp">Programme times use the conference timezone.</p>
+            </div>
+            <select id="timeModeSelect" aria-label="Time display">
+              <option value="conference">Conference time</option>
+              <option value="device">My device</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settings-section" id="profileSection" hidden>
+          <h3>My profile</h3>
+          <div class="profile-share-card">
+            <div class="profile-info"><strong class="profile-name">Profile sharing will be configured through Friend Book.</strong></div>
+            <div class="profile-qr">
+              <button id="shareQrBtn" class="qr-preview-btn" type="button" hidden></button>
+              <button id="shareQrFullBtn" class="secondary-btn qr-full-btn" type="button" hidden></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Data</h3>
+          <div class="setting-card column">
+            <div>
+              <strong>Backup</strong>
+              <p>Export a JSON backup for app data, or download notes and presentation photos as a PowerPoint slideshow.</p>
+            </div>
+            <div class="button-row">
+              <button id="exportBtn" class="secondary-btn" type="button">Export JSON</button>
+              <button id="importBtn" class="secondary-btn" type="button">Import JSON</button>
+              <button id="exportPptxBtn" class="secondary-btn" type="button">Export PPTX</button>
+              <input id="importInput" type="file" accept="application/json" hidden>
+            </div>
+          </div>
+          <div class="setting-card">
+            <div>
+              <strong>Clear favorites</strong>
+              <p>Remove all starred talks and posters from this device.</p>
+            </div>
+            <button id="clearBtn" class="danger-btn" type="button">Clear</button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3>App</h3>
+          <div class="build-version">Loading data…</div>
+          <div class="setting-card">
+            <div>
+              <strong id="installTitle">Install conference app</strong>
+              <p id="installHelp">Install this planner on your home screen for app-like access.</p>
+            </div>
+            <button id="installBtn" class="secondary-btn" type="button">Install</button>
+          </div>
+        </div>
+
+        <div class="settings-section" id="locationsSection">
+          <h3>Conference locations</h3>
+          <div class="location-list" id="conferenceLocations"></div>
+        </div>
+
+        <div class="settings-section" id="officialInfoSection">
+          <h3>Official conference info</h3>
+          <div id="officialConferenceInfo"></div>
+        </div>
+
+        <p class="footer-note">Everything in the planner is stored locally in your browser. No account or backend is required.</p>
+      </section>
+    </main>
+
+    <nav class="bottom-nav" aria-label="Main navigation">
+      <button class="nav-btn active" data-target="program"><span class="nav-icon">▦</span><span>Programme</span></button>
+      <button class="nav-btn" data-target="my"><span class="nav-icon">★</span><span>My schedule</span></button>
+      <button class="nav-btn" data-target="gallery"><span class="nav-icon">▧</span><span>Gallery</span></button>
+      <button class="nav-btn" id="postersNavBtn" data-target="posters"><span class="nav-icon">▤</span><span>Posters</span></button>
+      <button class="nav-btn" data-target="settings"><span class="nav-icon">⚙</span><span>Settings</span></button>
+    </nav>
+  </div>
+
+  <dialog id="detailModal" class="detail-modal">
+    <div class="modal-sheet">
+      <div class="modal-top">
+        <button id="modalClose" class="icon-btn ghost" type="button" aria-label="Close">×</button>
+        <button id="modalStar" class="star-btn large" type="button" aria-label="Toggle favorite">☆</button>
+      </div>
+      <div id="modalContent"></div>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <input id="cameraInput" type="file" accept="image/*" capture="environment" hidden>
+  <input id="photoInput" type="file" accept="image/*" multiple hidden>
+  <input id="smartPhotoInput" type="file" accept="image/*" multiple hidden>
+
+  <dialog id="photoImportDialog" class="detail-modal">
+    <div class="modal-sheet photo-import-sheet">
+      <div class="modal-top">
+        <button id="photoImportClose" class="icon-btn ghost" type="button" aria-label="Close">×</button>
+        <strong>Match photos by time</strong>
+        <span class="modal-spacer" aria-hidden="true"></span>
+      </div>
+      <p class="photo-import-intro">Suggestions use camera capture time when available, otherwise the file date. You can always keep a photo Unclassified, even when its timestamp matches a programme item.</p>
+      <div id="photoImportList" class="photo-import-list"></div>
+      <div class="photo-import-actions">
+        <button id="photoImportCancel" class="secondary-btn" type="button">Cancel</button>
+        <button id="photoImportSave" class="primary-btn" type="button">Save assignments</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="shareQrViewer" class="share-qr-viewer" role="dialog" aria-modal="true" aria-label="Share QR code" hidden>
+    <button id="shareQrClose" class="share-qr-close" type="button" aria-label="Close QR code">×</button>
+    <div class="share-qr-full-card"><strong>Profile sharing not configured</strong></div>
+  </div>
+
+  <div id="photoViewer" class="photo-viewer" role="dialog" aria-modal="true" aria-label="Photo viewer" hidden>
+    <div class="photo-viewer-shell">
+      <button id="photoViewerClose" class="photo-viewer-close" type="button" aria-label="Close photo">×</button>
+      <div id="photoViewerStage" class="photo-viewer-stage">
+        <img id="photoViewerImage" alt="Presentation photo">
+      </div>
+      <div id="photoViewerControls" class="photo-viewer-controls">
+        <button id="photoViewerPrev" class="photo-viewer-nav" type="button" aria-label="Previous photo">‹</button>
+        <div id="photoViewerCounter" class="photo-viewer-counter" aria-live="polite"></div>
+        <button id="photoViewerNext" class="photo-viewer-nav" type="button" aria-label="Next photo">›</button>
+      </div>
+      <div id="photoViewerMeta" class="photo-viewer-meta">
+        <div class="photo-viewer-meta-head">
+          <strong>Photo details</strong>
+          <span id="photoViewerOwner" class="photo-viewer-owner"></span>
+        </div>
+        <div class="photo-viewer-field">
+          <label for="photoViewerAssignment">Assignment</label>
+          <select id="photoViewerAssignment" aria-label="Photo assignment"></select>
+        </div>
+        <div class="photo-viewer-field">
+          <label for="photoViewerTitle">Title</label>
+          <input id="photoViewerTitle" type="text" maxlength="140" placeholder="Add a title for this photo…" autocomplete="off">
+        </div>
+        <div class="photo-viewer-field">
+          <label for="photoViewerNote">Notes</label>
+          <textarea id="photoViewerNote" rows="3" maxlength="2000" placeholder="Write notes about this photo…" spellcheck="true"></textarea>
+        </div>
+        <div id="photoViewerSaveStatus" class="photo-viewer-save-status">Saved automatically</div>
+      </div>
+    </div>
+  </div>
+  <script src="./bootstrap.js"></script>
+</body>
+</html>
