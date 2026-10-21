@@ -1,0 +1,26 @@
+{
+  "id": "test-conference-2027",
+  "name": "Test Conference 2027",
+  "shortName": "TESTCONF 2027",
+  "fullName": "Generic Test Conference 2027",
+  "startDate": "2027-03-15",
+  "endDate": "2027-03-16",
+  "timezone": "Europe/London",
+  "timezoneLabel": "London time",
+  "locale": "en-GB",
+  "language": "en",
+  "city": "Cambridge",
+  "country": "United Kingdom",
+  "officialWebsite": "https://example.org",
+  "contactEmail": "conference@example.org",
+  "mainVenueId": "venue-main",
+  "features": {
+    "posters": false,
+    "photos": true,
+    "notes": true,
+    "pptxExport": true,
+    "friendBook": false,
+    "calendarExport": false
+  },
+  "links": []
+}

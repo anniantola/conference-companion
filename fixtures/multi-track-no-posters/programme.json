@@ -1,0 +1,179 @@
+{
+  "tracks": [
+    {
+      "id": "common",
+      "name": "Common",
+      "order": 0
+    },
+    {
+      "id": "materials",
+      "name": "Materials",
+      "order": 1
+    },
+    {
+      "id": "devices",
+      "name": "Devices",
+      "order": 2
+    },
+    {
+      "id": "systems",
+      "name": "Systems",
+      "order": 3
+    }
+  ],
+  "sessions": [
+    {
+      "id": "ts-1",
+      "type": "session",
+      "title": "Opening",
+      "date": "2027-03-15",
+      "start": "09:00",
+      "end": "09:30",
+      "locationId": "hall-a",
+      "trackId": "common",
+      "chairIds": [],
+      "presentationIds": [
+        "tt-1"
+      ]
+    },
+    {
+      "id": "ts-2",
+      "type": "session",
+      "title": "Parallel session A",
+      "date": "2027-03-15",
+      "start": "10:00",
+      "end": "11:00",
+      "locationId": "hall-a",
+      "trackId": "materials",
+      "chairIds": [],
+      "presentationIds": [
+        "tt-2"
+      ]
+    },
+    {
+      "id": "ts-3",
+      "type": "session",
+      "title": "Parallel session B",
+      "date": "2027-03-15",
+      "start": "10:00",
+      "end": "11:00",
+      "locationId": "hall-b",
+      "trackId": "devices",
+      "chairIds": [],
+      "presentationIds": [
+        "tt-3"
+      ]
+    },
+    {
+      "id": "ts-4",
+      "type": "session",
+      "title": "Parallel session C",
+      "date": "2027-03-15",
+      "start": "10:00",
+      "end": "11:00",
+      "locationId": "hall-c",
+      "trackId": "systems",
+      "chairIds": [],
+      "presentationIds": [
+        "tt-4"
+      ]
+    },
+    {
+      "id": "ts-5",
+      "type": "break",
+      "title": "Coffee break",
+      "date": "2027-03-15",
+      "start": "11:00",
+      "end": "11:30",
+      "locationId": "venue-main",
+      "trackId": "common",
+      "chairIds": [],
+      "presentationIds": []
+    },
+    {
+      "id": "ts-6",
+      "type": "social",
+      "title": "Conference reception",
+      "date": "2027-03-15",
+      "start": "18:00",
+      "end": "20:00",
+      "locationId": "social",
+      "trackId": "common",
+      "chairIds": [],
+      "presentationIds": []
+    },
+    {
+      "id": "ts-7",
+      "type": "session",
+      "title": "Day 2 keynote",
+      "date": "2027-03-16",
+      "start": "09:00",
+      "end": "10:00",
+      "locationId": "hall-a",
+      "trackId": "common",
+      "chairIds": [],
+      "presentationIds": [
+        "tt-5"
+      ]
+    }
+  ],
+  "presentations": [
+    {
+      "id": "tt-1",
+      "sessionId": "ts-1",
+      "type": "special",
+      "start": "09:00",
+      "end": "09:30",
+      "title": "Welcome to Test Conference",
+      "speakerIds": [
+        "tp-1"
+      ]
+    },
+    {
+      "id": "tt-2",
+      "sessionId": "ts-2",
+      "type": "talk",
+      "start": "10:00",
+      "end": "10:30",
+      "title": "Materials at Scale",
+      "speakerIds": [
+        "tp-1"
+      ]
+    },
+    {
+      "id": "tt-3",
+      "sessionId": "ts-3",
+      "type": "talk",
+      "start": "10:00",
+      "end": "10:30",
+      "title": "Fast Devices",
+      "speakerIds": [
+        "tp-2"
+      ]
+    },
+    {
+      "id": "tt-4",
+      "sessionId": "ts-4",
+      "type": "talk",
+      "start": "10:00",
+      "end": "10:30",
+      "title": "Systems in Practice",
+      "speakerIds": [
+        "tp-3"
+      ]
+    },
+    {
+      "id": "tt-5",
+      "sessionId": "ts-7",
+      "type": "plenary",
+      "start": "09:00",
+      "end": "10:00",
+      "title": "Closing the Loop",
+      "speakerIds": [
+        "tp-2"
+      ]
+    }
+  ],
+  "posters": [],
+  "announcements": []
+}

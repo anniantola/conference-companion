@@ -1,0 +1,36 @@
+{
+  "locations": [
+    {
+      "id": "venue-main",
+      "type": "venue",
+      "name": "Riverside Conference Centre",
+      "address": "1 Example Street, Cambridge",
+      "mapUrl": "https://maps.google.com/?q=Cambridge"
+    },
+    {
+      "id": "hall-a",
+      "type": "room",
+      "name": "Hall A",
+      "parentLocationId": "venue-main"
+    },
+    {
+      "id": "hall-b",
+      "type": "room",
+      "name": "Hall B",
+      "parentLocationId": "venue-main"
+    },
+    {
+      "id": "hall-c",
+      "type": "room",
+      "name": "Hall C",
+      "parentLocationId": "venue-main"
+    },
+    {
+      "id": "social",
+      "type": "venue",
+      "name": "Old Hall",
+      "address": "2 Example Lane, Cambridge",
+      "mapUrl": "https://maps.google.com/?q=Cambridge"
+    }
+  ]
+}
