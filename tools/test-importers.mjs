@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {parseCSV,heuristicRowsFromPdf,guessMapping,rowsFromMapping} from '../src/builder/importers.js';
+const csv='date,title,abstract\n2027-11-08,"Talk, one","Two lines\nwith \"\"quoted\"\" content"\n2027-11-09,Talk two,Short';
+const rows=parseCSV(csv);
+assert.equal(rows.length,2);
+assert.equal(rows[0].title,'Talk, one');
+assert.equal(rows[0].abstract,'Two lines\nwith "quoted" content');
+assert.equal(rows[1].__sourceRow,4);
+const mapped=rowsFromMapping(rows,guessMapping(Object.keys(rows[0])));
+assert.equal(mapped[0].title,'Talk, one');
+const pdf=heuristicRowsFromPdf([{page:1,lines:['08.11.2027','10:00–10:30 Introductory session — First speaker'],ocr:false}]);
+assert.equal(pdf[0].date,'2027-11-08');assert.equal(pdf[0].speaker,'First speaker');
+assert.throws(()=>parseCSV('a,b\n"never closed,b'),/unterminated/);
+console.log('Importer tests OK');

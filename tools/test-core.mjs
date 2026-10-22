@@ -16,7 +16,7 @@ const report=validatePackage(pkg,{strictCalendarUid:true});
 if(report.errors.length)throw new Error(report.errors.join('; '));
 
 const uid=calendarUidForEntity('talk-233',{id:'neuronics-2027',officialWebsite:'https://app.neuronics2027.org'});
-if(uid!=='talk-233@app.neuronics2027.org')throw new Error('Calendar UID contract does not match eventId@conference-domain');
+if(!/^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uid))throw new Error('Calendar UID must be a UUIDv4 URN');
 const conferenceSchema=JSON.parse(fs.readFileSync(new URL('../schemas/conference.schema.json',import.meta.url),'utf8'));
 if(validateJsonSchema(pkg.conference,conferenceSchema,'conference').length)throw new Error('Runtime JSON Schema validator rejected valid conference data');
 const migrated=migratePackage(pkg);if(migrated.manifest.schemaVersion!==CURRENT_SCHEMA_VERSION)throw new Error('Schema migration contract failed');
@@ -33,6 +33,11 @@ const readFixture=name=>JSON.parse(fs.readFileSync(new URL(`../fixtures/multi-tr
 const fixture={manifest:readFixture('conference-manifest.json'),conference:readFixture('conference.json'),programme:readFixture('programme.json'),people:readFixture('people.json'),locations:readFixture('locations.json'),branding:readFixture('branding.json')};
 const fixtureModel=createConferenceModel(fixture);
 if(fixtureModel.posters.length!==0||fixtureModel.trackById.size<3||fixtureModel.days.length<2)throw new Error('Generic unrelated fixture did not render through the canonical model');
+if(fixture.conference.timezone===pkg.conference.timezone)throw new Error('Fixtures must use distinct IANA timezones');
+if(fixture.conference.city===pkg.conference.city)throw new Error('Fixtures must use distinct cities');
+if(JSON.stringify(fixture.locations)===JSON.stringify(pkg.locations)||JSON.stringify(fixture.people)===JSON.stringify(pkg.people)||JSON.stringify(fixture.branding)===JSON.stringify(pkg.branding))throw new Error('Fixtures must differ in venues, people and branding');
+if(new Set(fixture.locations.locations.filter(x=>x.type==='venue').map(x=>x.id)).size<2)throw new Error('Unrelated fixture must include multiple venues');
+if(fixtureModel.items.some(x=>!x.locationId||!fixtureModel.location(x.locationId)))throw new Error('Unrelated fixture lost location references');
 
 const profile={name:'Ada Example',position:'Researcher',affiliation:'Example University',email:'ada@example.org',orcid:'0000-0000-0000-0001',website:'https://example.org'};
 const card=profileToVCard(profile),parsed=parseVCard(card);if(parsed.name!==profile.name||parsed.email!==profile.email)throw new Error('vCard round trip failed');
@@ -66,6 +71,6 @@ const cascade2=await buildPackage(cascadeProject);if(cascade2.report.errors.leng
 const changed=cascade2.pkg.programme.sessions.find(x=>x.id===sessionA.id);if(changed.locationId!=='room-b')throw new Error('Session-level room override did not apply');
 const childIds=new Set(changed.presentationIds);const children=cascade2.pkg.programme.presentations.filter(x=>childIds.has(x.id));if(children.length!==2||children.some(x=>x.sequence<1))throw new Error('Session room change did not cascade calendar SEQUENCE to child presentations');
 const cascadeModel=createConferenceModel(cascade2.pkg);if(cascadeModel.items.filter(x=>childIds.has(x.id)).some(x=>x.locationId!=='room-b'))throw new Error('Session room change did not cascade to rendered child items');
-if(children.some(x=>!String(x.calendarUid).endsWith('@cascade.example.org')))throw new Error('Builder did not emit calendar UIDs using the conference domain');
+if(children.some(x=>!/^urn:uuid:[0-9a-f-]{36}$/i.test(String(x.calendarUid))))throw new Error('Builder calendar UIDs must be UUID URNs');
 
 console.log('Core tests OK');
