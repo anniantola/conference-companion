@@ -1,22 +1,39 @@
 import fs from 'node:fs';
 import {createConferenceModel} from '../src/model.js';
 import {validatePackage} from '../src/validation.js';
-import {buildICS} from '../src/calendar.js';
+import {buildICS,calendarUidForEntity} from '../src/calendar.js';
 import {profileToVCard,parseVCard,compactProfileVCard} from '../src/vcard.js';
 import {qrMatrix} from '../src/qrcode.js';
 import {createStoredZip,readStoredZip,textEntry} from '../src/zip.js';
 import {createPersonalBackup,parsePersonalBackup} from '../src/backup.js';
 import {buildPackage} from '../src/builder/package.js';
+import {validateJsonSchema} from '../src/json-schema.js';
+import {migratePackage,CURRENT_SCHEMA_VERSION} from '../src/migrations.js';
 
 const read=name=>JSON.parse(fs.readFileSync(new URL(`../conference/${name}`,import.meta.url),'utf8'));
 const pkg={manifest:read('conference-manifest.json'),conference:read('conference.json'),programme:read('programme.json'),people:read('people.json'),locations:read('locations.json'),branding:read('branding.json')};
 const report=validatePackage(pkg,{strictCalendarUid:true});
 if(report.errors.length)throw new Error(report.errors.join('; '));
+
+const uid=calendarUidForEntity('talk-233',{id:'neuronics-2027',officialWebsite:'https://app.neuronics2027.org'});
+if(uid!=='talk-233@app.neuronics2027.org')throw new Error('Calendar UID contract does not match eventId@conference-domain');
+const conferenceSchema=JSON.parse(fs.readFileSync(new URL('../schemas/conference.schema.json',import.meta.url),'utf8'));
+if(validateJsonSchema(pkg.conference,conferenceSchema,'conference').length)throw new Error('Runtime JSON Schema validator rejected valid conference data');
+const migrated=migratePackage(pkg);if(migrated.manifest.schemaVersion!==CURRENT_SCHEMA_VERSION)throw new Error('Schema migration contract failed');
+
 const model=createConferenceModel(pkg);
 if(!model.items.length||!model.days.length)throw new Error('Model did not create programme items/days');
 if(model.items.some(x=>!x.sessionId||!x.rawSession))throw new Error('Model projection lost canonical session references');
 const ics=buildICS({conference:pkg.conference,manifest:pkg.manifest,items:model.calendarItems(),locationLabel:id=>model.location(id)?.name||id});
-if(!ics.includes('BEGIN:VTIMEZONE')||!ics.includes('BEGIN:VEVENT')||!ics.includes('UID:urn:uuid:'))throw new Error('ICS contract incomplete');
+if(!ics.includes('BEGIN:VTIMEZONE')||!ics.includes('BEGIN:VEVENT')||!ics.includes('UID:'))throw new Error('ICS contract incomplete');
+const helsinkiIcs=buildICS({conference:{...pkg.conference,name:'DST Test',timezone:'Europe/Helsinki',startDate:'2027-03-27',endDate:'2027-03-29'},manifest:pkg.manifest,items:[{id:'dst',calendarUid:'dst@example.org',date:'2027-03-28',start:'10:00',end:'11:00',title:'DST event'}],locationLabel:()=>''});
+if(!helsinkiIcs.includes('TZID:Europe/Helsinki')||!helsinkiIcs.includes('BEGIN:DAYLIGHT'))throw new Error('Timezone/DST calendar regression failed');
+
+const readFixture=name=>JSON.parse(fs.readFileSync(new URL(`../fixtures/multi-track-no-posters/${name}`,import.meta.url),'utf8'));
+const fixture={manifest:readFixture('conference-manifest.json'),conference:readFixture('conference.json'),programme:readFixture('programme.json'),people:readFixture('people.json'),locations:readFixture('locations.json'),branding:readFixture('branding.json')};
+const fixtureModel=createConferenceModel(fixture);
+if(fixtureModel.posters.length!==0||fixtureModel.trackById.size<3||fixtureModel.days.length<2)throw new Error('Generic unrelated fixture did not render through the canonical model');
+
 const profile={name:'Ada Example',position:'Researcher',affiliation:'Example University',email:'ada@example.org',orcid:'0000-0000-0000-0001',website:'https://example.org'};
 const card=profileToVCard(profile),parsed=parseVCard(card);if(parsed.name!==profile.name||parsed.email!==profile.email)throw new Error('vCard round trip failed');
 const compact=compactProfileVCard(profile);const matrix=qrMatrix(compact);if(matrix.length<21||matrix.some(row=>row.some(v=>typeof v!=='boolean')))throw new Error('QR matrix invalid');
@@ -32,5 +49,23 @@ builderProject.rows[0].title='Corrected title';builderProject.rows[0].location='
 const built2=await buildPackage(builderProject);const ids2={conference:built2.pkg.conference.id,presentation:built2.pkg.programme.presentations[0].id,calendar:built2.pkg.programme.presentations[0].calendarUid,location:built2.pkg.programme.sessions[0].locationId,person:built2.pkg.programme.presentations[0].speakerIds[0]};
 if(JSON.stringify(ids1)!==JSON.stringify(ids2))throw new Error('Builder immutable entity identities changed after content edits');
 builderProject.lastPublishedVersion=1;builderProject.dataVersion=1;const badVersion=await buildPackage(builderProject);if(!badVersion.report.errors.some(x=>x.includes('last published version')))throw new Error('Builder did not block non-monotonic dataVersion');
+
+
+const cascadeProject={
+  conference:{id:'cascade-demo',name:'Cascade Demo',shortName:'Cascade',startDate:'2027-05-01',endDate:'2027-05-01',timezone:'Europe/Helsinki',officialWebsite:'https://cascade.example.org',venueName:'Venue'},
+  rows:[
+    {id:'row-a',date:'2027-05-01',start:'10:00',end:'10:20',type:'talk',session:'Session A',title:'Talk A',speaker:'Person A',affiliation:'Lab',location:'Room A',track:'Track A'},
+    {id:'row-b',date:'2027-05-01',start:'10:20',end:'10:40',type:'talk',session:'Session A',title:'Talk B',speaker:'Person B',affiliation:'Lab',location:'Room A',track:'Track A'}
+  ],
+  features:{},branding:{primary:'#000000',secondary:'#222222',accent:'#000000',trackColors:{},locationColors:{}},identityRegistry:{people:{},locations:{},tracks:{}},sessionOverrides:{},extraLocations:[{id:'room-b',type:'room',name:'Room B',parentLocationId:'venue-main'}],dataVersion:1,lastPublishedVersion:0,changelog:[]
+};
+const cascade1=await buildPackage(cascadeProject);if(cascade1.report.errors.length)throw new Error(cascade1.report.errors.join('; '));
+const sessionA=cascade1.pkg.programme.sessions.find(x=>x.presentationIds?.length===2);if(!sessionA)throw new Error('Cascade test session not built');
+cascadeProject.sessionOverrides[sessionA.id]={locationId:'room-b',sequenceBump:1};
+const cascade2=await buildPackage(cascadeProject);if(cascade2.report.errors.length)throw new Error(cascade2.report.errors.join('; '));
+const changed=cascade2.pkg.programme.sessions.find(x=>x.id===sessionA.id);if(changed.locationId!=='room-b')throw new Error('Session-level room override did not apply');
+const childIds=new Set(changed.presentationIds);const children=cascade2.pkg.programme.presentations.filter(x=>childIds.has(x.id));if(children.length!==2||children.some(x=>x.sequence<1))throw new Error('Session room change did not cascade calendar SEQUENCE to child presentations');
+const cascadeModel=createConferenceModel(cascade2.pkg);if(cascadeModel.items.filter(x=>childIds.has(x.id)).some(x=>x.locationId!=='room-b'))throw new Error('Session room change did not cascade to rendered child items');
+if(children.some(x=>!String(x.calendarUid).endsWith('@cascade.example.org')))throw new Error('Builder did not emit calendar UIDs using the conference domain');
 
 console.log('Core tests OK');
