@@ -3,6 +3,52 @@
   "$id": "https://conference-companion.local/schema/people.json",
   "title": "Conference people",
   "type": "object",
-  "required": ["people"],
-  "properties": {"people": {"type": "array", "items": {"type": "object", "required": ["id", "name", "affiliations"], "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "position": {"type": "string"}, "affiliations": {"type": "array", "items": {"type": "string"}}, "publicEmail": {"type": "string"}, "orcid": {"type": "string"}, "links": {"type": "array"}, "papers": {"type": "array"}}}}}
+  "required": [
+    "people"
+  ],
+  "properties": {
+    "people": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "affiliations"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "position": {
+            "type": "string"
+          },
+          "affiliations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "publicEmail": {
+            "type": "string"
+          },
+          "orcid": {
+            "type": "string"
+          },
+          "links": {
+            "type": "array"
+          },
+          "papers": {
+            "type": "array"
+          },
+          "photoUrl": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
 }
