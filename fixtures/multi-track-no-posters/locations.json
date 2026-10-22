@@ -3,34 +3,34 @@
     {
       "id": "venue-main",
       "type": "venue",
-      "name": "Riverside Conference Centre",
-      "address": "1 Example Street, Cambridge",
-      "mapUrl": "https://maps.google.com/?q=Cambridge"
+      "name": "Center for Engineering",
+      "address": "Philadelphia, Pennsylvania, USA",
+      "mapUrl": "https://www.openstreetmap.org/search?query=Philadelphia"
     },
     {
       "id": "hall-a",
       "type": "room",
-      "name": "Hall A",
+      "name": "East Auditorium",
       "parentLocationId": "venue-main"
     },
     {
       "id": "hall-b",
       "type": "room",
-      "name": "Hall B",
+      "name": "West Lab",
       "parentLocationId": "venue-main"
     },
     {
       "id": "hall-c",
       "type": "room",
-      "name": "Hall C",
+      "name": "Studio 3",
       "parentLocationId": "venue-main"
     },
     {
       "id": "social",
       "type": "venue",
-      "name": "Old Hall",
-      "address": "2 Example Lane, Cambridge",
-      "mapUrl": "https://maps.google.com/?q=Cambridge"
+      "name": "Downtown Reception Space",
+      "address": "Philadelphia, Pennsylvania, USA",
+      "mapUrl": "https://www.openstreetmap.org/search?query=Philadelphia"
     }
   ]
 }

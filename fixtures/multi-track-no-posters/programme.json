@@ -26,7 +26,7 @@
       "id": "ts-1",
       "type": "session",
       "title": "Opening",
-      "date": "2027-03-15",
+      "date": "2027-11-08",
       "start": "09:00",
       "end": "09:30",
       "locationId": "hall-a",
@@ -39,8 +39,8 @@
     {
       "id": "ts-2",
       "type": "session",
-      "title": "Parallel session A",
-      "date": "2027-03-15",
+      "title": "Independent track session A",
+      "date": "2027-11-08",
       "start": "10:00",
       "end": "11:00",
       "locationId": "hall-a",
@@ -53,8 +53,8 @@
     {
       "id": "ts-3",
       "type": "session",
-      "title": "Parallel session B",
-      "date": "2027-03-15",
+      "title": "Independent track session B",
+      "date": "2027-11-08",
       "start": "10:00",
       "end": "11:00",
       "locationId": "hall-b",
@@ -67,8 +67,8 @@
     {
       "id": "ts-4",
       "type": "session",
-      "title": "Parallel session C",
-      "date": "2027-03-15",
+      "title": "Independent track session C",
+      "date": "2027-11-08",
       "start": "10:00",
       "end": "11:00",
       "locationId": "hall-c",
@@ -82,7 +82,7 @@
       "id": "ts-5",
       "type": "break",
       "title": "Coffee break",
-      "date": "2027-03-15",
+      "date": "2027-11-08",
       "start": "11:00",
       "end": "11:30",
       "locationId": "venue-main",
@@ -96,7 +96,7 @@
       "id": "ts-6",
       "type": "social",
       "title": "Conference reception",
-      "date": "2027-03-15",
+      "date": "2027-11-08",
       "start": "18:00",
       "end": "20:00",
       "locationId": "social",
@@ -110,7 +110,7 @@
       "id": "ts-7",
       "type": "session",
       "title": "Day 2 keynote",
-      "date": "2027-03-16",
+      "date": "2027-11-09",
       "start": "09:00",
       "end": "10:00",
       "locationId": "hall-a",
@@ -141,7 +141,7 @@
       "type": "talk",
       "start": "10:00",
       "end": "10:30",
-      "title": "Materials at Scale",
+      "title": "New Materials",
       "speakerIds": [
         "tp-1"
       ],
@@ -154,7 +154,7 @@
       "type": "talk",
       "start": "10:00",
       "end": "10:30",
-      "title": "Fast Devices",
+      "title": "Embedded Computing",
       "speakerIds": [
         "tp-2"
       ],
@@ -167,7 +167,7 @@
       "type": "talk",
       "start": "10:00",
       "end": "10:30",
-      "title": "Systems in Practice",
+      "title": "Robust Systems",
       "speakerIds": [
         "tp-3"
       ],
@@ -180,7 +180,7 @@
       "type": "plenary",
       "start": "09:00",
       "end": "10:00",
-      "title": "Closing the Loop",
+      "title": "Building Connections",
       "speakerIds": [
         "tp-2"
       ],

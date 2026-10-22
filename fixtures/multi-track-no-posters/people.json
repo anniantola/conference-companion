@@ -2,23 +2,23 @@
   "people": [
     {
       "id": "tp-1",
-      "name": "Ada Example",
+      "name": "Morgan Lee",
       "affiliations": [
-        "Example University"
+        "Independent Institute for Engineering"
       ]
     },
     {
       "id": "tp-2",
-      "name": "Lin Test",
+      "name": "Taylor Chen",
       "affiliations": [
-        "Research Institute"
+        "Independent Institute for Engineering"
       ]
     },
     {
       "id": "tp-3",
-      "name": "Sam Demo",
+      "name": "Sam Rivera",
       "affiliations": [
-        "Demo Lab"
+        "Independent Institute for Engineering"
       ]
     }
   ]

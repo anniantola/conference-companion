@@ -1,9 +1,9 @@
 {
   "logo": null,
   "headerStyle": "text",
-  "primary": "#5b4b9a",
-  "secondary": "#2f7d68",
-  "accent": "#5b4b9a",
+  "primary": "#963b59",
+  "secondary": "#254e70",
+  "accent": "#a54e17",
   "darkMode": true,
   "trackColors": {
     "materials": "#5b4b9a",

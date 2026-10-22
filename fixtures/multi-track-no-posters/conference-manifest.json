@@ -11,11 +11,11 @@
     "branding.json"
   ],
   "checksums": {
-    "conference.json": "01a989f7931cdaa8f1c73d1a2fd3d9062c30435d197a2e50c3b78058d81cb8f1",
-    "programme.json": "8d0fcc237b68b056a734fb950011cb72c6b311fb0899e2cda4ffe94bbe5d8f39",
-    "people.json": "1048df71aadeb90c17ed6d5c47779e1200db2acd0c8acb614f0ab1dba47b1852",
-    "locations.json": "9836d4243adfa6f98a51550f295ab4040001ac9650f0f6fde581c789386e0f77",
-    "branding.json": "6deebdb35bc0571f7f9f44087acab7f33f529f8f8809b45a3d6ac2e7004166b6"
+    "conference.json": "9f748b437d6cb78011c20820624f3b6526df78a63faf6e9586c7111339c211f2",
+    "programme.json": "ac9d9c9cbfef89437d752f0f939f505950c10da001f57e3b79ebf12019133ef1",
+    "people.json": "d868a1979ed5993c97692d7bdb8750d0eb1d3543d661505dcd5dd478ae1e1988",
+    "locations.json": "113263a33a0bb1c6edd793246d9f3f40441b410e7e7c4ca2dbf3310d4fcf27d8",
+    "branding.json": "f64986e9879d15d41d0fe8d5b75fd3288b2a7609d45ffec994f6684d354a4b76"
   },
   "changelog": [
     {
