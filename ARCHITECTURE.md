@@ -118,9 +118,9 @@ Large photos/paper payloads are intentionally not embedded in QR codes.
 
 New Builder-created calendar entities use the plan's UID shape:
 
-`{eventId}@{conference-domain}`
+`urn:uuid:<UUIDv4>`
 
-The UID is assigned once and preserved on subsequent edits. If no official domain exists, a deterministic Conference Companion fallback domain is used.
+The UID is assigned once and preserved on subsequent edits. Previously published UIDs are retained unchanged.
 
 ICS exports include:
 

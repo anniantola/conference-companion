@@ -13,7 +13,7 @@ Conference Companion is a standalone, offline-first conference PWA plus a browse
 - Photos stored in IndexedDB, including camera capture, EXIF/time matching, assignment review, thumbnails, titles, notes, Gallery and Unclassified photos.
 - PPTX export for notes and presentation photos.
 - Personal-data ZIP backup and restore, including favorites, notes, Friend Book, profile photo and conference photos.
-- Standards-based `.ics` export for one programme item, starred schedule or full programme, including `VTIMEZONE`, immutable calendar UIDs and `SEQUENCE` support. New Builder-created UIDs use `{eventId}@{conference-domain}`.
+- Standards-based `.ics` export for one programme item, starred schedule or full programme, including `VTIMEZONE`, immutable calendar UIDs and `SEQUENCE` support. New Builder-created UIDs use persistent `urn:uuid:<UUIDv4>`; already published UIDs remain unchanged.
 - Friend Book with an optional local profile photo, conference card, compact vCard QR sharing, vCard import, QR image scanning where `BarcodeDetector` is available, private notes/tags and conference/event “met at” context.
 - Announcements.
 - Generic conference branding, track/location colors, typography, logo and sponsor assets.
