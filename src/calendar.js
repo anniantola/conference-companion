@@ -88,16 +88,9 @@ function itemDescription(item, conference) {
 
 
 export function calendarUidForEntity(entityId, conference={}) {
-  const id=String(entityId||'event').trim()||'event';
-  let domain='conference-companion.local';
-  try {
-    if (conference.officialWebsite) domain=new URL(conference.officialWebsite).hostname || domain;
-  } catch {}
-  if (domain==='conference-companion.local' && conference.id) {
-    const slug=String(conference.id).toLowerCase().replace(/[^a-z0-9.-]+/g,'-').replace(/^-+|-+$/g,'');
-    if (slug) domain=`${slug}.conference-companion.local`;
-  }
-  return `${id}@${domain}`;
+  // UUID URN assigned once; project rows persist this value across all edits/releases.
+  // Existing externally published UIDs are never rewritten.
+  return `urn:uuid:${crypto.randomUUID()}`;
 }
 
 export function buildICS({conference, manifest, items, locationLabel}) {
