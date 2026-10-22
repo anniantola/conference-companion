@@ -1,18 +1,28 @@
-function parseCsvLine(line,delimiter=','){
-  const out=[];let cur='',quoted=false;
-  for(let i=0;i<line.length;i++){
-    const c=line[i];
-    if(c==='"'){
-      if(quoted&&line[i+1]==='"'){cur+='"';i++;}else quoted=!quoted;
-    }else if(c===delimiter&&!quoted){out.push(cur);cur='';}else cur+=c;
-  }
-  out.push(cur);return out;
-}
+/** RFC4180-compatible CSV parser (quoted delimiters, escaped quotes, multiline cells). */
 export function parseCSV(text){
-  const lines=String(text).replace(/^\uFEFF/,'').split(/\r?\n/).filter(x=>x.trim());if(!lines.length)return [];
-  const delimiter=(lines[0].match(/;/g)||[]).length>(lines[0].match(/,/g)||[]).length?';':',';
-  const headers=parseCsvLine(lines[0],delimiter).map(x=>x.trim());
-  return lines.slice(1).map((line,rowIndex)=>Object.fromEntries(parseCsvLine(line,delimiter).map((v,i)=>[headers[i]||`column_${i+1}`,v.trim()]))).map((x,i)=>({...x,__sourceRow:i+2}));
+  const input=String(text||'').replace(/^\uFEFF/,'');
+  const headerLine=input.split(/\r?\n/,1)[0]||'';
+  const delimiter=(headerLine.match(/;/g)||[]).length>(headerLine.match(/,/g)||[]).length?';':',';
+  const rows=[];let row=[],cell='',quoted=false,rowStart=1;
+  for(let i=0;i<input.length;i++){
+    const c=input[i];
+    if(c==='"'){
+      if(quoted&&input[i+1]==='"'){cell+='"';i++;}
+      else if(quoted||cell==='')quoted=!quoted;
+      else cell+=c;
+    }else if(c===delimiter&&!quoted){row.push(cell);cell='';}
+    else if((c==='\n'||c==='\r')&&!quoted){
+      row.push(cell);cell='';
+      if(row.some(v=>v.trim()))rows.push({row,rowStart});
+      row=[];if(c==='\r'&&input[i+1]==='\n')i++;
+      rowStart=input.slice(0,i+1).split('\n').length;
+    }else cell+=c;
+  }
+  if(quoted)throw new Error('CSV contains an unterminated quoted field');
+  row.push(cell);if(row.some(v=>v.trim()))rows.push({row,rowStart});
+  if(!rows.length)return [];
+  const headers=rows[0].row.map(x=>x.trim());
+  return rows.slice(1).map(({row,rowStart})=>({...Object.fromEntries(row.map((v,i)=>[headers[i]||`column_${i+1}`,v.trim()])),__sourceRow:rowStart}));
 }
 
 export function guessMapping(headers){
@@ -92,8 +102,9 @@ export async function importPdf(file,onProgress=()=>{}){
 export function heuristicRowsFromPdf(pages,defaultDate='',sourceFileId='pdf'){
   const rows=[];let currentDate=defaultDate;
   const dateIso=/\b(20\d{2})[-\/.](\d{1,2})[-\/.](\d{1,2})\b/;
+  const euroDate=/\b(\d{1,2})[./](\d{1,2})[./](20\d{2})\b/;
   const time=/\b([01]?\d|2[0-3]):([0-5]\d)\s*(?:[-–—]|to)\s*([01]?\d|2[0-3]):([0-5]\d)\b/i;
-  for(const page of pages){for(const [lineIndex,line] of page.lines.entries()){const dm=dateIso.exec(line);if(dm){currentDate=`${dm[1]}-${String(dm[2]).padStart(2,'0')}-${String(dm[3]).padStart(2,'0')}`;continue;}const tm=time.exec(line);if(!tm)continue;const start=`${String(tm[1]).padStart(2,'0')}:${tm[2]}`,end=`${String(tm[3]).padStart(2,'0')}:${tm[4]}`;let title=line.replace(tm[0],'').replace(/^\s*[-–—:|]\s*/,'').trim();let speaker='';const split=title.split(/\s+(?:—|–|\|)\s+/);if(split.length>1){title=split[0].trim();speaker=split.slice(1).join(' — ').trim();}const confidence=Math.min(0.95,0.45+(currentDate?0.2:0)+(title.length>3?0.2:0)+(speaker?0.1:0));rows.push({id:crypto.randomUUID(),date:currentDate,start,end,type:'talk',session:'',title,speaker,chair:'',affiliation:'',location:'',track:'',abstract:'',doi:'',posterNumber:'',importConfidence:confidence,source:{id:`${sourceFileId}:pdf:${page.page}:${lineIndex+1}`,fileId:sourceFileId,page:page.page,line:lineIndex+1,confidence,raw:line}});}}
+  for(const page of pages){for(const [lineIndex,line] of page.lines.entries()){const dm=dateIso.exec(line),em=euroDate.exec(line);if(dm||em){currentDate=dm?`${dm[1]}-${String(dm[2]).padStart(2,'0')}-${String(dm[3]).padStart(2,'0')}`:`${em[3]}-${String(em[2]).padStart(2,'0')}-${String(em[1]).padStart(2,'0')}`;continue;}const tm=time.exec(line);if(!tm)continue;const start=`${String(tm[1]).padStart(2,'0')}:${tm[2]}`,end=`${String(tm[3]).padStart(2,'0')}:${tm[4]}`;let title=line.replace(tm[0],'').replace(/^\s*[-–—:|]\s*/,'').trim();let speaker='';const split=title.split(/\s+(?:—|–|\|)\s+/);if(split.length>1){title=split[0].trim();speaker=split.slice(1).join(' — ').trim();}const confidence=Math.min(0.95,0.45+(currentDate?0.2:0)+(title.length>3?0.2:0)+(speaker?0.1:0));rows.push({id:crypto.randomUUID(),date:currentDate,start,end,type:'talk',session:'',title,speaker,chair:'',affiliation:'',location:'',track:'',abstract:'',doi:'',posterNumber:'',importConfidence:confidence,source:{id:`${sourceFileId}:pdf:${page.page}:${lineIndex+1}`,fileId:sourceFileId,page:page.page,line:lineIndex+1,confidence,raw:line}});}}
   return rows;
 }
 

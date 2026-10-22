@@ -272,7 +272,16 @@ export async function packageZip(project){
   for(const person of pkg.people.people||[]){const asset=project.peoplePhotos?.[person.id];if(!asset||!person.photoUrl)continue;const bytes=await readProjectAsset(asset);if(bytes)entries.push({name:`conference/${person.photoUrl}`,data:bytes});}
 
   // Include the stable attendee engine exactly as deployed with the Builder.
-  for(const path of ENGINE_FILES)entries.push({name:path,data:await fetchBytes(`./${path}`)});
+  for(const path of ENGINE_FILES){
+    if(path==='index.html'){
+      const bytes=await fetchBytes('./index.html');
+      let html=new TextDecoder().decode(bytes);
+      const description=`Conference companion for ${pkg.conference.name}`;
+      const escapeAttr=s=>String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+      html=html.replace('</head>',`  <meta property="og:type" content="website">\n  <meta property="og:title" content="${escapeAttr(pkg.conference.name)}">\n  <meta property="og:description" content="${escapeAttr(description)}">\n  <meta property="og:image" content="share-preview.svg">\n  <meta name="twitter:card" content="summary_large_image">\n</head>`);
+      entries.push({name:path,data:html});
+    } else entries.push({name:path,data:await fetchBytes(`./${path}`)});
+  }
   entries.push({name:'tools/validate-conference.mjs',data:await fetchBytes('./tools/validate-conference.mjs')},{name:'tools/schema-check.mjs',data:await fetchBytes('./tools/schema-check.mjs')});
   for(const file of SCHEMA_FILES)entries.push({name:`schemas/${file}`,data:await fetchBytes(`./schemas/${file}`)});
   entries.push({name:'package.json',data:generatedPackageJson()},{name:'.github/workflows/deploy.yml',data:workflowText()},{name:'manifest.webmanifest',data:manifestText(pkg)},{name:'share-preview.svg',data:sharePreviewSvg(pkg)});
