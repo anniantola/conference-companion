@@ -90,7 +90,7 @@ function itemDescription(item, conference) {
 export function calendarUidForEntity(entityId, conference={}) {
   // UUID URN assigned once; project rows persist this value across all edits/releases.
   // Existing externally published UIDs are never rewritten.
-  return `urn:uuid:${crypto.randomUUID()}`;
+  return `urn:uuid:${globalThis.crypto.randomUUID()}`;
 }
 
 export function buildICS({conference, manifest, items, locationLabel}) {

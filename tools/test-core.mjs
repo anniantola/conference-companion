@@ -1,3 +1,5 @@
+import assert from 'node:assert/strict';
+import {installWebCrypto} from './test-webcrypto.mjs';
 import fs from 'node:fs';
 import {createConferenceModel} from '../src/model.js';
 import {validatePackage} from '../src/validation.js';
@@ -14,6 +16,18 @@ const read=name=>JSON.parse(fs.readFileSync(new URL(`../conference/${name}`,impo
 const pkg={manifest:read('conference-manifest.json'),conference:read('conference.json'),programme:read('programme.json'),people:read('people.json'),locations:read('locations.json'),branding:read('branding.json')};
 const report=validatePackage(pkg,{strictCalendarUid:true});
 if(report.errors.length)throw new Error(report.errors.join('; '));
+
+// Exercise both runtime branches even when running under Node 22.
+const missingCrypto={};
+installWebCrypto(missingCrypto);
+assert.equal(typeof missingCrypto.crypto.randomUUID,'function');
+assert.equal(typeof missingCrypto.crypto.subtle.digest,'function');
+const nativeCrypto={crypto:globalThis.crypto};
+installWebCrypto(nativeCrypto);
+assert.equal(nativeCrypto.crypto,globalThis.crypto,'Keep the native Web Crypto implementation');
+const generatedUids=Array.from({length:100},()=>calendarUidForEntity('same-entity'));
+assert.equal(new Set(generatedUids).size,generatedUids.length,'Each new calendar UID must be unique');
+for(const value of generatedUids) assert.match(value,/^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
 
 const uid=calendarUidForEntity('talk-233',{id:'neuronics-2027',officialWebsite:'https://app.neuronics2027.org'});
 if(!/^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uid))throw new Error('Calendar UID must be a UUIDv4 URN');

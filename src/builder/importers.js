@@ -1,8 +1,21 @@
 /** RFC4180-compatible CSV parser (quoted delimiters, escaped quotes, multiline cells). */
 export function parseCSV(text){
   const input=String(text||'').replace(/^\uFEFF/,'');
-  const headerLine=input.split(/\r?\n/,1)[0]||'';
-  const delimiter=(headerLine.match(/;/g)||[]).length>(headerLine.match(/,/g)||[]).length?';':',';
+  // Count separators in the first logical record, excluding quoted headers,
+  // even if the header itself spans physical lines.
+  let commas=0,semicolons=0,quotes=false;
+  for(let i=0;i<input.length;i++){
+    const c=input[i];
+    if(c==='"'){
+      if(quotes&&input[i+1]==='"'){i++;continue;}
+      quotes=!quotes;
+    }else if(!quotes){
+      if(c==='\n'||c==='\r')break;
+      if(c===',')commas++;
+      if(c===';')semicolons++;
+    }
+  }
+  const delimiter=semicolons>commas?';':',';
   const rows=[];let row=[],cell='',quoted=false,rowStart=1;
   for(let i=0;i<input.length;i++){
     const c=input[i];
@@ -104,7 +117,7 @@ export function heuristicRowsFromPdf(pages,defaultDate='',sourceFileId='pdf'){
   const dateIso=/\b(20\d{2})[-\/.](\d{1,2})[-\/.](\d{1,2})\b/;
   const euroDate=/\b(\d{1,2})[./](\d{1,2})[./](20\d{2})\b/;
   const time=/\b([01]?\d|2[0-3]):([0-5]\d)\s*(?:[-–—]|to)\s*([01]?\d|2[0-3]):([0-5]\d)\b/i;
-  for(const page of pages){for(const [lineIndex,line] of page.lines.entries()){const dm=dateIso.exec(line),em=euroDate.exec(line);if(dm||em){currentDate=dm?`${dm[1]}-${String(dm[2]).padStart(2,'0')}-${String(dm[3]).padStart(2,'0')}`:`${em[3]}-${String(em[2]).padStart(2,'0')}-${String(em[1]).padStart(2,'0')}`;continue;}const tm=time.exec(line);if(!tm)continue;const start=`${String(tm[1]).padStart(2,'0')}:${tm[2]}`,end=`${String(tm[3]).padStart(2,'0')}:${tm[4]}`;let title=line.replace(tm[0],'').replace(/^\s*[-–—:|]\s*/,'').trim();let speaker='';const split=title.split(/\s+(?:—|–|\|)\s+/);if(split.length>1){title=split[0].trim();speaker=split.slice(1).join(' — ').trim();}const confidence=Math.min(0.95,0.45+(currentDate?0.2:0)+(title.length>3?0.2:0)+(speaker?0.1:0));rows.push({id:crypto.randomUUID(),date:currentDate,start,end,type:'talk',session:'',title,speaker,chair:'',affiliation:'',location:'',track:'',abstract:'',doi:'',posterNumber:'',importConfidence:confidence,source:{id:`${sourceFileId}:pdf:${page.page}:${lineIndex+1}`,fileId:sourceFileId,page:page.page,line:lineIndex+1,confidence,raw:line}});}}
+  for(const page of pages){for(const [lineIndex,line] of page.lines.entries()){const dm=dateIso.exec(line),em=euroDate.exec(line);if(dm||em){currentDate=dm?`${dm[1]}-${String(dm[2]).padStart(2,'0')}-${String(dm[3]).padStart(2,'0')}`:`${em[3]}-${String(em[2]).padStart(2,'0')}-${String(em[1]).padStart(2,'0')}`;}const tm=time.exec(line);if(!tm)continue;const start=`${String(tm[1]).padStart(2,'0')}:${tm[2]}`,end=`${String(tm[3]).padStart(2,'0')}:${tm[4]}`;let title=line.replace(dm?.[0]||em?.[0]||'','').replace(tm[0],'').replace(/^\s*[-–—:|]\s*/,'').trim();let speaker='';const split=title.split(/\s+(?:—|–|\|)\s+/);if(split.length>1){title=split[0].trim();speaker=split.slice(1).join(' — ').trim();}const confidence=Math.min(0.95,0.45+(currentDate?0.2:0)+(title.length>3?0.2:0)+(speaker?0.1:0));rows.push({id:crypto.randomUUID(),date:currentDate,start,end,type:'talk',session:'',title,speaker,chair:'',affiliation:'',location:'',track:'',abstract:'',doi:'',posterNumber:'',importConfidence:confidence,source:{id:`${sourceFileId}:pdf:${page.page}:${lineIndex+1}`,fileId:sourceFileId,page:page.page,line:lineIndex+1,confidence,raw:line}});}}
   return rows;
 }
 

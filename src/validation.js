@@ -9,7 +9,9 @@ function minutes(value) {
 }
 
 function validDate(value) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || "")) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(value||'')))return false;
+  const parsed=new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0,10)===value;
 }
 
 function uniqueIds(rows, label, errors) {

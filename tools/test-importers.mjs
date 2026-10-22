@@ -1,3 +1,4 @@
+import './test-webcrypto.mjs';
 import assert from 'node:assert/strict';
 import {parseCSV,heuristicRowsFromPdf,guessMapping,rowsFromMapping} from '../src/builder/importers.js';
 const csv='date,title,abstract\n2027-11-08,"Talk, one","Two lines\nwith \"\"quoted\"\" content"\n2027-11-09,Talk two,Short';

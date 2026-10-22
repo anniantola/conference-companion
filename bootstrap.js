@@ -6,7 +6,7 @@ import * as vcard from './src/vcard.js';
 import * as qr from './src/qrcode.js';
 import * as backup from './src/backup.js';
 
-const ENGINE_VERSION='1.1.0';
+const ENGINE_VERSION='1.1.1';
 const qs=new URLSearchParams(location.search);
 const base=(qs.get('conference')||'./conference').replace(/\/$/,'');
 const $=s=>document.querySelector(s);

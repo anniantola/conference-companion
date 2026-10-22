@@ -174,3 +174,14 @@ No GitHub credentials, organizer credentials or attendee account are embedded in
 ## Cloud boundary
 
 The static implementation intentionally keeps attendee-owned data on the device. A future optional Conference Cloud can add organizer accounts, managed publishing, push notifications, opt-in hosted profiles, tokenized `webcal` feeds and analytics without changing the canonical package contract. Those hosted services are outside this static repository by design.
+
+### Builder import regression fixes (v1.1.1)
+
+`npm run test:bugfixes` exercises six fixes: preserving independent imports;
+separating recurring session titles by time/location/track; parsing timed PDF
+lines with inline dates; distinguishing blank from genuine zero coordinates;
+detecting semicolon CSV despite quoted header commas; and rejecting impossible
+calendar dates. This command runs in `npm test` and the Pages deployment gate.
+Re-importing a source updates rows with matching source identities, preserves
+manual edits, and retains unmatched older rows with a visible warning instead
+of silently removing them. Review potentially obsolete rows in the Builder.

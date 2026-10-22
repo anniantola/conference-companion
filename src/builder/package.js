@@ -51,7 +51,50 @@ export function ensureProjectIdentities(project){
   project.sessionOverrides ||= {};
   const registry=project.identityRegistry;
   const rows=project.rows||[];
-  const sessionByKey=new Map();
+  // One title can represent several separate sessions in the same day.
+  // Assign by location AND temporal continuity, never by title alone.
+  const groupsByKey=new Map();
+  const sessionGapMinutes=30;
+  const timeValue=value=>{const t=timeToMinutes(value);return Number.isFinite(t)?t:null;};
+  const registerGroup=(key,id,row)=>{
+    const start=timeValue(row.start),end=timeValue(row.end);
+    const groups=groupsByKey.get(key)||[];
+    let group=groups.find(g=>g.id===id);
+    if(!group){group={id,start,end};groups.push(group);groupsByKey.set(key,groups);}
+    else if(start!==null&&end!==null){
+      group.start=group.start===null?start:Math.min(group.start,start);
+      group.end=group.end===null?end:Math.max(group.end,end);
+    }
+    return group;
+  };
+  const assignGroup=(key,row,existingId=row.sessionId)=>{
+    const start=timeValue(row.start),end=timeValue(row.end);
+    const groups=groupsByKey.get(key)||[];
+    const touches=g=>start!==null&&end!==null&&g.start!==null&&g.end!==null&&
+      start<=g.end+sessionGapMinutes && end>=g.start-sessionGapMinutes;
+    if(existingId){
+      const previous=groups.find(g=>g.id===existingId);
+      // Repair previously auto-merged Builder sessions without changing
+      // presentation IDs or calendar UIDs. Respect canonical imported sessions.
+      const official=String(row.source?.id||'').includes(':package:');
+      if(previous&&!official&&start!==null&&end!==null&&previous.start!==null&&previous.end!==null&&!touches(previous)){
+        const alternative=groups.filter(touches);
+        const splitId=alternative.length===1?alternative[0].id:`session-${crypto.randomUUID()}`;
+        registerGroup(key,splitId,row);
+        return splitId;
+      }
+      registerGroup(key,existingId,row);return existingId;
+    }
+    const possible=groups.filter(touches);
+    // A poster list often has no individual start/end times; in that case
+    // the named poster session is the only meaningful grouping evidence.
+    const timelessPoster=(key.startsWith('poster|')&&start===null&&end===null);
+    const id=possible.length===1?possible[0].id:
+      (timelessPoster&&(groupsByKey.get(key)||[]).length===1
+        ?groupsByKey.get(key)[0].id:`session-${crypto.randomUUID()}`);
+    registerGroup(key,id,row);
+    return id;
+  };
   const personId=(name,affiliation='',preferred='')=>{
     if(preferred)return preferred;
     const n=String(name||'').trim().toLowerCase(),a=String(affiliation||'').trim().toLowerCase();if(!n)return '';
@@ -62,7 +105,14 @@ export function ensureProjectIdentities(project){
   };
   const locationId=(name,preferred='')=>{if(preferred)return preferred;const k=String(name||'').trim().toLowerCase();if(!k)return 'venue-main';return registry.locations[k]||(registry.locations[k]=`loc-${crypto.randomUUID()}`);};
   const trackId=(name,preferred='')=>{if(preferred)return preferred;const k=String(name||'Common').trim().toLowerCase()||'common';if(k==='common')return registry.tracks[k]||(registry.tracks[k]='common');return registry.tracks[k]||(registry.tracks[k]=`track-${crypto.randomUUID()}`);};
-  for(const row of rows){
+  // Sorting only during initial grouping makes imports with interleaved tracks
+  // deterministic; keep the organizer's row ordering unchanged.
+  const orderedRows=[...rows].sort((a,b)=>
+    String(a.date||'').localeCompare(String(b.date||'')) ||
+    (timeValue(a.start)??Infinity)-(timeValue(b.start)??Infinity) ||
+    String(a.id||'').localeCompare(String(b.id||''))
+  );
+  for(const row of orderedRows){
     if(!row.id)row.id=crypto.randomUUID();
     const type=String(row.type||'talk').toLowerCase();
     if(!row.entityId)row.entityId=stableEntityId(row,type==='poster'?'poster':'presentation');
@@ -74,10 +124,10 @@ export function ensureProjectIdentities(project){
     row.chairEntityIds=chairNames.map((name,i)=>personId(name,'',(row.chairEntityIds||[])[i]));
 
     if(type==='poster'){
-      const key=`poster|${row.date||project.conference?.startDate||''}|${String(row.session||'Poster session').trim().toLowerCase()}`;
-      if(row.posterSessionId)sessionByKey.set(key,row.posterSessionId);
-      else if(sessionByKey.has(key))row.posterSessionId=sessionByKey.get(key);
-      else {row.posterSessionId=`session-${crypto.randomUUID()}`;sessionByKey.set(key,row.posterSessionId);}
+      const key=`poster|${row.date||project.conference?.startDate||''}|${String(row.session||'Poster session').trim().toLowerCase()}|${row.locationEntityId}|${row.trackEntityId}`;
+      // Poster sessions are events too: separate morning and afternoon sessions.
+      // Reuse the explicit imported posterSessionId, if supplied.
+      row.posterSessionId=assignGroup(key,row,row.posterSessionId);
       if(!row.posterSessionCalendarUid)row.posterSessionCalendarUid=calendarUidForEntity(row.posterSessionId,project.conference);
       if(!row.calendarUid)row.calendarUid=calendarUidForEntity(row.entityId,project.conference);
       continue;
@@ -90,10 +140,8 @@ export function ensureProjectIdentities(project){
       continue;
     }
 
-    const key=`${row.date||''}|${String(row.session||'Session').trim().toLowerCase()}|${row.trackEntityId}`;
-    if(row.sessionId)sessionByKey.set(key,row.sessionId);
-    else if(sessionByKey.has(key))row.sessionId=sessionByKey.get(key);
-    else {row.sessionId=`session-${crypto.randomUUID()}`;sessionByKey.set(key,row.sessionId);}
+    const key=`${row.date||''}|${String(row.session||'Session').trim().toLowerCase()}|${row.trackEntityId}|${row.locationEntityId}`;
+    row.sessionId=assignGroup(key,row);
     if(!row.calendarUid)row.calendarUid=calendarUidForEntity(row.entityId,project.conference);
   }
   return project;
@@ -200,7 +248,7 @@ export async function buildPackage(project){
   for(const person of people){const asset=project.peoplePhotos?.[person.id];if(asset)person.photoUrl=personPhotoPath(person.id,asset);}
   const locationOverrides=project.locationOverrides||{};
   for(const loc of locations){const o=locationOverrides[loc.id];if(o)Object.assign(loc,o);}
-  for(const extra of project.extraLocations||[]){if(!extra?.name)continue;let id=extra.id||`loc-${crypto.randomUUID()}`;if(usedLocations.has(id))id=ensureUnique(id,usedLocations);else usedLocations.add(id);const lat=Number(extra.lat),lon=Number(extra.lon);locations.push({id,type:extra.type||'venue',name:extra.name,...(extra.parentLocationId?{parentLocationId:extra.parentLocationId}:{}),...(extra.address?{address:extra.address}:{}),...(extra.mapUrl?{mapUrl:extra.mapUrl}:{}),...(Number.isFinite(lat)?{lat}:{}),...(Number.isFinite(lon)?{lon}:{})});}
+  for(const extra of project.extraLocations||[]){if(!extra?.name)continue;let id=extra.id||`loc-${crypto.randomUUID()}`;if(usedLocations.has(id))id=ensureUnique(id,usedLocations);else usedLocations.add(id);const lat=extra.lat==null||String(extra.lat).trim()===''?NaN:Number(extra.lat),lon=extra.lon==null||String(extra.lon).trim()===''?NaN:Number(extra.lon);locations.push({id,type:extra.type||'venue',name:extra.name,...(extra.parentLocationId?{parentLocationId:extra.parentLocationId}:{}),...(extra.address?{address:extra.address}:{}),...(extra.mapUrl?{mapUrl:extra.mapUrl}:{}),...(Number.isFinite(lat)&&lat>=-90&&lat<=90?{lat}:{}),...(Number.isFinite(lon)&&lon>=-180&&lon<=180?{lon}:{})});}
 
   const conference={
     id:config.id,name:config.name||'Conference',shortName:config.shortName||config.name||'Conference',fullName:config.fullName||config.name||'Conference',
@@ -219,7 +267,7 @@ export async function buildPackage(project){
   const now=new Date().toISOString();
   const version=Number(project.dataVersion||1);
   const changelog=[...(project.changelog||[]).filter(x=>Number(x.version)!==version),{version,publishedAt:now,message:project.releaseMessage||'Published from Conference Builder.'}];
-  const manifest={schemaVersion:CURRENT_SCHEMA_VERSION,dataVersion:version,minimumEngineVersion:'1.1.0',publishedAt:now,files:['conference.json','programme.json','people.json','locations.json','branding.json'],checksums:{},changelog};
+  const manifest={schemaVersion:CURRENT_SCHEMA_VERSION,dataVersion:version,minimumEngineVersion:'1.1.1',publishedAt:now,files:['conference.json','programme.json','people.json','locations.json','branding.json'],checksums:{},changelog};
   const pkg={manifest,conference,programme,people:peopleJson,locations:locationsJson,branding};
   const report=validatePackage(pkg,{strictCalendarUid:true,policy:project.policy||{}});
   for(const row of rows){
@@ -258,7 +306,7 @@ async function fetchBytes(path){const r=await fetch(path,{cache:'no-store'});if(
 function manifestText(pkg){return JSON.stringify({name:pkg.conference.name,short_name:pkg.conference.shortName||pkg.conference.name,start_url:'./',scope:'./',display:'standalone',background_color:'#000000',theme_color:pkg.branding.primary||'#000000',icons:[{src:'./icon-192.png',sizes:'192x192',type:'image/png'},{src:'./icon-512.png',sizes:'512x512',type:'image/png',purpose:'any maskable'}]},null,2)+'\n';}
 function sharePreviewSvg(pkg){const title=String(pkg.conference.shortName||pkg.conference.name||'Conference').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630"><rect width="1200" height="630" fill="${pkg.branding.primary||'#000'}"/><rect x="60" y="60" width="1080" height="510" rx="44" fill="#fff" opacity=".96"/><text x="110" y="285" font-family="system-ui,sans-serif" font-weight="700" font-size="78" fill="#111">${title}</text><text x="110" y="370" font-family="system-ui,sans-serif" font-size="38" fill="#444">Conference Companion</text></svg>`;}
 function workflowText(){return `name: Validate and deploy Conference Companion\n\non:\n  push:\n    branches: ["main"]\n  workflow_dispatch:\n\npermissions:\n  contents: read\n  pages: write\n  id-token: write\n\nconcurrency:\n  group: "pages"\n  cancel-in-progress: false\n\njobs:\n  deploy:\n    environment:\n      name: github-pages\n      url: \${{ steps.deployment.outputs.page_url }}\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v6\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n      - name: Validate conference package\n        run: npm test\n      - uses: actions/configure-pages@v5\n      - uses: actions/upload-pages-artifact@v4\n        with:\n          path: "."\n      - name: Deploy to GitHub Pages\n        id: deployment\n        uses: actions/deploy-pages@v4\n`;}
-function generatedPackageJson(){return JSON.stringify({name:'conference-companion-deployment',version:'1.1.0',private:true,type:'module',scripts:{schema:'node tools/schema-check.mjs conference',validate:'node tools/validate-conference.mjs conference',test:'npm run schema && npm run validate'}},null,2)+'\n';}
+function generatedPackageJson(){return JSON.stringify({name:'conference-companion-deployment',version:'1.1.1',private:true,type:'module',scripts:{schema:'node tools/schema-check.mjs conference',validate:'node tools/validate-conference.mjs conference',test:'npm run schema && npm run validate'}},null,2)+'\n';}
 
 /** A repository-ready static deployment ZIP: stable engine + generated package + branded install assets. */
 export async function packageZip(project){

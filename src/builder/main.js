@@ -2,6 +2,7 @@ import {loadProject,saveProject,clearProject} from './project-store.js';
 import {parseCSV,guessMapping,rowsFromMapping,importXlsx,listXlsxSheets,importPdf,heuristicRowsFromPdf,rowsFromStructuredPackage} from './importers.js';
 import {buildPackage,packageZip} from './package.js';
 import {createBuilderProjectFile,readBuilderProjectFile} from './project-file.js';
+import {mergeImportedRows as mergeProgrammeRows} from './merge.js';
 
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const FIELDS=['date','start','end','type','session','title','speaker','chair','affiliation','location','track','posterNumber','abstract','doi'];
@@ -39,24 +40,9 @@ function renderSessionEditor(sessions,locations,tracks){const root=$('#sessionPr
 
 function showMapping(mapping){project.mapping=mapping;const grid=$('#mappingGrid');grid.innerHTML=FIELDS.map(f=>`<label>${LABELS[f]}<select data-map="${f}">${mappingOptions(mapping[f])}</select></label>`).join('');$('#mappingCard').hidden=false;}
 function mergeImportedRows(nextRows){
-  const oldBySource=new Map((project.rows||[]).filter(r=>r.source?.id).map(r=>[r.source.id,r]));
-  const deleted=new Set(project.deletedSourceIds||[]), conflicts=[];
-  const calendarFields=new Set(['date','start','end','title','location','session']);
-  const mergedRows=nextRows.filter(r=>!deleted.has(r.source?.id)).map(r=>{
-    const old=oldBySource.get(r.source?.id);if(!old)return r;
-    const merged={...r,id:old.id||r.id,manualFields:{...(old.manualFields||{})},calendarUid:old.calendarUid||r.calendarUid,sequence:Number(old.sequence||0),entityId:old.entityId||r.entityId,sessionId:old.sessionId||r.sessionId,posterSessionId:old.posterSessionId||r.posterSessionId,posterSessionCalendarUid:old.posterSessionCalendarUid||r.posterSessionCalendarUid,locationEntityId:old.locationEntityId||r.locationEntityId,trackEntityId:old.trackEntityId||r.trackEntityId,speakerEntityIds:[...(old.speakerEntityIds||r.speakerEntityIds||[])],chairEntityIds:[...(old.chairEntityIds||r.chairEntityIds||[])]};
-    let calendarChanged=false;
-    for(const field of FIELDS){
-      if(old.manualFields?.[field]){
-        if(String(r[field]??'')!==String(old[field]??''))conflicts.push(`${r.source?.id}: source changed ${field}; preserved organizer edit`);
-        merged[field]=old[field];
-      } else if(calendarFields.has(field)&&String(r[field]??'')!==String(old[field]??'')) calendarChanged=true;
-    }
-    if(calendarChanged)merged.sequence=Number(old.sequence||0)+1;
-    return merged;
-  });
+  const {rows,conflicts}=mergeProgrammeRows(project.rows,nextRows,project.deletedSourceIds);
   project.reimportConflicts=conflicts;
-  return mergedRows;
+  return rows;
 }
 function applyMapping(){const mapping={};$$('[data-map]').forEach(s=>mapping[s.dataset.map]=s.value);project.mapping=mapping;project.rows=mergeImportedRows(rowsFromMapping(rawRows,mapping));project.sourceState=rawRows.map((row,i)=>({sourceId:`${row.__sourceFileId||'source'}:${row.__sheet||'source'}:${row.__sourceRow||i+1}`,raw:row,mapping}));scheduleSave();renderRows();renderDerived();toast('Mapping applied');}
 
