@@ -36,6 +36,7 @@
       <div class="import-row">
         <input id="programmeFile" type="file" accept=".pdf,.xlsx,.xls,.csv,.json,application/pdf,application/json,text/csv">
         <button id="importProgramme" class="primary-btn">Import file</button>
+        <label id="sheetChooserWrap" class="inline-field" hidden>Worksheet<select id="xlsxSheet"></select></label>
         <span id="importStatus" class="muted"></span>
       </div>
       <div id="mappingCard" class="mapping-card" hidden>
@@ -49,7 +50,10 @@
     <section class="panel">
       <div class="step-title"><span>3</span><div><h2>Review & fix</h2><p>Edit imported rows directly. All changes are autosaved as private Builder project state.</p></div></div>
       <div class="table-actions"><button id="addRow" class="secondary-btn">+ Add row</button><span id="rowCount" class="muted">0 rows</span></div>
-      <div class="table-wrap"><table id="reviewTable"><thead><tr><th>Date</th><th>Start</th><th>End</th><th>Type</th><th>Session</th><th>Title</th><th>Speaker / author</th><th>Chair</th><th>Affiliation</th><th>Location</th><th>Track</th><th>Poster #</th><th>Abstract</th><th>DOI / link</th><th></th></tr></thead><tbody></tbody></table></div>
+      <div class="bulk-edit-bar"><strong>Bulk edit selected rows</strong><select id="bulkField"></select><input id="bulkValue" placeholder="New value"><button id="applyBulkEdit" class="secondary-btn" type="button">Apply</button><span id="selectedRowCount" class="muted">0 selected</span></div>
+      <div class="table-wrap"><table id="reviewTable"><thead><tr><th><input id="selectAllRows" type="checkbox" aria-label="Select all rows"></th><th>Date</th><th>Start</th><th>End</th><th>Type</th><th>Session</th><th>Title</th><th>Speaker / author</th><th>Chair</th><th>Affiliation</th><th>Location</th><th>Track</th><th>Poster #</th><th>Abstract</th><th>DOI / link</th><th></th></tr></thead><tbody></tbody></table></div>
+      <div class="session-editor-wrap"><div class="table-actions"><div><h3>Session-level edits</h3><p class="muted">Room, track and session-window changes are stored once on the Session and cascade to every child talk/calendar item.</p></div></div><div id="sessionPreview" class="session-grid"></div></div>
+      <div id="conflictPanel" class="conflict-panel" hidden><h3>Re-import conflicts</h3><p class="muted">Organizer edits are preserved; changed source values are listed here for review.</p><div id="conflictList"></div></div>
     </section>
 
     <section class="panel split-panel">

@@ -1,6 +1,6 @@
 {
   "name": "conference-companion",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "Offline-first, package-driven conference companion PWA and conference package Builder.",
@@ -9,9 +9,10 @@
     "validate:fixture": "node tools/validate-conference.mjs fixtures/multi-track-no-posters",
     "validate:all": "npm run validate && npm run validate:fixture",
     "test:core": "node tools/test-core.mjs",
-    "test": "npm run schema:all && npm run validate:all && npm run test:core",
+    "test": "npm run schema:all && npm run validate:all && npm run test:core && npm run test:static",
     "schema": "node tools/schema-check.mjs conference",
     "schema:fixture": "node tools/schema-check.mjs fixtures/multi-track-no-posters",
-    "schema:all": "npm run schema && npm run schema:fixture"
+    "schema:all": "npm run schema && npm run schema:fixture",
+    "test:static": "node tools/test-static.mjs"
   }
 }

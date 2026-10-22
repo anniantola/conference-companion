@@ -1,4 +1,4 @@
-const CACHE = "conference-companion-engine-1.0.0";
+const CACHE = "conference-companion-engine-1.1.0";
 const ENGINE_ASSETS = [
   "./",
   "./index.html",
@@ -13,11 +13,19 @@ const ENGINE_ASSETS = [
   "./src/model.js",
   "./src/user-store.js",
   "./src/validation.js",
+  "./src/json-schema.js",
+  "./src/migrations.js",
   "./src/calendar.js",
   "./src/vcard.js",
   "./src/qrcode.js",
   "./src/backup.js",
-  "./src/zip.js"
+  "./src/zip.js",
+  "./schemas/conference-manifest.schema.json",
+  "./schemas/conference.schema.json",
+  "./schemas/programme.schema.json",
+  "./schemas/people.schema.json",
+  "./schemas/locations.schema.json",
+  "./schemas/branding.schema.json"
 ];
 
 self.addEventListener("install", event => {
@@ -38,8 +46,14 @@ self.addEventListener("fetch", event => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
 
+  // Runtime JSON Schemas belong to the engine and are safe to cache.
+  if (url.pathname.includes("/schemas/") && url.pathname.endsWith(".json")) {
+    event.respondWith(caches.match(event.request).then(cached => cached || fetch(event.request)));
+    return;
+  }
+
   // Conference package lifecycle is owned by package-store.js + IndexedDB.
-  // Avoid a second, independent service-worker cache for JSON package files.
+  // Avoid a second, independent service-worker cache for conference JSON files.
   if (url.pathname.endsWith(".json")) {
     event.respondWith(fetch(event.request));
     return;

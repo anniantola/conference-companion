@@ -1,17 +1,21 @@
 # Conference Companion architecture
 
-## Separation of concerns
+This repository follows the Conference Companion technical plan used for the NEURONICS 2027 pilot: one reusable attendee engine, one normalized conference package per event, a separate organizer Builder, and an optional Cloud layer that remains deferred for the static pilot.
+
+## 1. Separation of concerns
 
 The system has four boundaries:
 
-1. **Attendee engine** — generic UI and local attendee features.
-2. **Published conference package** — normalized official conference data.
-3. **Builder project state** — private import/provenance/editing state used to produce releases.
+1. **Attendee engine** — generic UI, offline behavior and local attendee features.
+2. **Published conference package** — normalized official conference data and branding.
+3. **Builder project state** — private import/provenance/review state used to create releases.
 4. **Optional Cloud** — future hosted services; not required by the static PWA.
 
-The attendee engine never parses organizer PDFs or spreadsheets. The Builder never publishes its source/provenance state into the attendee package.
+The attendee engine never parses organizer PDFs or spreadsheets. The Builder never publishes raw source files, mappings, provenance or private review state into the attendee package.
 
-## Canonical entities
+## 2. Canonical entities and identity rules
+
+Published data uses the plan's canonical entities:
 
 - Conference
 - Track
@@ -22,48 +26,117 @@ The attendee engine never parses organizer PDFs or spreadsheets. The Builder nev
 - Location
 - Announcement
 
-References use immutable IDs. A session owns its date, envelope, location and track. A presentation owns its individual start/end slot and references its parent session. Calendar UIDs are generated once and preserved independently of repository/domain names.
+Non-negotiable rules:
 
-`src/model.js` provides UI-friendly projections while retaining the canonical entity references; there is no legacy data adapter.
+- entity IDs are immutable;
+- references use IDs, never titles;
+- Session owns the date, session window, location and track;
+- Presentation owns its individual start/end slot and references its Session;
+- ISO dates and an IANA conference timezone are used;
+- `schemaVersion` handles data-contract evolution;
+- `dataVersion` handles official programme releases.
 
-## Release lifecycle
+`src/model.js` indexes canonical entities by ID and creates UI projections without rebuilding a legacy conference model. Programme items use `locationId` directly; there is no room-name compatibility field.
 
-A conference programme release is immutable once published. New official content uses a larger `dataVersion`. Rollback is represented operationally by activating a prior last-known-good package locally; a subsequent official rollback should still be published as a new, higher release version.
+## 3. Package validation and migration
 
-The attendee app downloads and validates a candidate before changing its active package. Activation is a single IndexedDB transaction and the prior validated record is retained.
+The browser update pipeline has two validation layers before activation:
 
-## Attendee storage
+1. JSON Schema validation using the contracts in `schemas/`;
+2. semantic/referential validation using `src/validation.js`.
 
-`localStorage` is limited to tiny display/navigation preferences. Attendee-owned data is namespaced by `conference.id` and stored in IndexedDB:
+`src/migrations.js` is the single schema-migration boundary. The current published schema is version 1; future migrations are registered there instead of scattering schema conversion logic across the UI.
 
-- favorites
-- notes
-- profile
-- Friend Book contacts/private annotations
-- photos and thumbnails
+## 4. Offline/update lifecycle
 
-A personal-data ZIP can round-trip this data, including image blobs.
+Conference programme updates are independent of app-engine updates.
 
-## Engine updates
+1. Fetch `conference-manifest.json` network-first.
+2. Compare `dataVersion` and release checksums with the active package.
+3. Download the complete candidate package.
+4. Verify SHA-256 checksums.
+5. Apply supported schema migrations.
+6. Validate current JSON Schemas and cross-record rules.
+7. Atomically activate the candidate in IndexedDB.
+8. Keep the previous validated release for rollback.
+9. Re-render against the same immutable entity IDs.
+10. If download/validation fails, continue on the last-known-good package.
 
-The service worker caches stable engine assets. It deliberately does not call `skipWaiting()`: a newly installed engine waits until a clean launch rather than taking control and force-reloading an attendee who may be editing notes or photos.
+The service worker caches engine assets only. Conference JSON activation is owned by `package-store.js`, so there is one source of truth for official data.
 
-Conference JSON is not managed by the service-worker cache. Its lifecycle is handled by `package-store.js` so there is only one authority for data-package activation.
+## 5. Attendee storage and privacy
 
-## Builder re-import policy
+`localStorage` contains only small display/navigation preferences such as theme, compact mode, selected location/track and last view.
 
-Imported rows retain private source identifiers, immutable entity identifiers, calendar UIDs and manual-field markers. On re-import:
+Attendee-owned state is namespaced by `conference.id` and stored in IndexedDB:
 
-- organizer-edited fields win;
-- a changed source value behind an organizer override becomes a review warning;
-- calendar-relevant source changes increment `SEQUENCE`;
-- deleted source rows remain deleted;
-- stable entity IDs are preserved.
+- favorites / My Schedule;
+- talk and poster notes;
+- profile and Friend Book contacts;
+- private Friend Book notes/tags/met-at metadata;
+- photo blobs, thumbnails and annotations.
 
-## Calendar contract
+A personal-data ZIP can round-trip this information, including images. Official conference updates never overwrite attendee-owned state.
 
-ICS exports use the conference IANA timezone and include a `VTIMEZONE` component. Each calendar-relevant entity has an immutable `calendarUid`. Calendar-relevant edits increment `sequence` so downstream calendar clients can understand revisions.
+## 6. Builder import/review contract
 
-## Privacy contract
+The Builder follows the plan's pipeline:
 
-Favorites, private notes, photos and private Friend Book metadata remain device-local by default. QR sharing uses a compact vCard and intentionally excludes private annotations and large media.
+**Extract → Normalize → Structure → Validate → Review → Emit**
+
+Supported sources:
+
+- PDF: PDF.js text extraction, OCR fallback for image-only pages, heuristic draft rows for organizer review;
+- XLS/XLSX: explicit worksheet selection plus deterministic column mapping;
+- CSV: deterministic column mapping;
+- structured JSON: bypasses extraction and preserves canonical IDs when supplied.
+
+Review tools include row editing, selection + bulk edits, a session-level editor, people/locations/tracks, warnings/conflicts, branding, features, announcements and a phone preview.
+
+Re-import preserves organizer corrections using source IDs and field-level manual markers. If an upstream source changes behind a reviewed correction, the correction wins and the conflict is surfaced for review.
+
+## 7. Session-level editing rule
+
+The Builder exposes Sessions as first-class editable entities. A room/location, track, date or session-window change is stored once in `sessionOverrides` and applied to the Session during package generation. Child presentations inherit the updated Session context automatically.
+
+Calendar `SEQUENCE` is bumped for affected child presentations when a session-level calendar-relevant field changes.
+
+## 8. Friend Book contract
+
+The offline Friend Book uses standards-based local sharing:
+
+- personal card: name, position, affiliation, email, ORCID, LinkedIn, website, papers/bio and optional local photo;
+- compact vCard 4.0 + QR sharing;
+- `.vcf` import/export;
+- QR image scanning where `BarcodeDetector` is available;
+- local snapshot of saved contacts;
+- `metAtConferenceId`, optional `metAtEventId`, private notes, tags and free-text met-at context.
+
+Large photos/paper payloads are intentionally not embedded in QR codes.
+
+## 9. Calendar / ICS contract
+
+New Builder-created calendar entities use the plan's UID shape:
+
+`{eventId}@{conference-domain}`
+
+The UID is assigned once and preserved on subsequent edits. If no official domain exists, a deterministic Conference Companion fallback domain is used.
+
+ICS exports include:
+
+- conference `TZID` and `VTIMEZONE`;
+- `SUMMARY`, `LOCATION`, `DESCRIPTION`, `URL`;
+- `LAST-MODIFIED` and `SEQUENCE`;
+- single-event, starred-schedule and full-programme exports.
+
+## 10. Static deployment boundary
+
+The Builder generates a repository-ready static deployment ZIP containing:
+
+- stable attendee engine;
+- validated conference package;
+- PWA manifest/icons/branding assets;
+- JSON Schemas and validators;
+- GitHub Pages workflow with `npm test` as a deployment gate.
+
+No organizer or GitHub credentials are embedded in the attendee PWA. Direct managed GitHub publishing, Git tags/releases, custom-domain automation, `webcal`, push and organizer accounts belong to the optional managed/Cloud layer and are intentionally not required by this static implementation.

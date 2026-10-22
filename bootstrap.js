@@ -6,7 +6,7 @@ import * as vcard from './src/vcard.js';
 import * as qr from './src/qrcode.js';
 import * as backup from './src/backup.js';
 
-const ENGINE_VERSION='1.0.0';
+const ENGINE_VERSION='1.1.0';
 const qs=new URLSearchParams(location.search);
 const base=(qs.get('conference')||'./conference').replace(/\/$/,'');
 const $=s=>document.querySelector(s);
@@ -34,7 +34,9 @@ function applyDocument(pkg,model,loadInfo){
   try{
     const loadInfo=await loadConferencePackage(base,ENGINE_VERSION);const pkg=loadInfo.pkg;
     if(pkg.conference.programmePdf)pkg.conference.programmePdf=resolvePackageUrl(pkg.conference.programmePdf);
-    const model=createConferenceModel(pkg),userStore=createUserStore(pkg.conference.id),userState=await userStore.getState();
+    const model=createConferenceModel(pkg),userStore=createUserStore(pkg.conference.id);
+    await userStore.ensureReady();
+    const userState=await userStore.getState();
     window.CONFERENCE_PACKAGE=pkg;window.CONFERENCE_MODEL=model;window.CONFERENCE_LOAD_INFO=loadInfo;window.CONFERENCE_CONFIG={...pkg,packageBase:base,engineVersion:ENGINE_VERSION,packageSource:loadInfo.source,packageWarnings:loadInfo.warnings||[],posterSession:model.posterSession};window.CONFERENCE_USER_STATE=userState;
     window.CONFERENCE_SERVICES={userStore,calendar,vcard,qr,backup,getPackageDiagnostics:()=>getPackageDiagnostics(base),rollbackConferencePackage:()=>rollbackConferencePackage(base)};
     applyDocument(pkg,model,loadInfo);

@@ -13,8 +13,8 @@ Conference Companion is a standalone, offline-first conference PWA plus a browse
 - Photos stored in IndexedDB, including camera capture, EXIF/time matching, assignment review, thumbnails, titles, notes, Gallery and Unclassified photos.
 - PPTX export for notes and presentation photos.
 - Personal-data ZIP backup and restore, including favorites, notes, Friend Book, profile photo and conference photos.
-- Standards-based `.ics` export for one programme item, starred schedule or full programme, including `VTIMEZONE`, immutable calendar UIDs and `SEQUENCE` support.
-- Friend Book with an optional local profile photo, conference card, compact vCard QR sharing, vCard import, QR image scanning where `BarcodeDetector` is available, private notes/tags and “met at” context.
+- Standards-based `.ics` export for one programme item, starred schedule or full programme, including `VTIMEZONE`, immutable calendar UIDs and `SEQUENCE` support. New Builder-created UIDs use `{eventId}@{conference-domain}`.
+- Friend Book with an optional local profile photo, conference card, compact vCard QR sharing, vCard import, QR image scanning where `BarcodeDetector` is available, private notes/tags and conference/event “met at” context.
 - Announcements.
 - Generic conference branding, track/location colors, typography, logo and sponsor assets.
 - Installable PWA with a service worker that does not force-reload an attendee while an engine update is waiting.
@@ -27,10 +27,11 @@ Conference Companion is a standalone, offline-first conference PWA plus a browse
 2. enforces monotonic `dataVersion` releases;
 3. downloads the complete candidate JSON package;
 4. verifies SHA-256 checksums;
-5. validates structure and referential integrity;
-6. atomically activates the validated package in IndexedDB;
-7. retains the previous validated release for local rollback;
-8. falls back to the last-known-good release when offline or when a candidate fails validation.
+5. applies supported schema migrations and validates the current JSON Schemas;
+6. validates semantic and referential integrity;
+7. atomically activates the validated package in IndexedDB;
+8. retains the previous validated release for local rollback;
+9. falls back to the last-known-good release when offline or when a candidate fails validation.
 
 A same-version release with changed checksums is treated as a mutated release and is not activated. Older network releases are ignored. The Settings page shows the active data release, changelog/notices and exposes rollback only when a previous validated release is available.
 
@@ -38,15 +39,18 @@ A same-version release with changed checksums is treated as a mutated release an
 
 Open `builder.html` in the development repository. The Builder implements:
 
-- PDF import through PDF.js with OCR fallback for image-only pages;
-- XLS/XLSX import through SheetJS;
+- PDF import through PDF.js with OCR fallback for image-only pages and low-confidence review warnings;
+- XLS/XLSX import through SheetJS with explicit worksheet selection;
 - CSV and structured JSON import;
 - deterministic column mapping;
-- editable review table;
+- editable review table with multi-row selection and bulk edits;
+- first-class session editor so location/track/session-window changes are made once per Session and cascade to child talks;
 - source provenance and re-import conflict handling;
 - preservation of organizer-edited fields on re-import;
 - stable private identities for conference, sessions, presentations, calendar UIDs, people, locations and tracks;
-- people, location and track editing;
+- people editing including ORCID/web links and optional uploaded speaker photos;
+- location editing including hierarchy, map URL and coordinates;
+- track editing and per-location/per-track color palettes;
 - branding, app icon, conference logo and sponsor assets;
 - feature flags and review policy warnings;
 - announcements;
@@ -72,6 +76,8 @@ The Builder deliberately keeps source files, mappings, provenance, manual overri
 │   ├── model.js                    # canonical model + UI projections
 │   ├── user-store.js               # attendee IndexedDB data
 │   ├── validation.js               # semantic/referential validation
+│   ├── json-schema.js              # runtime JSON Schema validation
+│   ├── migrations.js               # schema migration boundary
 │   ├── calendar.js                 # ICS/VTIMEZONE generation
 │   ├── vcard.js                    # profile/contact vCards
 │   ├── qrcode.js                   # dependency-free QR encoder
@@ -157,7 +163,7 @@ PDF/XLSX parsing libraries are loaded lazily by the Builder when those import pa
 npm test
 ```
 
-This runs JSON Schema contract checks, semantic/referential validation and core tests for the canonical model, ICS output, vCard/QR handling, ZIP backup, immutable Builder identities and monotonic release versioning.
+This runs JSON Schema contract checks, semantic/referential validation and core tests for the canonical model, unrelated multi-track fixture, timezone/DST ICS output, UID contract, vCard/QR handling, ZIP backup, immutable Builder identities, session-level room cascade, monotonic release versioning, service-worker asset coverage and static accessibility smoke checks.
 
 ## Deployment
 

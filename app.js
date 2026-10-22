@@ -23,7 +23,7 @@
     theme: BRANDING.darkMode ? "dark" : "system",
     compact: false,
     timeMode: "conference",
-    room: "all",
+    locationId: "all",
     track: "all",
     day: null,
     posterCategory: "all",
@@ -54,6 +54,8 @@
   function loadState() {
     let prefs = {};
     try { prefs = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}"); } catch {}
+    if (prefs.locationId == null && prefs.room != null) prefs.locationId = prefs.room;
+    delete prefs.room;
     const owned = window.CONFERENCE_USER_STATE || {};
     return {...defaultState, ...prefs, ...owned, notes:{...(owned.notes || {})}};
   }
@@ -62,7 +64,7 @@
 
   function saveState() {
     const prefs = {
-      theme:state.theme, compact:state.compact, timeMode:state.timeMode, room:state.room, track:state.track,
+      theme:state.theme, compact:state.compact, timeMode:state.timeMode, locationId:state.locationId, track:state.track,
       day:state.day, posterCategory:state.posterCategory, view:state.view, galleryMode:state.galleryMode
     };
     localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
@@ -514,7 +516,7 @@
     const e = byId.get(id);
     if (!e) return "Programme item";
     const session = e.session ? `${e.session} · ` : "";
-    const room = e.room ? ` · ${locationLabel(e.room)}` : "";
+    const room = e.locationId ? ` · ${locationLabel(e.locationId)}` : "";
     return `${e.start} · ${session}${e.title}${room}`;
   }
 
@@ -718,7 +720,7 @@
     }
     const e = byId.get(photo.ownerId);
     if (!e) return {title:"Programme item", meta:"", sortKey:"9999"};
-    const room = e.room ? ` · ${locationLabel(e.room)}` : "";
+    const room = e.locationId ? ` · ${locationLabel(e.locationId)}` : "";
     return {
       title: e.title,
       meta: `${e.weekday} ${e.dateLabel} · ${e.start}–${e.end}${room}`,
@@ -793,7 +795,7 @@
           person: e.speaker || "",
           affiliation: e.affiliation || "",
           note,
-          meta: `${e.weekday} ${e.dateLabel} · ${e.start}–${e.end}${e.room ? ` · ${e.room}` : ""}`,
+          meta: `${e.weekday} ${e.dateLabel} · ${e.start}–${e.end}${e.locationId ? ` · ${locationLabel(e.locationId)}` : ""}`,
           sortKey: `${e.date}|${e.start}|${String(e.track || 0).padStart(2,"0")}|${e.title || ""}`
         });
       } else if (type === "poster") {
@@ -1348,7 +1350,7 @@
     // Current-time navigation should never be hidden by a search or room filter.
     const search = $("#programSearch");
     if (search) search.value = "";
-    state.room = "all";
+    state.locationId = "all";
     state.day = day;
     saveState();
 
@@ -1414,7 +1416,7 @@
   }
 
   function searchTextEvent(e) {
-    return [e.title,e.speaker,e.affiliation,e.session,e.chair,e.room,locationLabel(e.room),e.trackName,e.abstract,...(e.keywords||[])].filter(Boolean).join(" ").toLowerCase();
+    return [e.title,e.speaker,e.affiliation,e.session,e.chair,e.locationId,locationLabel(e.locationId),e.trackName,e.abstract,...(e.keywords||[])].filter(Boolean).join(" ").toLowerCase();
   }
 
   function statusForSelectedDay() {
@@ -1458,7 +1460,7 @@
   function locationLabel(id) { return locationRow(id)?.name || id || ""; }
   function locationColor(id) { return BRANDING.locationColors?.[id] || ""; }
   function trackColor(id) { return BRANDING.trackColors?.[id] || ""; }
-  function eventAccent(e) { return locationColor(e.room) || trackColor(e.trackId) || ""; }
+  function eventAccent(e) { return locationColor(e.locationId) || trackColor(e.trackId) || ""; }
   function locationPill(locationId) {
     if (!locationId) return "";
     const color = locationColor(locationId);
@@ -1473,7 +1475,7 @@
     return `
       <article class="event-card kind-${esc(e.kind)}" ${accent&&["talk","plenary","special"].includes(e.kind)?`style="border-left-color:${esc(accent)}"`:""} data-event="${e.id}" tabindex="0">
         <button class="star-btn ${fav?"on":""}" data-star-event="${e.id}" aria-label="${fav?"Remove from":"Add to"} my schedule">${fav?"★":"☆"}</button>
-        <div class="card-kicker">${locationPill(e.room)}${session}</div>
+        <div class="card-kicker">${locationPill(e.locationId)}${session}</div>
         <div class="event-title">${esc(e.title)}</div>
         ${person?`<div class="event-person">${person}</div>`:""}
         ${conflict?`<div class="conflict-note">Overlaps another starred item</div>`:""}
@@ -1511,7 +1513,7 @@
     renderStatus();
     const q = $("#programSearch").value.trim().toLowerCase();
     let events = ITEMS.filter(e => q ? searchTextEvent(e).includes(q) : e.day===state.day);
-    if (state.room !== "all") events = events.filter(e => !e.room || e.room.toLowerCase()===state.room);
+    if (state.locationId !== "all") events = events.filter(e => !e.locationId || e.locationId.toLowerCase()===state.locationId);
     if (state.track !== "all") events = events.filter(e => (e.trackId || "common")===state.track);
     events.sort((a,b) => a.date.localeCompare(b.date) || timeValue(a.start)-timeValue(b.start) || a.track-b.track);
 
@@ -1671,7 +1673,7 @@
   }
 
   function venueForEvent(e) {
-    return resolvedVenue(e.locationId || e.room || CONFERENCE.mainVenueId);
+    return resolvedVenue(e.locationId || CONFERENCE.mainVenueId);
   }
 
   function venueBoxHtml(resolved, room="") {
@@ -1685,14 +1687,16 @@
   function openEvent(id) {
     const e = byId.get(id); if (!e) return;
     currentModal = {type:"event",id};
+    const speakerPhoto=e.speakers?.find(person=>person?.photoUrl)?.photoUrl || "";
     $("#modalContent").innerHTML = `
-      <div class="modal-kicker">${locationPill(e.room)}${e.session?`<span class="pill">${esc(e.session)}</span>`:""}<span class="pill">${esc(e.weekday)} ${esc(e.dateLabel)}</span></div>
+      <div class="modal-kicker">${locationPill(e.locationId)}${e.session?`<span class="pill">${esc(e.session)}</span>`:""}<span class="pill">${esc(e.weekday)} ${esc(e.dateLabel)}</span></div>
       <div class="modal-title">${esc(e.title)}</div>
+      ${speakerPhoto?`<img class="modal-speaker-photo" src="${esc(packageAssetUrl(speakerPhoto))}" alt="${esc(e.speaker||'Speaker')}">`:""}
       ${e.speaker?`<div class="modal-person">${esc(e.speaker)}</div>`:""}
       ${e.affiliation?`<div class="modal-aff">${esc(e.affiliation)}</div>`:""}
       <div class="modal-details">
         <div class="detail-box"><span>Time</span><strong>${esc(eventTimeLabel(e))}</strong></div>
-        ${venueBoxHtml(venueForEvent(e), e.room || "")}
+        ${venueBoxHtml(venueForEvent(e), e.locationId || "")}
         ${e.chair?`<div class="detail-box"><span>Session chair</span><strong>${esc(e.chair)}</strong></div>`:""}
         ${e.sourcePage?`<div class="detail-box"><span>Programme</span><strong>PDF page ${e.sourcePage}</strong></div>`:""}
       </div>
@@ -1810,7 +1814,7 @@
     const e = byId.get(id);
     if (!e) return {title:"Programme item", meta:"", sortKey:"9999-12-31|23:59:59|8|event"};
     const person = e.speaker ? ` · ${e.speaker}` : "";
-    const room = e.room ? ` · ${locationLabel(e.room)}` : "";
+    const room = e.locationId ? ` · ${locationLabel(e.locationId)}` : "";
     return {
       title:e.title,
       meta:`${e.weekday} ${e.dateLabel} · ${e.start}–${e.end}${room}${person}`,
@@ -2161,6 +2165,7 @@
   function profileFromForm() {
     return {
       ...profile,
+      id:profile.id || crypto.randomUUID(),
       name:$("#profileName")?.value.trim() || "",
       position:$("#profilePosition")?.value.trim() || "",
       affiliation:$("#profileAffiliation")?.value.trim() || "",
@@ -2207,10 +2212,12 @@
     const email=(friend.emails||[])[0]||friend.email||"";
     const affiliation=(friend.affiliations||[])[0]||friend.affiliation||"";
     const links=[friend.orcid?`<a href="https://orcid.org/${esc(String(friend.orcid).replace("https://orcid.org/","").replace("http://orcid.org/",""))}" target="_blank" rel="noopener">ORCID ↗</a>`:"",friend.linkedin?`<a href="${esc(friend.linkedin)}" target="_blank" rel="noopener">LinkedIn ↗</a>`:"",friend.website?`<a href="${esc(friend.website)}" target="_blank" rel="noopener">Website ↗</a>`:""] .filter(Boolean).join(" · ");
+    const events=MODEL.calendarItems().slice().sort((a,b)=>`${a.date}|${a.start}`.localeCompare(`${b.date}|${b.start}`));
+    const eventOptions=events.map(e=>`<option value="${esc(e.id)}" ${e.id===friend.metAtEventId?'selected':''}>${esc(`${e.date} ${e.start} · ${e.title}`)}</option>`).join("");
     return `<div class="friend-card" data-friend-id="${esc(friend.id)}">
       <div class="friend-card-head"><div><h3>${esc(friend.name||"Contact")}</h3><p>${esc([friend.position,affiliation].filter(Boolean).join(" · "))}</p>${email?`<p><a href="mailto:${esc(email)}">${esc(email)}</a></p>`:""}${links?`<p>${links}</p>`:""}</div><button class="friend-delete" data-friend-delete="${esc(friend.id)}" type="button" aria-label="Delete contact">×</button></div>
       ${friend.bio?`<p>${esc(friend.bio)}</p>`:""}
-      <div class="friend-private"><label>Met at<input data-friend-met-at="${esc(friend.id)}" value="${esc(friend.metAt||CONFERENCE.shortName||CONFERENCE.name||"")}" placeholder="Poster session, conference dinner…"></label><label>Private notes<textarea rows="2" data-friend-note="${esc(friend.id)}">${esc(friend.privateNotes||"")}</textarea></label><label>Private tags<input data-friend-tags="${esc(friend.id)}" value="${esc((friend.tags||[]).join(", "))}" placeholder="met at dinner, memristors"></label></div>
+      <div class="friend-private"><label>Met at<select data-friend-event="${esc(friend.id)}"><option value="">— conference generally —</option>${eventOptions}</select></label><label>Met at note<input data-friend-met-at="${esc(friend.id)}" value="${esc(friend.metAt||CONFERENCE.shortName||CONFERENCE.name||"")}" placeholder="Poster session, conference dinner…"></label><label>Private notes<textarea rows="2" data-friend-note="${esc(friend.id)}">${esc(friend.privateNotes||"")}</textarea></label><label>Private tags<input data-friend-tags="${esc(friend.id)}" value="${esc((friend.tags||[]).join(", "))}" placeholder="met at dinner, memristors"></label></div>
       <p>Saved locally · ${esc(friend.metAtConferenceId||CONFERENCE.id||"")}</p>
     </div>`;
   }
@@ -2229,6 +2236,7 @@
     if(field==="privateNotes")friend.privateNotes=value;
     if(field==="tags")friend.tags=String(value||"").split(",").map(x=>x.trim()).filter(Boolean);
     if(field==="metAt")friend.metAt=String(value||"").trim();
+    if(field==="metAtEventId")friend.metAtEventId=String(value||"").trim();
     friends[idx]=await USER_STORE.saveFriend(friend);
   }
 
@@ -2237,7 +2245,7 @@
       const parsed=SERVICES.vcard.parseVCard(text);
       const signature=[parsed.name,(parsed.emails||[])[0]||"",(parsed.affiliations||[])[0]||""].join("|").toLowerCase();
       const existing=friends.find(x=>[x.name,(x.emails||[])[0]||x.email||"",(x.affiliations||[])[0]||x.affiliation||""].join("|").toLowerCase()===signature);
-      const saved=await USER_STORE.saveFriend({...existing,...parsed,id:existing?.id||crypto.randomUUID(),metAtConferenceId:CONFERENCE.id,metAt:existing?.metAt||CONFERENCE.shortName||CONFERENCE.name||"",savedAt:existing?.savedAt||Date.now(),privateNotes:existing?.privateNotes||"",tags:existing?.tags||[]});
+      const saved=await USER_STORE.saveFriend({...existing,...parsed,id:existing?.id||crypto.randomUUID(),metAtConferenceId:CONFERENCE.id,metAtEventId:existing?.metAtEventId||"",metAt:existing?.metAt||CONFERENCE.shortName||CONFERENCE.name||"",savedAt:existing?.savedAt||Date.now(),privateNotes:existing?.privateNotes||"",tags:existing?.tags||[]});
       friends=existing?friends.map(x=>x.id===saved.id?saved:x):[...friends,saved];
       renderFriendBook();toast(existing?"Contact updated":"Contact saved to Friend Book");
     } catch(err){console.error(err);toast("Could not read that vCard");}
@@ -2357,7 +2365,7 @@
   }
 
   function setupConferenceUi() {
-    const roomIds=[...new Set(ITEMS.map(e=>e.room).filter(Boolean))];
+    const roomIds=[...new Set(ITEMS.map(e=>e.locationId).filter(Boolean))];
     const roomFilters=$("#roomFilters");
     if (roomFilters) roomFilters.innerHTML = `<button class="chip active" data-room="all">All locations</button>` + roomIds.map(id=>`<button class="chip" data-room="${esc(id)}">${esc(locationLabel(id))}</button>`).join("");
 
@@ -2414,7 +2422,7 @@
     $("#themeSelect").value=state.theme;
     $("#timeModeSelect").value=state.timeMode;
     $("#compactToggle").setAttribute("aria-checked",state.compact?"true":"false");
-    $$("#roomFilters .chip").forEach(x=>x.classList.toggle("active",x.dataset.room===state.room));
+    $$("#roomFilters .chip").forEach(x=>x.classList.toggle("active",x.dataset.room===state.locationId));
     $$("#trackFilters .chip").forEach(x=>x.classList.toggle("active",x.dataset.track===state.track));
     $$("#posterFilters .chip").forEach(x=>x.classList.toggle("active",x.dataset.category===state.posterCategory));
   }
@@ -2424,7 +2432,7 @@
     $("#posterSearch").addEventListener("input",renderPosters);
 
     $$("#roomFilters .chip").forEach(btn => btn.addEventListener("click",()=>{
-      state.room=btn.dataset.room; saveState(); syncSettings(); renderProgram();
+      state.locationId=btn.dataset.room; saveState(); syncSettings(); renderProgram();
     }));
     $$("#trackFilters .chip").forEach(btn => btn.addEventListener("click",()=>{
       state.track=btn.dataset.track; saveState(); syncSettings(); renderProgram();
@@ -2559,6 +2567,7 @@
     $("#friendScanInput")?.addEventListener("change",async e=>{if(e.target.files[0])await scanFriendQr(e.target.files[0]);e.target.value="";});
     $("#friendVcardInput")?.addEventListener("change",async e=>{const f=e.target.files[0];if(f)await addFriendFromVCard(await f.text());e.target.value="";});
     $("#friendList")?.addEventListener("input",e=>{
+      const metEvent=e.target.closest("[data-friend-event]");if(metEvent){saveFriendPrivate(metEvent.dataset.friendEvent,"metAtEventId",metEvent.value);return;}
       const metAt=e.target.closest("[data-friend-met-at]");if(metAt){clearTimeout(metAt._saveTimer);metAt._saveTimer=setTimeout(()=>saveFriendPrivate(metAt.dataset.friendMetAt,"metAt",metAt.value),250);return;}
       const note=e.target.closest("[data-friend-note]");if(note){clearTimeout(note._saveTimer);note._saveTimer=setTimeout(()=>saveFriendPrivate(note.dataset.friendNote,"privateNotes",note.value),250);return;}
       const tags=e.target.closest("[data-friend-tags]");if(tags){clearTimeout(tags._saveTimer);tags._saveTimer=setTimeout(()=>saveFriendPrivate(tags.dataset.friendTags,"tags",tags.value),250);}
