@@ -36,10 +36,21 @@ export function rowsFromMapping(raw,mapping){
   }));
 }
 
-export async function importXlsx(file){
+async function readWorkbook(file){
   const XLSX=await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs');
   const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:false});
-  const name=wb.SheetNames[0];if(!name)throw new Error('Workbook has no sheets');
+  return {XLSX,wb};
+}
+
+export async function listXlsxSheets(file){
+  const {wb}=await readWorkbook(file);
+  return [...wb.SheetNames];
+}
+
+export async function importXlsx(file,sheetName=''){
+  const {XLSX,wb}=await readWorkbook(file);
+  const name=sheetName&&wb.SheetNames.includes(sheetName)?sheetName:wb.SheetNames[0];
+  if(!name)throw new Error('Workbook has no sheets');
   const rows=XLSX.utils.sheet_to_json(wb.Sheets[name],{defval:'',raw:false});
   return rows.map((x,i)=>({...x,__sourceRow:i+2,__sheet:name}));
 }
@@ -82,7 +93,7 @@ export function heuristicRowsFromPdf(pages,defaultDate='',sourceFileId='pdf'){
   const rows=[];let currentDate=defaultDate;
   const dateIso=/\b(20\d{2})[-\/.](\d{1,2})[-\/.](\d{1,2})\b/;
   const time=/\b([01]?\d|2[0-3]):([0-5]\d)\s*(?:[-–—]|to)\s*([01]?\d|2[0-3]):([0-5]\d)\b/i;
-  for(const page of pages){for(const [lineIndex,line] of page.lines.entries()){const dm=dateIso.exec(line);if(dm){currentDate=`${dm[1]}-${String(dm[2]).padStart(2,'0')}-${String(dm[3]).padStart(2,'0')}`;continue;}const tm=time.exec(line);if(!tm)continue;const start=`${String(tm[1]).padStart(2,'0')}:${tm[2]}`,end=`${String(tm[3]).padStart(2,'0')}:${tm[4]}`;let title=line.replace(tm[0],'').replace(/^\s*[-–—:|]\s*/,'').trim();let speaker='';const split=title.split(/\s+(?:—|–|\|)\s+/);if(split.length>1){title=split[0].trim();speaker=split.slice(1).join(' — ').trim();}rows.push({id:crypto.randomUUID(),date:currentDate,start,end,type:'talk',session:'',title,speaker,chair:'',affiliation:'',location:'',track:'',abstract:'',doi:'',posterNumber:'',source:{id:`${sourceFileId}:pdf:${page.page}:${lineIndex+1}`,fileId:sourceFileId,page:page.page,line:lineIndex+1,raw:line}});}}
+  for(const page of pages){for(const [lineIndex,line] of page.lines.entries()){const dm=dateIso.exec(line);if(dm){currentDate=`${dm[1]}-${String(dm[2]).padStart(2,'0')}-${String(dm[3]).padStart(2,'0')}`;continue;}const tm=time.exec(line);if(!tm)continue;const start=`${String(tm[1]).padStart(2,'0')}:${tm[2]}`,end=`${String(tm[3]).padStart(2,'0')}:${tm[4]}`;let title=line.replace(tm[0],'').replace(/^\s*[-–—:|]\s*/,'').trim();let speaker='';const split=title.split(/\s+(?:—|–|\|)\s+/);if(split.length>1){title=split[0].trim();speaker=split.slice(1).join(' — ').trim();}const confidence=Math.min(0.95,0.45+(currentDate?0.2:0)+(title.length>3?0.2:0)+(speaker?0.1:0));rows.push({id:crypto.randomUUID(),date:currentDate,start,end,type:'talk',session:'',title,speaker,chair:'',affiliation:'',location:'',track:'',abstract:'',doi:'',posterNumber:'',importConfidence:confidence,source:{id:`${sourceFileId}:pdf:${page.page}:${lineIndex+1}`,fileId:sourceFileId,page:page.page,line:lineIndex+1,confidence,raw:line}});}}
   return rows;
 }
 
@@ -90,8 +101,8 @@ export function rowsFromStructuredPackage(json,sourceFileId='package'){
   const programme=json.programme||{},people=json.people?.people||json.people||[],locations=json.locations?.locations||json.locations||[];
   const personById=new Map((people||[]).map(p=>[p.id,p]));const locationById=new Map((locations||[]).map(l=>[l.id,l]));const sessionById=new Map((programme.sessions||[]).map(s=>[s.id,s]));
   const rows=[];
-  for(const p of programme.presentations||[]){const s=sessionById.get(p.sessionId)||{};const speakers=(p.speakerIds||[]).map(id=>personById.get(id)).filter(Boolean);rows.push({id:crypto.randomUUID(),date:s.date||'',start:p.start||s.start||'',end:p.end||s.end||'',type:p.type||'talk',session:s.title||'',title:p.title||'',speaker:speakers.map(x=>x.name).join('; '),chair:(s.chairIds||[]).map(id=>personById.get(id)?.name).filter(Boolean).join('; '),affiliation:speakers.flatMap(x=>x.affiliations||[]).filter(Boolean).join('; '),location:locationById.get(s.locationId)?.name||'',track:(programme.tracks||[]).find(t=>t.id===s.trackId)?.name||s.trackId||'',posterNumber:'',abstract:p.abstract||'',doi:(p.links||[])[0]?.url||'',calendarUid:p.calendarUid,sequence:p.sequence||0,source:{id:`${sourceFileId}:package:presentation:${p.id}`,fileId:sourceFileId,raw:p}});}
-  for(const s of programme.sessions||[]){if((s.presentationIds||[]).length)continue;rows.push({id:crypto.randomUUID(),date:s.date||'',start:s.start||'',end:s.end||'',type:s.type||'special',session:s.title||'',title:s.title||'',speaker:'',chair:(s.chairIds||[]).map(id=>personById.get(id)?.name).filter(Boolean).join('; '),affiliation:'',location:locationById.get(s.locationId)?.name||'',track:(programme.tracks||[]).find(t=>t.id===s.trackId)?.name||s.trackId||'',posterNumber:'',abstract:s.description||'',doi:(s.links||[])[0]?.url||'',calendarUid:s.calendarUid,sequence:s.sequence||0,source:{id:`${sourceFileId}:package:session:${s.id}`,fileId:sourceFileId,raw:s}});}
-  for(const p of programme.posters||[]){const s=sessionById.get(p.posterSessionId)||{};const authors=(p.authorIds||[]).map(id=>personById.get(id)).filter(Boolean);rows.push({id:crypto.randomUUID(),date:s.date||'',start:s.start||'',end:s.end||'',type:'poster',session:s.title||'Poster session',title:p.title||'',speaker:authors.map(x=>x.name).join('; '),chair:'',affiliation:authors.flatMap(x=>x.affiliations||[]).filter(Boolean).join('; '),location:locationById.get(s.locationId)?.name||'',track:(programme.tracks||[]).find(t=>t.id===s.trackId)?.name||s.trackId||'',posterNumber:p.number||'',abstract:p.abstract||'',doi:(p.links||[])[0]?.url||'',calendarUid:p.calendarUid,source:{id:`${sourceFileId}:package:poster:${p.id}`,fileId:sourceFileId,raw:p}});}
+  for(const p of programme.presentations||[]){const s=sessionById.get(p.sessionId)||{};const speakers=(p.speakerIds||[]).map(id=>personById.get(id)).filter(Boolean);rows.push({id:crypto.randomUUID(),entityId:p.id,sessionId:s.id,locationEntityId:s.locationId,trackEntityId:s.trackId,speakerEntityIds:[...(p.speakerIds||[])],chairEntityIds:[...(s.chairIds||[])],date:s.date||'',start:p.start||s.start||'',end:p.end||s.end||'',type:p.type||'talk',session:s.title||'',title:p.title||'',speaker:speakers.map(x=>x.name).join('; '),chair:(s.chairIds||[]).map(id=>personById.get(id)?.name).filter(Boolean).join('; '),affiliation:speakers.flatMap(x=>x.affiliations||[]).filter(Boolean).join('; '),location:locationById.get(s.locationId)?.name||'',track:(programme.tracks||[]).find(t=>t.id===s.trackId)?.name||s.trackId||'',posterNumber:'',abstract:p.abstract||'',doi:(p.links||[])[0]?.url||'',calendarUid:p.calendarUid,sequence:p.sequence||0,source:{id:`${sourceFileId}:package:presentation:${p.id}`,fileId:sourceFileId,raw:p}});}
+  for(const s of programme.sessions||[]){if((s.presentationIds||[]).length)continue;rows.push({id:crypto.randomUUID(),sessionId:s.id,locationEntityId:s.locationId,trackEntityId:s.trackId,chairEntityIds:[...(s.chairIds||[])],date:s.date||'',start:s.start||'',end:s.end||'',type:s.type||'special',session:s.title||'',title:s.title||'',speaker:'',chair:(s.chairIds||[]).map(id=>personById.get(id)?.name).filter(Boolean).join('; '),affiliation:'',location:locationById.get(s.locationId)?.name||'',track:(programme.tracks||[]).find(t=>t.id===s.trackId)?.name||s.trackId||'',posterNumber:'',abstract:s.description||'',doi:(s.links||[])[0]?.url||'',calendarUid:s.calendarUid,sequence:s.sequence||0,source:{id:`${sourceFileId}:package:session:${s.id}`,fileId:sourceFileId,raw:s}});}
+  for(const p of programme.posters||[]){const s=sessionById.get(p.posterSessionId)||{};const authors=(p.authorIds||[]).map(id=>personById.get(id)).filter(Boolean);rows.push({id:crypto.randomUUID(),entityId:p.id,posterSessionId:s.id,posterSessionCalendarUid:s.calendarUid,locationEntityId:s.locationId,trackEntityId:s.trackId,speakerEntityIds:[...(p.authorIds||[])],date:s.date||'',start:s.start||'',end:s.end||'',type:'poster',session:s.title||'Poster session',title:p.title||'',speaker:authors.map(x=>x.name).join('; '),chair:'',affiliation:authors.flatMap(x=>x.affiliations||[]).filter(Boolean).join('; '),location:locationById.get(s.locationId)?.name||'',track:(programme.tracks||[]).find(t=>t.id===s.trackId)?.name||s.trackId||'',posterNumber:p.number||'',abstract:p.abstract||'',doi:(p.links||[])[0]?.url||'',calendarUid:p.calendarUid,sequence:p.sequence||0,source:{id:`${sourceFileId}:package:poster:${p.id}`,fileId:sourceFileId,raw:p}});}
   return rows;
 }

@@ -20,6 +20,12 @@ export async function createBuilderProjectFile(project){
   if(safe.logo){const path=`assets/logo-${cleanName(safe.logo.name||'logo')}`;await addAsset(project.logo,path);safe.logo={...safe.logo,bytes:undefined,blob:undefined,archivePath:path};}
   if(safe.appIcon){const path=`assets/icon-${cleanName(safe.appIcon.name||'icon')}`;await addAsset(project.appIcon,path);safe.appIcon={...safe.appIcon,bytes:undefined,blob:undefined,archivePath:path};}
 
+
+  safe.peoplePhotos={};
+  for(const [personId,src] of Object.entries(project.peoplePhotos||{})){
+    const path=`assets/people-${cleanName(personId)}-${cleanName(src.name||'photo')}`;await addAsset(src,path);safe.peoplePhotos[personId]={...src,bytes:undefined,blob:undefined,archivePath:path};
+  }
+
   safe.sponsorFiles=[];
   for(let i=0;i<(project.sponsorFiles||[]).length;i++){
     const src=project.sponsorFiles[i],path=`assets/sponsor-${i+1}-${cleanName(src.name||'logo')}`;await addAsset(src,path);safe.sponsorFiles.push({...src,bytes:undefined,blob:undefined,archivePath:path});
@@ -39,7 +45,7 @@ export async function readBuilderProjectFile(file){
   if(wrapper.format!=='conference-companion-builder-project')throw new Error('Not a Conference Companion Builder project');
   const project=wrapper.project||{};
   const restoreAsset=(asset)=>{if(!asset?.archivePath)return asset;const bytes=entries.get(asset.archivePath);if(!bytes)return {...asset,archivePath:undefined};return {...asset,bytes:new Uint8Array(bytes),archivePath:undefined};};
-  project.logo=restoreAsset(project.logo);project.appIcon=restoreAsset(project.appIcon);project.sponsorFiles=(project.sponsorFiles||[]).map(restoreAsset);
+  project.logo=restoreAsset(project.logo);project.appIcon=restoreAsset(project.appIcon);project.sponsorFiles=(project.sponsorFiles||[]).map(restoreAsset);project.peoplePhotos=Object.fromEntries(Object.entries(project.peoplePhotos||{}).map(([id,asset])=>[id,restoreAsset(asset)]));
   project.sourceFiles=(project.sourceFiles||[]).map(src=>{const bytes=src.archivePath?entries.get(src.archivePath):null;return {...src,archivePath:undefined,blob:bytes?new Blob([bytes],{type:src.type||'application/octet-stream'}):undefined};});
   return project;
 }
