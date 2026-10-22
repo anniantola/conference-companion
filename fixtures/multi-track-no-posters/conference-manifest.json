@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "dataVersion": 2,
-  "minimumEngineVersion": "1.0.0",
-  "publishedAt": "2026-10-21T12:00:00Z",
+  "dataVersion": 3,
+  "minimumEngineVersion": "1.1.0",
+  "publishedAt": "2026-10-21T13:24:01Z",
   "files": [
     "conference.json",
     "programme.json",
@@ -12,7 +12,7 @@
   ],
   "checksums": {
     "conference.json": "01a989f7931cdaa8f1c73d1a2fd3d9062c30435d197a2e50c3b78058d81cb8f1",
-    "programme.json": "cac0f53f6176021554e0c4fe32a0f468b20e0fc255ed376443d70883321ac58e",
+    "programme.json": "8d0fcc237b68b056a734fb950011cb72c6b311fb0899e2cda4ffe94bbe5d8f39",
     "people.json": "1048df71aadeb90c17ed6d5c47779e1200db2acd0c8acb614f0ab1dba47b1852",
     "locations.json": "9836d4243adfa6f98a51550f295ab4040001ac9650f0f6fde581c789386e0f77",
     "branding.json": "6deebdb35bc0571f7f9f44087acab7f33f529f8f8809b45a3d6ac2e7004166b6"
@@ -22,6 +22,11 @@
       "version": 2,
       "publishedAt": "2026-10-21T12:00:00Z",
       "message": "Conference Companion 1.0 package: calendar IDs, local-first Friend Book and calendar features enabled."
+    },
+    {
+      "version": 3,
+      "publishedAt": "2026-10-21T13:24:01Z",
+      "message": "Aligned generic development package with the Conference Companion 1.1 calendar UID and runtime-validation contract."
     }
   ]
 }

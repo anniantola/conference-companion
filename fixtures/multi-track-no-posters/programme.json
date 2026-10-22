@@ -89,7 +89,7 @@
       "trackId": "common",
       "chairIds": [],
       "presentationIds": [],
-      "calendarUid": "urn:uuid:7453eaf6-696d-517a-82f1-f43e84255cfb",
+      "calendarUid": "ts-5@example.org",
       "sequence": 0
     },
     {
@@ -103,7 +103,7 @@
       "trackId": "common",
       "chairIds": [],
       "presentationIds": [],
-      "calendarUid": "urn:uuid:723a3336-b465-5b7d-9bdb-6928211df690",
+      "calendarUid": "ts-6@example.org",
       "sequence": 0
     },
     {
@@ -132,7 +132,7 @@
       "speakerIds": [
         "tp-1"
       ],
-      "calendarUid": "urn:uuid:56832432-de1b-54f2-93df-f6dcf5b90557",
+      "calendarUid": "tt-1@example.org",
       "sequence": 0
     },
     {
@@ -145,7 +145,7 @@
       "speakerIds": [
         "tp-1"
       ],
-      "calendarUid": "urn:uuid:3a7094cd-3bfe-5e18-b4c2-069342b6db51",
+      "calendarUid": "tt-2@example.org",
       "sequence": 0
     },
     {
@@ -158,7 +158,7 @@
       "speakerIds": [
         "tp-2"
       ],
-      "calendarUid": "urn:uuid:5a402c69-0232-50a3-8e0d-2556dde4c346",
+      "calendarUid": "tt-3@example.org",
       "sequence": 0
     },
     {
@@ -171,7 +171,7 @@
       "speakerIds": [
         "tp-3"
       ],
-      "calendarUid": "urn:uuid:c49b8103-6330-5bd1-b274-c4dd9f91fca7",
+      "calendarUid": "tt-4@example.org",
       "sequence": 0
     },
     {
@@ -184,7 +184,7 @@
       "speakerIds": [
         "tp-2"
       ],
-      "calendarUid": "urn:uuid:b10591ef-436c-5b99-a7e7-e973ff9316e7",
+      "calendarUid": "tt-5@example.org",
       "sequence": 0
     }
   ],
