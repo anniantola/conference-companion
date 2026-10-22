@@ -86,6 +86,20 @@ function itemDescription(item, conference) {
   return bits.join('\n\n');
 }
 
+
+export function calendarUidForEntity(entityId, conference={}) {
+  const id=String(entityId||'event').trim()||'event';
+  let domain='conference-companion.local';
+  try {
+    if (conference.officialWebsite) domain=new URL(conference.officialWebsite).hostname || domain;
+  } catch {}
+  if (domain==='conference-companion.local' && conference.id) {
+    const slug=String(conference.id).toLowerCase().replace(/[^a-z0-9.-]+/g,'-').replace(/^-+|-+$/g,'');
+    if (slug) domain=`${slug}.conference-companion.local`;
+  }
+  return `${id}@${domain}`;
+}
+
 export function buildICS({conference, manifest, items, locationLabel}) {
   const tz=conference.timezone;
   const years=(items||[]).map(x=>Number(String(x.date).slice(0,4))).filter(Number.isFinite);
@@ -96,7 +110,7 @@ export function buildICS({conference, manifest, items, locationLabel}) {
   const lastModified=manifest?.publishedAt ? utcStamp(new Date(manifest.publishedAt)) : dtstamp;
   for(const item of items||[]){
     if(!item?.calendarUid || !item.date || !item.start || !item.end) continue;
-    const location=locationLabel?.(item.locationId || item.room) || '';
+    const location=locationLabel?.(item.locationId) || '';
     const description=itemDescription(item,conference);
     lines.push('BEGIN:VEVENT',`UID:${item.calendarUid}`,`DTSTAMP:${dtstamp}`,`LAST-MODIFIED:${lastModified}`,`SEQUENCE:${Number(item.sequence ?? manifest?.dataVersion ?? 0)}`,`DTSTART;TZID=${tz}:${localStamp(item.date,item.start)}`,`DTEND;TZID=${tz}:${localStamp(item.date,item.end)}`,`SUMMARY:${esc(item.title)}`);
     if(location) lines.push(`LOCATION:${esc(location)}`);

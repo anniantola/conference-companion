@@ -1,8 +1,9 @@
 import {validatePackage} from './validation.js';
+import {validatePackageSchemas} from './json-schema.js';
+import {CURRENT_SCHEMA_VERSION,migratePackage} from './migrations.js';
 
 const DB_NAME = 'conferenceCompanionPackages';
 const DB_VERSION = 1;
-const SUPPORTED_SCHEMA_VERSION = 1;
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -83,8 +84,8 @@ async function fetchManifest(base) {
   catch { throw new Error('conference-manifest.json is not valid JSON'); }
   const schema = Number(manifest.schemaVersion);
   if (!Number.isInteger(schema) || schema < 1) throw new Error('conference-manifest.schemaVersion must be a positive integer');
-  if (schema > SUPPORTED_SCHEMA_VERSION) {
-    const err = new Error(`Conference data schema ${schema} is newer than this app supports (${SUPPORTED_SCHEMA_VERSION}).`);
+  if (schema > CURRENT_SCHEMA_VERSION) {
+    const err = new Error(`Conference data schema ${schema} is newer than this app supports (${CURRENT_SCHEMA_VERSION}).`);
     err.code = 'SCHEMA_TOO_NEW';
     throw err;
   }
@@ -125,7 +126,7 @@ async function downloadCandidate(base, manifest, engineVersion) {
     try { return JSON.parse(textByFile[file]); }
     catch { throw new Error(`${file} is not valid JSON`); }
   };
-  const pkg = {
+  const rawPkg = {
     manifest,
     conference:parse('conference.json'),
     programme:parse('programme.json'),
@@ -133,6 +134,9 @@ async function downloadCandidate(base, manifest, engineVersion) {
     locations:parse('locations.json'),
     branding:parse('branding.json')
   };
+  const pkg = migratePackage(rawPkg);
+  const schemaErrors = await validatePackageSchemas(pkg);
+  if (schemaErrors.length) throw new Error(`JSON Schema validation failed: ${schemaErrors.join('; ')}`);
   const report = validatePackage(pkg, {strictCalendarUid:true});
   if (report.errors.length) throw new Error(report.errors.join('; '));
   return {pkg, warnings:report.warnings};

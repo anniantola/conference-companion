@@ -23,7 +23,6 @@ export function createConferenceModel(pkg) {
   const items = [];
   for (const session of programme.sessions || []) {
     const day = dayByDate.get(session.date);
-    const location = locationById.get(session.locationId);
     const chairs = (session.chairIds || []).map(id => personById.get(id)).filter(Boolean);
     const base = {
       date:session.date,
@@ -35,8 +34,6 @@ export function createConferenceModel(pkg) {
       session:session.title,
       sessionType:session.type,
       locationId:session.locationId || null,
-      room:session.locationId || "",
-      roomLabel:location?.name || "",
       trackId:session.trackId || "common",
       track:trackOrder.get(session.trackId) ?? 0,
       trackName:trackById.get(session.trackId)?.name || "",

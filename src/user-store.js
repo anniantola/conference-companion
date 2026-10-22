@@ -1,5 +1,6 @@
 const DB_NAME = "conferenceCompanionUserData";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
+const USER_SCHEMA_VERSION = 1;
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -12,6 +13,7 @@ function openDb() {
         const store = db.createObjectStore("friends", {keyPath:"key"});
         store.createIndex("conferenceId", "conferenceId", {unique:false});
       }
+      if (!db.objectStoreNames.contains("meta")) db.createObjectStore("meta", {keyPath:"key"});
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -39,6 +41,10 @@ function txRequest(db, storeName, mode, operation) {
 export function createUserStore(conferenceId) {
   const id = String(conferenceId || "default");
   return {
+    async ensureReady() {
+      const db = await openDb();
+      await txRequest(db, "meta", "readwrite", s => s.put({key:`user-schema:${id}`, conferenceId:id, version:USER_SCHEMA_VERSION, updatedAt:Date.now()}));
+    },
     async getState() {
       const db = await openDb();
       const row = await txRequest(db, "states", "readonly", s => s.get(id));
