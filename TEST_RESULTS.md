@@ -1,3 +1,23 @@
+# Mobile usability and privacy verification — 2026-10-23, engine v1.1.4
+
+Ran the complete `npm test` gate with Node.js 22.23.4 and Playwright Chromium.
+All schema, validation, core, static, release, importer, six Builder regression,
+deployment ZIP, and browser checks passed. Playwright completed **21/21 tests**
+with no skips; this includes mobile layouts at 320, 375 and 768 px.
+
+The new regressions validate PWA manifest scope and icon dimensions, early native
+install-prompt handling, iOS instructions and standalone detection; decode a QR
+offline using the vendored fallback; exercise scanner camera selection, automatic
+import, de-duplication, cancellation, permission errors and inactivity cleanup;
+test alphabetical expandable contacts; measure compact schedule card heights and
+persistence; and verify data deletion cancellation, pending-save handling,
+reload behavior, and isolation from another conference.
+
+Physical iOS/Android installation surfaces, real camera permissions/camera choice,
+and cross-browser native scanner behavior still require device checks.
+
+---
+
 # Attendee completion verification — 2026-10-23, engine v1.1.3
 
 Executed the complete `npm test` suite with the required Node.js 22.23.4

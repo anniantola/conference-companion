@@ -185,3 +185,27 @@ preserving the selected event/poster and the attendee's place.
 The third independent fixture and browser suites establish conference-independent
 coverage for multi-session posters, attendee-owned data, mobile layouts, Friend
 Book/calendar workflows, package updates and a Builder-to-attendee deployment.
+
+## 13. Install, live scanning and personal-data erasure (v1.1.4)
+
+The install contract keeps manifest `id`, `start_url` and `scope` relative to the
+repository root and uses `display: standalone`. `bootstrap.js` captures the
+one-shot `beforeinstallprompt` event before conference-package initialization;
+the attendee UI consumes it when available and otherwise presents platform-
+specific manual instructions. `display-mode: standalone` and iOS
+`navigator.standalone` are both recognized.
+
+Live contact scanning owns a single camera lifecycle. The scanner prefers the
+environment camera, decodes frames automatically, and releases its media tracks
+on success, cancellation, navigation, visibility loss or page teardown. The
+vendored scanner selects native `BarcodeDetector` support first and falls back to
+its offline worker decoder. Parsed vCards are deduplicated by email, then ORCID,
+then name plus affiliation; private annotations survive updates.
+
+Attendee deletion is conference-scoped across the shared user database, the
+conference-specific photo database and its preferences key. A multi-store
+IndexedDB transaction clears state, profile, contacts and schema metadata for the
+current conference only. The UI invalidates delayed work, cancels debounce timers
+and awaits active writes before clearing photos and rendering empty state. It does
+not touch canonical conference packages, engine caches or another conference's
+records.

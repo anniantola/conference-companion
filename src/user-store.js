@@ -103,6 +103,22 @@ export function createUserStore(conferenceId) {
         tx.oncomplete = () => { db.close(); resolve(); };
         tx.onerror = () => { db.close(); reject(tx.error); };
       });
+    },
+    async clearAll() {
+      const db = await openDb();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(["states", "profiles", "friends", "meta"], "readwrite");
+        tx.objectStore("states").delete(id);
+        tx.objectStore("profiles").delete(id);
+        tx.objectStore("meta").delete(`user-schema:${id}`);
+        const friends = tx.objectStore("friends");
+        const keys = friends.index("conferenceId").getAllKeys(id);
+        keys.onsuccess = () => { for (const key of keys.result || []) friends.delete(key); };
+        keys.onerror = () => reject(keys.error);
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onerror = () => { db.close(); reject(tx.error); };
+        tx.onabort = () => { db.close(); reject(tx.error || new Error("Personal-data deletion aborted")); };
+      });
     }
   };
 }

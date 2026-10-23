@@ -251,5 +251,33 @@ sessions and a social event.
 Automated mobile checks detect document-level horizontal overflow and verify key
 controls, but they do not replace VoiceOver/TalkBack, physical camera, installed
 PWA, or platform file-share testing. Browser photo fixtures do not exercise EXIF
-parsing from real camera files. QR image scanning still depends on browser
-`BarcodeDetector` support; vCard file import is tested as the portable fallback.
+parsing from real camera files.
+
+### Mobile installation, live QR and privacy controls (v1.1.4)
+
+The manifest uses relative `id`, `start_url` and `scope` values so both this
+GitHub Pages project and Builder-generated repositories install within their own
+subdirectory and launch in `standalone` display mode. Chromium's one-shot native
+install event is captured before package loading. When no programmatic prompt is
+available, Settings labels the action as instructions and gives accurate iOS,
+Android or desktop browser steps instead of claiming it can open a native prompt.
+
+Friend Book QR scanning now opens a live rear-camera preview and stops after a
+valid vCard, cancellation, navigation or page inactivity. It uses the browser's
+`BarcodeDetector` when available and the vendored MIT-licensed `qr-scanner`
+worker otherwise; both runtime files are cached for offline use and included in
+Builder deployments. Manual `.vcf` import remains available. Contacts are sorted
+alphabetically and collapsed to keyboard-accessible name rows by default.
+
+Compact schedule mode now measurably reduces card height, padding, gaps and
+typography in both Programme and My Schedule. A separate destructive Settings
+action deletes only the current conference's attendee state, photos, Friend Book,
+profile and preferences after an explicit warning. Pending writes are drained or
+cancelled first; conference packages, installed engine files, other conferences,
+downloaded backups and separately saved device photos are not removed.
+
+Playwright validates manifest icons/scope, native-prompt plumbing, iOS guidance,
+standalone detection, real offline QR decoding, live scanner lifecycle/error
+handling, duplicate prevention, expandable contacts, measured compact layouts,
+and cancellation/deletion/reload/isolation. Native browser install surfaces,
+physical rear-camera selection and permission UI still require device testing.

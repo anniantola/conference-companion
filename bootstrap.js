@@ -6,10 +6,18 @@ import * as vcard from './src/vcard.js';
 import * as qr from './src/qrcode.js';
 import * as backup from './src/backup.js';
 
-const ENGINE_VERSION='1.1.3';
+const ENGINE_VERSION='1.1.4';
 const qs=new URLSearchParams(location.search);
 const base=(qs.get('conference')||'./conference').replace(/\/$/,'');
 const $=s=>document.querySelector(s);
+
+// Capture Chromium's one-shot install event before conference package loading
+// delays the attendee module. The UI consumes this stored event when ready.
+window.addEventListener('beforeinstallprompt',event=>{
+  event.preventDefault();
+  window.CONFERENCE_INSTALL_PROMPT=event;
+  window.dispatchEvent(new CustomEvent('conferenceinstallprompt'));
+});
 
 function fail(message){document.body.innerHTML=`<main style="font-family:system-ui;padding:24px;max-width:760px;margin:auto"><h1>Conference app could not start</h1><p>${String(message||'Unknown error')}</p><p><code>${base}</code></p></main>`;}
 function resolvePackageUrl(value){if(!value)return value;if(/^(?:[a-z]+:|\/)/i.test(value))return value;return `${base}/${String(value).replace(/^\.\//,'')}`;}

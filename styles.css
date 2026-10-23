@@ -790,3 +790,47 @@ html[data-theme="dark"] .gallery-note-text{
 .profile-photo-cell{display:flex;align-items:center;gap:10px}.profile-photo-cell img{width:72px;height:72px;border-radius:16px;object-fit:cover;border:1px solid var(--line,#ddd)}
 :root[data-typography="serif"] body{font-family:Georgia,"Times New Roman",serif}:root[data-typography="condensed"] body{font-family:"Arial Narrow","Roboto Condensed",system-ui,sans-serif}:root[data-header-style="logo"] .brand-lockup{align-items:center}.sponsor-grid{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin-top:14px;padding:14px;border:1px solid var(--line,#ddd);border-radius:14px}.sponsor-grid img{max-width:150px;max-height:64px;object-fit:contain;background:#fff;border-radius:8px;padding:6px}
 .modal-speaker-photo{display:block;width:88px;height:88px;object-fit:cover;border-radius:18px;margin:10px 0 8px;border:1px solid var(--line)}
+
+/* v1.1.4 attendee usability */
+html.compact .timeline{gap:5px}
+html.compact .time-group{gap:3px}
+html.compact .time-label{padding-top:6px;font-size:11px}
+html.compact .event-grid{gap:4px}
+html.compact .event-card{min-height:58px;padding:7px 38px 7px 10px;border-radius:12px;box-shadow:none}
+html.compact .event-card .star-btn{right:4px;top:4px;padding:6px;font-size:19px}
+html.compact .card-kicker{gap:3px;margin-bottom:4px}
+html.compact .pill{padding:2px 5px;font-size:9px}
+html.compact .event-title{font-size:12.5px;line-height:1.2}
+html.compact .event-person{margin-top:3px;font-size:10.5px;line-height:1.2}
+html.compact .my-day{margin-bottom:12px}
+html.compact .my-day-head{margin-bottom:5px;font-size:12px}
+
+.friend-card{padding:0;gap:0;overflow:hidden}
+.friend-card-toggle{width:100%;min-height:48px;display:flex;align-items:center;justify-content:space-between;gap:12px;border:0;padding:12px 14px;background:transparent;color:var(--text);font:inherit;font-size:15px;font-weight:850;text-align:left;cursor:pointer}
+.friend-card-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:-3px}
+.friend-expand-icon{font-size:18px;color:var(--muted);transition:transform .16s ease}
+.friend-card.expanded .friend-expand-icon{transform:rotate(180deg)}
+.friend-card-details{display:grid;gap:10px;padding:0 14px 14px;border-top:1px solid var(--line)}
+.friend-card-details>p{display:grid;gap:3px;margin:10px 0 0}
+.friend-card-details>p strong{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.friend-card-details>p span{font-size:12px;line-height:1.5;color:var(--text)}
+.friend-card-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;color:var(--muted);font-size:10px}
+.friend-delete{min-height:40px;padding:6px 8px;font-size:11px;font-weight:800}
+
+.qr-scan-dialog,.install-dialog{width:min(560px,calc(100% - 20px));max-width:none;border:0;border-radius:20px;padding:0;background:var(--surface);color:var(--text);box-shadow:0 24px 80px #0008}
+.qr-scan-dialog::backdrop,.install-dialog::backdrop{background:#000b;backdrop-filter:blur(3px)}
+.qr-scan-shell,.install-dialog-card{padding:16px;display:grid;gap:14px}
+.qr-scan-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.qr-camera-frame{position:relative;width:100%;aspect-ratio:3/4;max-height:68dvh;overflow:hidden;border-radius:16px;background:#080808}
+.qr-camera-frame video{display:block;width:100%;height:100%;object-fit:cover}
+.qr-camera-frame .scan-region-highlight{outline:0!important}
+.qr-scan-guide{position:absolute;left:18%;right:18%;top:25%;aspect-ratio:1;border:2px solid #fff;border-radius:14px;box-shadow:0 0 0 999px #0003;pointer-events:none}
+.qr-scan-status,.qr-scan-alternative,.install-dialog-card p{margin:0;font-size:12px;line-height:1.5;color:var(--muted)}
+.qr-scan-alternative{text-align:center;font-size:11px}
+
+@media(max-width:430px){
+  .qr-scan-dialog{width:calc(100% - 12px);max-height:calc(100dvh - 12px)}
+  .qr-scan-shell{padding:12px;gap:10px}
+  .qr-camera-frame{max-height:60dvh}
+  .friend-card-footer{align-items:flex-start;flex-direction:column}
+}

@@ -1,4 +1,4 @@
-const CACHE = "conference-companion-engine-1.1.3";
+const CACHE = "conference-companion-engine-1.1.4";
 const ENGINE_ASSETS = [
   "./",
   "./index.html",
@@ -18,6 +18,8 @@ const ENGINE_ASSETS = [
   "./src/calendar.js",
   "./src/vcard.js",
   "./src/qrcode.js",
+  "./src/vendor/qr-scanner/qr-scanner.min.js",
+  "./src/vendor/qr-scanner/qr-scanner-worker.min.js",
   "./src/backup.js",
   "./src/zip.js",
   "./schemas/conference-manifest.schema.json",

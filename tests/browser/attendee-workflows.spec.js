@@ -96,6 +96,7 @@ test('personal backup restores notes, photos, favorites, profile and private con
   await page.locator('[data-target="friends"]').click();
   await page.locator('#friendVcardInput').setInputFiles({name:'contact.vcf',mimeType:'text/vcard',buffer:Buffer.from('BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Jordan Contact\r\nORG:Test Laboratory\r\nEMAIL:jordan@example.test\r\nEND:VCARD\r\n')});
   await expect(page.locator('.friend-card')).toHaveCount(1);
+  await page.locator('[data-friend-toggle]').click();
   await page.locator('[data-friend-note]').fill('Private follow-up');
   await page.locator('[data-friend-tags]').fill('poster, collaborator');
   await expect.poll(()=>page.evaluate(async()=>{const rows=await window.CONFERENCE_SERVICES.userStore.listFriends();return [rows[0]?.privateNotes,rows[0]?.tags];})).toEqual(['Private follow-up',['poster','collaborator']]);
@@ -121,7 +122,7 @@ test('personal backup restores notes, photos, favorites, profile and private con
   await page.locator('#modalPhotos [data-photo-id]').click();await expect(page.locator('#photoViewerTitle')).toHaveValue('Evidence photo');await expect(page.locator('#photoViewerNote')).toHaveValue('Private photo note');await page.locator('#photoViewerClose').click();
   await page.locator('#modalClose').click();
   await page.locator('[data-target="settings"]').click();await expect(page.locator('#profileName')).toHaveValue('Casey Example');
-  await page.locator('[data-target="friends"]').click();await expect(page.locator('[data-friend-note]')).toHaveValue('Private follow-up');await expect(page.locator('[data-friend-tags]')).toHaveValue('poster, collaborator');
+  await page.locator('[data-target="friends"]').click();await page.locator('[data-friend-toggle]').click();await expect(page.locator('[data-friend-note]')).toHaveValue('Private follow-up');await expect(page.locator('[data-friend-tags]')).toHaveValue('poster, collaborator');
 });
 
 for(const width of [320,375,768,1280]){

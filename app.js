@@ -37,7 +37,7 @@
   const byId = new Map(ITEMS.map(x => [x.id, x]));
   const posterById = new Map(POSTERS.map(x => [x.id, x]));
   let currentModal = null;
-  let deferredInstallPrompt = null;
+  let deferredInstallPrompt = window.CONFERENCE_INSTALL_PROMPT || null;
   let pendingPhotoImports = [];
   let galleryObjectUrls = [];
   let modalPhotoObjectUrls = [];
@@ -51,6 +51,21 @@
   let profile = {};
   let friends = [];
   let profilePhotoUrl = "";
+  let qrScanner = null;
+  let qrScanStarting = false;
+  let qrScanProcessing = false;
+  const expandedFriendIds = new Set();
+  const pendingPersonalWrites = new Set();
+  let personalDataEpoch = 0;
+  let personalDataDeleting = false;
+  let photoMetaSaveTimer = null;
+
+  function trackPersonalWrite(promise) {
+    const tracked = Promise.resolve(promise);
+    pendingPersonalWrites.add(tracked);
+    tracked.then(() => pendingPersonalWrites.delete(tracked), () => pendingPersonalWrites.delete(tracked));
+    return tracked;
+  }
 
   function loadState() {
     let prefs = {};
@@ -63,6 +78,7 @@
   let state = loadState();
 
   function saveState() {
+    if (personalDataDeleting) return Promise.resolve(false);
     const prefs = {
       theme:state.theme, compact:state.compact, timeMode:state.timeMode, locationId:state.locationId, track:state.track,
       day:state.day, posterCategory:state.posterCategory, view:state.view, galleryMode:state.galleryMode
@@ -70,7 +86,7 @@
     localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
     // Start the IndexedDB write now: preference/navigation changes must not
     // postpone a previously saved note until after a reload.
-    return (USER_STORE?.saveState({favorites:[...(state.favorites||[])],posterFavorites:[...(state.posterFavorites||[])],notes:{...(state.notes||{})}}) || Promise.resolve())
+    return trackPersonalWrite(USER_STORE?.saveState({favorites:[...(state.favorites||[])],posterFavorites:[...(state.posterFavorites||[])],notes:{...(state.notes||{})}}) || Promise.resolve())
       .then(()=>true).catch(error=>{console.error(error);return false;});
   }
 
@@ -191,9 +207,12 @@
     });
   }
 
-  async function storePhoto(type, id, file, metadata={}) {
+  function storePhoto(type, id, file, metadata={}) {
+    const epoch=personalDataEpoch;
+    return trackPersonalWrite((async()=>{
     const blob = await prepareImageBlob(file);
     const thumbnailBlob = await prepareThumbnailBlob(blob);
+    if(personalDataDeleting||epoch!==personalDataEpoch)throw new Error("Personal data changed while saving photo");
     const db = await openPhotoDb();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(PHOTO_STORE, "readwrite");
@@ -215,9 +234,11 @@
       req.onerror = () => reject(req.error);
       tx.oncomplete = () => db.close();
     });
+    })());
   }
 
-  async function updatePhotoTitle(photoId, title) {
+  function updatePhotoTitle(photoId, title) {
+    return trackPersonalWrite((async()=>{
     const db = await openPhotoDb();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(PHOTO_STORE, "readwrite");
@@ -235,9 +256,11 @@
       tx.oncomplete = () => { db.close(); resolve(); };
       tx.onerror = () => { db.close(); reject(tx.error); };
     });
+    })());
   }
 
-  async function updatePhotoNote(photoId, note) {
+  function updatePhotoNote(photoId, note) {
+    return trackPersonalWrite((async()=>{
     const db = await openPhotoDb();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(PHOTO_STORE, "readwrite");
@@ -255,10 +278,12 @@
       tx.oncomplete = () => { db.close(); resolve(); };
       tx.onerror = () => { db.close(); reject(tx.error); };
     });
+    })());
   }
 
 
-  async function updatePhotoAssignment(photoId, type, id) {
+  function updatePhotoAssignment(photoId, type, id) {
+    return trackPersonalWrite((async()=>{
     const db = await openPhotoDb();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(PHOTO_STORE, "readwrite");
@@ -276,6 +301,7 @@
       tx.oncomplete = () => { db.close(); resolve(); };
       tx.onerror = () => { db.close(); reject(tx.error); };
     });
+    })());
   }
 
   async function deletePhoto(photoId) {
@@ -316,6 +342,17 @@
       tx.oncomplete = () => { db.close(); resolve(); };
       tx.onerror = () => { db.close(); reject(tx.error); };
       tx.onabort = () => { db.close(); reject(tx.error || new Error("Photo restore aborted")); };
+    });
+  }
+
+  async function clearAllPhotos() {
+    const db = await openPhotoDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(PHOTO_STORE, "readwrite");
+      tx.objectStore(PHOTO_STORE).clear();
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onerror = () => { db.close(); reject(tx.error); };
+      tx.onabort = () => { db.close(); reject(tx.error || new Error("Photo deletion aborted")); };
     });
   }
 
@@ -1758,6 +1795,7 @@
   }
 
   function showView(name) {
+    if(name!=="friends"&&qrScanner)stopFriendQrScan();
     state.view = name; saveState();
     $$(".view").forEach(v => v.classList.toggle("active",v.dataset.view===name));
     $$(".nav-btn").forEach(b => b.classList.toggle("active",b.dataset.target===name));
@@ -2225,29 +2263,45 @@
 
   async function saveProfile() {
     profile=profileFromForm();
-    await USER_STORE?.saveProfile(profile);
+    await trackPersonalWrite(USER_STORE?.saveProfile(profile));
     renderFriendBook();
     toast("Conference card saved");
   }
 
   function friendContactHtml(friend) {
-    const email=(friend.emails||[])[0]||friend.email||"";
-    const affiliation=(friend.affiliations||[])[0]||friend.affiliation||"";
-    const links=[friend.orcid?`<a href="https://orcid.org/${esc(String(friend.orcid).replace("https://orcid.org/","").replace("http://orcid.org/",""))}" target="_blank" rel="noopener">ORCID ↗</a>`:"",friend.linkedin?`<a href="${esc(friend.linkedin)}" target="_blank" rel="noopener">LinkedIn ↗</a>`:"",friend.website?`<a href="${esc(friend.website)}" target="_blank" rel="noopener">Website ↗</a>`:""] .filter(Boolean).join(" · ");
+    const emails=[...new Set([...(friend.emails||[]),friend.email].filter(Boolean))];
+    const affiliations=[...new Set([...(friend.affiliations||[]),friend.affiliation].filter(Boolean))];
+    const linkRows=[
+      friend.orcid?{label:"ORCID",url:`https://orcid.org/${String(friend.orcid).replace(/^https?:\/\/orcid\.org\//,"")}`}:null,
+      friend.linkedin?{label:"LinkedIn",url:friend.linkedin}:null,
+      friend.website?{label:"Website",url:friend.website}:null,
+      ...(friend.links||[]).map((link,index)=>typeof link==="string"?{label:`Link ${index+1}`,url:link}:link)
+    ].filter(link=>link?.url);
+    const links=linkRows.map(link=>`<a href="${esc(link.url)}" target="_blank" rel="noopener">${esc(link.label||"Link")} ↗</a>`).join(" · ");
+    const papers=(friend.papers||[]).map(p=>typeof p==="string"?p:(p.doi||p.title||"")).filter(Boolean);
     const events=MODEL.calendarItems().slice().sort((a,b)=>`${a.date}|${a.start}`.localeCompare(`${b.date}|${b.start}`));
     const eventOptions=events.map(e=>`<option value="${esc(e.id)}" ${e.id===friend.metAtEventId?'selected':''}>${esc(`${e.date} ${e.start} · ${e.title}`)}</option>`).join("");
-    return `<div class="friend-card" data-friend-id="${esc(friend.id)}">
-      <div class="friend-card-head"><div><h3>${esc(friend.name||"Contact")}</h3><p>${esc([friend.position,affiliation].filter(Boolean).join(" · "))}</p>${email?`<p><a href="mailto:${esc(email)}">${esc(email)}</a></p>`:""}${links?`<p>${links}</p>`:""}</div><button class="friend-delete" data-friend-delete="${esc(friend.id)}" type="button" aria-label="Delete contact">×</button></div>
-      ${friend.bio?`<p>${esc(friend.bio)}</p>`:""}
-      <div class="friend-private"><label>Met at<select data-friend-event="${esc(friend.id)}"><option value="">— conference generally —</option>${eventOptions}</select></label><label>Met at note<input data-friend-met-at="${esc(friend.id)}" value="${esc(friend.metAt||CONFERENCE.shortName||CONFERENCE.name||"")}" placeholder="Poster session, conference dinner…"></label><label>Private notes<textarea rows="2" data-friend-note="${esc(friend.id)}">${esc(friend.privateNotes||"")}</textarea></label><label>Private tags<input data-friend-tags="${esc(friend.id)}" value="${esc((friend.tags||[]).join(", "))}" placeholder="met at dinner, memristors"></label></div>
-      <p>Saved locally · ${esc(friend.metAtConferenceId||CONFERENCE.id||"")}</p>
-    </div>`;
+    const expanded=expandedFriendIds.has(friend.id),detailsId=`friend-details-${String(friend.id).replace(/[^a-zA-Z0-9_-]/g,"-")}`;
+    return `<article class="friend-card${expanded?' expanded':''}" data-friend-id="${esc(friend.id)}">
+      <button class="friend-card-toggle" data-friend-toggle="${esc(friend.id)}" type="button" aria-expanded="${expanded}" aria-controls="${esc(detailsId)}"><span>${esc(friend.name||"Contact")}</span><span class="friend-expand-icon" aria-hidden="true">⌄</span></button>
+      <div id="${esc(detailsId)}" class="friend-card-details" ${expanded?'':'hidden'}>
+        ${friend.position?`<p><strong>Position</strong><span>${esc(friend.position)}</span></p>`:""}
+        ${affiliations.length?`<p><strong>Affiliation</strong><span>${esc(affiliations.join(" · "))}</span></p>`:""}
+        ${emails.length?`<p><strong>Email</strong><span>${emails.map(email=>`<a href="mailto:${esc(email)}">${esc(email)}</a>`).join(" · ")}</span></p>`:""}
+        ${links?`<p><strong>Links</strong><span>${links}</span></p>`:""}
+        ${friend.bio?`<p><strong>About</strong><span>${esc(friend.bio)}</span></p>`:""}
+        ${papers.length?`<p><strong>Papers</strong><span>${papers.map(esc).join(" · ")}</span></p>`:""}
+        <div class="friend-private"><label>Met at<select data-friend-event="${esc(friend.id)}"><option value="">— conference generally —</option>${eventOptions}</select></label><label>Met at note<input data-friend-met-at="${esc(friend.id)}" value="${esc(friend.metAt||CONFERENCE.shortName||CONFERENCE.name||"")}" placeholder="Poster session, conference dinner…"></label><label>Private notes<textarea rows="2" data-friend-note="${esc(friend.id)}">${esc(friend.privateNotes||"")}</textarea></label><label>Private tags<input data-friend-tags="${esc(friend.id)}" value="${esc((friend.tags||[]).join(", "))}" placeholder="met at dinner, memristors"></label></div>
+        <div class="friend-card-footer"><span>Saved locally · ${esc(friend.metAtConferenceId||CONFERENCE.id||"")}</span><button class="friend-delete" data-friend-delete="${esc(friend.id)}" type="button">Delete contact</button></div>
+      </div>
+    </article>`;
   }
 
   function renderFriendBook() {
     if (!CONFERENCE.features?.friendBook) return;
     const summary=$("#myCardSummary");
     if(summary) summary.innerHTML=profile?.name?`<h3>${esc(profile.name)}</h3><p>${esc([profile.position,profile.affiliation||(profile.affiliations||[])[0]].filter(Boolean).join(" · "))}</p><p>${esc(profile.email||(profile.emails||[])[0]||"")}</p>`:`<h3>Create your conference card</h3><p>Add your details in Settings, then share a compact vCard by QR.</p>`;
+    friends.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""),undefined,{sensitivity:"base"}));
     const list=$("#friendList");if(list) list.innerHTML=friends.length?friends.map(friendContactHtml).join(""):`<div class="empty-state"><strong>No contacts saved yet</strong>Scan a conference card QR or import a .vcf file.</div>`;
     if($("#friendCount")) $("#friendCount").textContent=String(friends.length);
   }
@@ -2259,27 +2313,66 @@
     if(field==="tags")friend.tags=String(value||"").split(",").map(x=>x.trim()).filter(Boolean);
     if(field==="metAt")friend.metAt=String(value||"").trim();
     if(field==="metAtEventId")friend.metAtEventId=String(value||"").trim();
-    friends[idx]=await USER_STORE.saveFriend(friend);
+    friends[idx]=await trackPersonalWrite(USER_STORE.saveFriend(friend));
+  }
+
+  function friendIdentity(friend) {
+    const email=String((friend.emails||[])[0]||friend.email||"").trim().toLowerCase();
+    if(email)return `email:${email}`;
+    const orcid=String(friend.orcid||"").replace(/^https?:\/\/orcid\.org\//i,"").trim().toLowerCase();
+    if(orcid)return `orcid:${orcid}`;
+    return `name:${String(friend.name||"").trim().toLowerCase()}|${String((friend.affiliations||[])[0]||friend.affiliation||"").trim().toLowerCase()}`;
   }
 
   async function addFriendFromVCard(text) {
     try {
       const parsed=SERVICES.vcard.parseVCard(text);
-      const signature=[parsed.name,(parsed.emails||[])[0]||"",(parsed.affiliations||[])[0]||""].join("|").toLowerCase();
-      const existing=friends.find(x=>[x.name,(x.emails||[])[0]||x.email||"",(x.affiliations||[])[0]||x.affiliation||""].join("|").toLowerCase()===signature);
-      const saved=await USER_STORE.saveFriend({...existing,...parsed,id:existing?.id||crypto.randomUUID(),metAtConferenceId:CONFERENCE.id,metAtEventId:existing?.metAtEventId||"",metAt:existing?.metAt||CONFERENCE.shortName||CONFERENCE.name||"",savedAt:existing?.savedAt||Date.now(),privateNotes:existing?.privateNotes||"",tags:existing?.tags||[]});
+      const signature=friendIdentity(parsed);
+      const existing=friends.find(x=>friendIdentity(x)===signature);
+      const saved=await trackPersonalWrite(USER_STORE.saveFriend({...existing,...parsed,id:existing?.id||crypto.randomUUID(),metAtConferenceId:CONFERENCE.id,metAtEventId:existing?.metAtEventId||"",metAt:existing?.metAt||CONFERENCE.shortName||CONFERENCE.name||"",savedAt:existing?.savedAt||Date.now(),privateNotes:existing?.privateNotes||"",tags:existing?.tags||[]}));
       friends=existing?friends.map(x=>x.id===saved.id?saved:x):[...friends,saved];
       renderFriendBook();toast(existing?"Contact updated":"Contact saved to Friend Book");
-    } catch(err){console.error(err);toast("Could not read that vCard");}
+      return true;
+    } catch(err){console.error(err);toast("Could not read that vCard");return false;}
   }
 
-  async function scanFriendQr(file) {
-    if(!file)return;
-    if(!('BarcodeDetector' in window)){toast("QR scanning is not supported by this browser; import a .vcf instead");return;}
+  async function stopFriendQrScan({close=true}={}) {
+    const active=qrScanner;qrScanner=null;qrScanStarting=false;qrScanProcessing=false;
+    if(active){try{await active.stop();}catch{}try{active.destroy();}catch{}}
+    const video=$("#qrScanVideo");
+    if(video?.srcObject){for(const track of video.srcObject.getTracks?.()||[])track.stop();video.srcObject=null;}
+    const dialog=$("#qrScanDialog");if(close&&dialog?.open)dialog.close();
+  }
+
+  function qrCameraErrorMessage(error) {
+    const text=String(error?.message||error||"");
+    if(/denied|permission|notallowed/i.test(text))return "Camera permission was denied. Allow camera access in browser settings, or use Import vCard.";
+    if(/secure|https/i.test(text))return "Live scanning requires HTTPS. Use Import vCard on this connection.";
+    if(/not found|notfound|device|camera/i.test(text))return "No usable camera was found. Use Import vCard instead.";
+    return "Live QR scanning is unavailable on this device. Use Import vCard instead.";
+  }
+
+  async function openFriendQrScan() {
+    if(qrScanStarting||qrScanner)return;
+    const dialog=$("#qrScanDialog"),status=$("#qrScanStatus"),video=$("#qrScanVideo");
+    if(!dialog||!video)return;
+    if(!dialog.open)dialog.showModal();
+    status.textContent="Starting rear camera…";
+    if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia){status.textContent=qrCameraErrorMessage(window.isSecureContext?"Camera not found":"HTTPS required");return;}
+    qrScanStarting=true;
     try{
-      const detector=new BarcodeDetector({formats:['qr_code']});const bitmap=await createImageBitmap(file);const found=await detector.detect(bitmap);bitmap.close?.();
-      const raw=found[0]?.rawValue;if(!raw)throw new Error("No QR code found");await addFriendFromVCard(raw);
-    }catch(err){console.error(err);toast("No readable conference-card QR found");}
+      const QrScanner=window.CONFERENCE_QR_SCANNER_CLASS||(await import("./src/vendor/qr-scanner/qr-scanner.min.js")).default;
+      if(!dialog.open){qrScanStarting=false;return;}
+      const scanner=new QrScanner(video,async result=>{
+        if(qrScanProcessing||scanner!==qrScanner)return;
+        qrScanProcessing=true;status.textContent="Conference card found. Saving contact…";
+        const saved=await addFriendFromVCard(result?.data||result);
+        if(saved){await stopFriendQrScan();return;}
+        qrScanProcessing=false;status.textContent="That QR code is not a valid conference contact card. Keep scanning or use Import vCard.";
+      },{preferredCamera:"environment",maxScansPerSecond:10,highlightScanRegion:true,highlightCodeOutline:true,returnDetailedScanResult:true,onDecodeError:()=>{}});
+      qrScanner=scanner;qrScanStarting=false;await scanner.start();
+      if(scanner===qrScanner)status.textContent="Point the rear camera at a Conference Companion contact QR code.";
+    }catch(error){console.error(error);await stopFriendQrScan({close:false});status.textContent=qrCameraErrorMessage(error);}
   }
 
   function downloadMyVcard() {
@@ -2324,8 +2417,10 @@
   }
 
   async function importState(file) {
+    const epoch=personalDataEpoch;
     try {
       const {payload,photoFiles}=await SERVICES.backup.parsePersonalBackup(file);
+      if(epoch!==personalDataEpoch||personalDataDeleting)return;
       if(payload.conferenceId&&payload.conferenceId!==CONFERENCE.id&&!confirm(`This backup belongs to ${payload.conferenceId}. Import compatible personal data into ${CONFERENCE.id} anyway?`))return;
       const incoming=payload.state||payload;
       state={...state,...incoming};
@@ -2334,9 +2429,9 @@
       if(!state.notes||typeof state.notes!=="object"||Array.isArray(state.notes))state.notes={};
       state.notes=Object.fromEntries(Object.entries(state.notes).filter(([key,value])=>{const idx=String(key).indexOf(":");const type=idx>=0?key.slice(0,idx):"event",id=idx>=0?key.slice(idx+1):key;return typeof value==="string"&&((type==="event"&&byId.has(id))||(type==="poster"&&posterById.has(id)));}));
       profile=payload.profile||profile||{};friends=Array.isArray(payload.friends)?payload.friends:friends;
-      await USER_STORE?.saveState({favorites:state.favorites,posterFavorites:state.posterFavorites,notes:state.notes});
-      await USER_STORE?.saveProfile(profile);if(Array.isArray(payload.friends))await USER_STORE?.replaceFriends(friends);
-      if(Array.isArray(payload.photos)&&photoFiles.size)await replaceAllPhotos(payload.photos,photoFiles);
+      await trackPersonalWrite(USER_STORE?.saveState({favorites:state.favorites,posterFavorites:state.posterFavorites,notes:state.notes}));
+      await trackPersonalWrite(USER_STORE?.saveProfile(profile));if(Array.isArray(payload.friends))await trackPersonalWrite(USER_STORE?.replaceFriends(friends));
+      if(Array.isArray(payload.photos)&&photoFiles.size)await trackPersonalWrite(replaceAllPhotos(payload.photos,photoFiles));
       saveState();fillProfileForm();renderFriendBook();applyTheme();syncSettings();renderProgram();renderPosters();renderMySchedule();renderGalleryNotes();await renderGallery();toast("Backup imported");
     } catch(err){console.error(err);toast("Could not import that backup");}
   }
@@ -2344,6 +2439,20 @@
   function isStandalone() {
     return window.matchMedia("(display-mode: standalone)").matches ||
       window.navigator.standalone === true;
+  }
+
+  function installPlatform() {
+    const ua=navigator.userAgent||"",ipad=navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1;
+    if(/iPad|iPhone|iPod/.test(ua)||ipad)return "ios";
+    if(/Android/i.test(ua))return "android";
+    return "desktop";
+  }
+
+  function manualInstallInstructions() {
+    const platform=installPlatform();
+    if(platform==="ios")return "In Safari, tap the Share button, choose Add to Home Screen, then tap Add. iPhone and iPad browsers do not provide a programmatic install prompt.";
+    if(platform==="android")return "Open your browser menu and choose Install app or Add to Home screen. If that option is missing, first reload while online and try the menu again.";
+    return "Open your browser menu and choose Install Conference Companion, Install app, or Create shortcut. This browser does not expose a programmatic install prompt.";
   }
 
   function updateInstallUI() {
@@ -2359,12 +2468,13 @@
     }
 
     btn.disabled = false;
-    btn.textContent = "Install";
 
     if (deferredInstallPrompt) {
-      help.textContent = "Install this planner on your home screen for app-like access.";
+      btn.textContent = "Install";
+      help.textContent = "Install this planner with your browser's native prompt. It opens in its own standalone window.";
     } else {
-      help.textContent = "If no prompt opens, use your browser menu and choose Install app or Add to Home screen.";
+      btn.textContent = "Show instructions";
+      help.textContent = manualInstallInstructions();
     }
   }
 
@@ -2377,14 +2487,40 @@
     if (deferredInstallPrompt) {
       const promptEvent = deferredInstallPrompt;
       deferredInstallPrompt = null;
-      await promptEvent.prompt();
-      try { await promptEvent.userChoice; } catch {}
+      try {
+        await promptEvent.prompt();
+        const choice=await promptEvent.userChoice;
+        if(choice?.outcome==="dismissed")toast("Installation was cancelled");
+      } catch(error) { console.error(error);toast("The native installation prompt could not be opened"); }
       updateInstallUI();
       return;
     }
 
-    toast("Use browser menu → Install app / Add to Home screen");
-    updateInstallUI();
+    const instructions=$("#installInstructions"),dialog=$("#installDialog");
+    if(instructions)instructions.textContent=manualInstallInstructions();
+    if(dialog&&!dialog.open)dialog.showModal();
+  }
+
+  async function deleteAllPersonalData() {
+    const warning="Delete all personal data for this conference? This permanently removes favorites, notes, app-stored photos and annotations, Friend Book contacts, your profile, and preferences. Official programme data and the installed app remain. Previously downloaded backups and photos separately saved on your device cannot be deleted by this app.";
+    if(!confirm(warning))return;
+    const button=$("#deletePersonalDataBtn");if(button){button.disabled=true;button.textContent="Deleting…";}
+    personalDataDeleting=true;personalDataEpoch++;
+    clearTimeout(photoMetaSaveTimer);photoMetaSaveTimer=null;
+    $$("[data-friend-note],[data-friend-tags],[data-friend-met-at]").forEach(el=>{clearTimeout(el._saveTimer);el._saveTimer=null;});
+    await stopFriendQrScan();
+    closePhotoViewer();
+    if($("#detailModal")?.open)$("#detailModal").close();
+    try{
+      await Promise.allSettled([...pendingPersonalWrites]);
+      await Promise.all([USER_STORE?.clearAll(),clearAllPhotos()]);
+      localStorage.removeItem(PREFS_KEY);
+      state={...defaultState,day:detectConferenceDay(),view:"settings",notes:{}};
+      profile={};friends=[];expandedFriendIds.clear();
+      fillProfileForm();renderFriendBook();applyTheme();syncSettings();renderDays();renderProgram();renderPosters();renderMySchedule();renderGalleryNotes();await renderGallery();
+      toast("All personal data for this conference was deleted");
+    }catch(error){console.error(error);toast("Personal data could not be completely deleted. Please try again.");}
+    finally{personalDataDeleting=false;if(button){button.disabled=false;button.textContent="Delete all";}}
   }
 
   function setupConferenceUi() {
@@ -2570,6 +2706,8 @@
     $("#importBtn").addEventListener("click",()=>$("#importInput").click());
     $("#importInput").addEventListener("change",e=>{if(e.target.files[0])importState(e.target.files[0]);e.target.value="";});
     $("#installBtn").addEventListener("click", installApp);
+    $("#installDialogClose")?.addEventListener("click",()=>$("#installDialog").close());
+    $("#installDialogDone")?.addEventListener("click",()=>$("#installDialog").close());
     $("#exportStarredIcsBtn")?.addEventListener("click",exportStarredCalendar);
     $("#exportFullIcsBtn")?.addEventListener("click",exportFullCalendar);
     $("#rollbackDataBtn")?.addEventListener("click",async()=>{
@@ -2579,23 +2717,28 @@
     });
 
     $("#saveProfileBtn")?.addEventListener("click",saveProfile);
-    $("#profilePhotoInput")?.addEventListener("change",async e=>{const file=e.target.files?.[0];if(!file)return;profile={...profile,photoBlob:await prepareImageBlob(file)};await USER_STORE?.saveProfile(profile);renderProfilePhoto();toast("Profile photo saved locally");e.target.value="";});
-    $("#clearProfilePhotoBtn")?.addEventListener("click",async()=>{if(profile?.photoBlob)delete profile.photoBlob;await USER_STORE?.saveProfile(profile);renderProfilePhoto();toast("Profile photo removed");});
+    $("#profilePhotoInput")?.addEventListener("change",async e=>{const file=e.target.files?.[0];if(!file)return;const epoch=personalDataEpoch,photoBlob=await prepareImageBlob(file);if(personalDataDeleting||epoch!==personalDataEpoch)return;profile={...profile,photoBlob};await trackPersonalWrite(USER_STORE?.saveProfile(profile));renderProfilePhoto();toast("Profile photo saved locally");e.target.value="";});
+    $("#clearProfilePhotoBtn")?.addEventListener("click",async()=>{if(profile?.photoBlob)delete profile.photoBlob;await trackPersonalWrite(USER_STORE?.saveProfile(profile));renderProfilePhoto();toast("Profile photo removed");});
     $("#shareQrBtn")?.addEventListener("click", openShareQr);
     $("#shareQrFullBtn")?.addEventListener("click",()=>showView("friends"));
     $("#friendShareBtn")?.addEventListener("click",openShareQr);
     $("#downloadVcardBtn")?.addEventListener("click",downloadMyVcard);
-    $("#scanFriendBtn")?.addEventListener("click",()=>$("#friendScanInput")?.click());
+    $("#scanFriendBtn")?.addEventListener("click",openFriendQrScan);
     $("#importVcardBtn")?.addEventListener("click",()=>$("#friendVcardInput")?.click());
-    $("#friendScanInput")?.addEventListener("change",async e=>{if(e.target.files[0])await scanFriendQr(e.target.files[0]);e.target.value="";});
     $("#friendVcardInput")?.addEventListener("change",async e=>{const f=e.target.files[0];if(f)await addFriendFromVCard(await f.text());e.target.value="";});
+    $("#qrScanClose")?.addEventListener("click",()=>stopFriendQrScan());
+    $("#qrScanCancel")?.addEventListener("click",()=>stopFriendQrScan());
+    $("#qrScanDialog")?.addEventListener("cancel",e=>{e.preventDefault();stopFriendQrScan();});
     $("#friendList")?.addEventListener("input",e=>{
       const metEvent=e.target.closest("[data-friend-event]");if(metEvent){saveFriendPrivate(metEvent.dataset.friendEvent,"metAtEventId",metEvent.value);return;}
       const metAt=e.target.closest("[data-friend-met-at]");if(metAt){clearTimeout(metAt._saveTimer);metAt._saveTimer=setTimeout(()=>saveFriendPrivate(metAt.dataset.friendMetAt,"metAt",metAt.value),250);return;}
       const note=e.target.closest("[data-friend-note]");if(note){clearTimeout(note._saveTimer);note._saveTimer=setTimeout(()=>saveFriendPrivate(note.dataset.friendNote,"privateNotes",note.value),250);return;}
       const tags=e.target.closest("[data-friend-tags]");if(tags){clearTimeout(tags._saveTimer);tags._saveTimer=setTimeout(()=>saveFriendPrivate(tags.dataset.friendTags,"tags",tags.value),250);}
     });
-    $("#friendList")?.addEventListener("click",async e=>{const del=e.target.closest("[data-friend-delete]");if(!del)return;if(confirm("Delete this Friend Book contact?")){await USER_STORE.deleteFriend(del.dataset.friendDelete);friends=friends.filter(x=>x.id!==del.dataset.friendDelete);renderFriendBook();toast("Contact deleted");}});
+    $("#friendList")?.addEventListener("click",async e=>{
+      const toggle=e.target.closest("[data-friend-toggle]");if(toggle){const id=toggle.dataset.friendToggle;if(expandedFriendIds.has(id))expandedFriendIds.delete(id);else expandedFriendIds.add(id);renderFriendBook();return;}
+      const del=e.target.closest("[data-friend-delete]");if(!del)return;if(confirm("Delete this Friend Book contact?")){await trackPersonalWrite(USER_STORE.deleteFriend(del.dataset.friendDelete));friends=friends.filter(x=>x.id!==del.dataset.friendDelete);expandedFriendIds.delete(del.dataset.friendDelete);renderFriendBook();toast("Contact deleted");}
+    });
 
     $("#shareQrClose").addEventListener("click", closeShareQr);
     $("#shareQrViewer").addEventListener("click", e => {
@@ -2608,6 +2751,7 @@
         state.favorites=[];state.posterFavorites=[];saveState();renderProgram();renderPosters();renderMySchedule();toast("Favorites cleared");
       }
     });
+    $("#deletePersonalDataBtn")?.addEventListener("click",deleteAllPersonalData);
 
     let noteSaveRevision = 0;
     $("#modalContent").addEventListener("input", async e => {
@@ -2674,8 +2818,6 @@
       e.stopPropagation();
       movePhotoViewer(1);
     });
-
-    let photoMetaSaveTimer = null;
 
     const markPhotoMetaSaving = () => {
       const status = $("#photoViewerSaveStatus");
@@ -2819,6 +2961,9 @@
     });
 
     matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change",()=>{if(state.theme==="system")applyTheme();});
+    matchMedia("(display-mode: standalone)").addEventListener?.("change",updateInstallUI);
+    document.addEventListener("visibilitychange",()=>{if(document.hidden&&($("#qrScanDialog")?.open||qrScanner))stopFriendQrScan();});
+    window.addEventListener("pagehide",()=>stopFriendQrScan());
   }
 
   function showEngineUpdateNotice() {
@@ -2860,14 +3005,14 @@
     registerServiceWorker();
   }
 
-  window.addEventListener("beforeinstallprompt", event => {
-    event.preventDefault();
-    deferredInstallPrompt = event;
+  window.addEventListener("conferenceinstallprompt", () => {
+    deferredInstallPrompt = window.CONFERENCE_INSTALL_PROMPT || null;
     updateInstallUI();
   });
 
   window.addEventListener("appinstalled", () => {
     deferredInstallPrompt = null;
+    window.CONFERENCE_INSTALL_PROMPT = null;
     updateInstallUI();
     toast(`${CONFERENCE.shortName || "Conference app"} installed`);
   });

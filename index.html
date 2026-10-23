@@ -140,7 +140,6 @@
           <button id="downloadVcardBtn" class="secondary-btn" type="button">Download vCard</button>
           <button id="scanFriendBtn" class="secondary-btn" type="button">Scan QR</button>
           <button id="importVcardBtn" class="secondary-btn" type="button">Import vCard</button>
-          <input id="friendScanInput" type="file" accept="image/*" capture="environment" hidden>
           <input id="friendVcardInput" type="file" accept="text/vcard,.vcf,text/plain" hidden>
         </div>
         <div id="friendList" class="friend-list"></div>
@@ -237,6 +236,13 @@
             </div>
             <button id="clearBtn" class="danger-btn" type="button">Clear</button>
           </div>
+          <div class="setting-card">
+            <div>
+              <strong>Delete all personal data</strong>
+              <p>Erase this conference's favorites, notes, photos, Friend Book, profile and preferences. Downloaded backups and separately saved device photos are outside the app and cannot be removed here.</p>
+            </div>
+            <button id="deletePersonalDataBtn" class="danger-btn" type="button">Delete all</button>
+          </div>
         </div>
 
         <div class="settings-section">
@@ -322,6 +328,24 @@
     <button id="shareQrClose" class="share-qr-close" type="button" aria-label="Close QR code">×</button>
     <div class="share-qr-full-card"><strong id="shareQrName">My conference card</strong><canvas id="shareQrCanvas" aria-label="QR code"></canvas><p id="shareQrHint">Scan to save this vCard.</p></div>
   </div>
+
+  <dialog id="qrScanDialog" class="qr-scan-dialog">
+    <div class="qr-scan-shell">
+      <div class="qr-scan-head"><strong>Scan conference contact</strong><button id="qrScanClose" class="icon-btn ghost" type="button" aria-label="Close QR scanner">×</button></div>
+      <div class="qr-camera-frame"><video id="qrScanVideo" playsinline muted aria-label="Live camera preview"></video><div class="qr-scan-guide" aria-hidden="true"></div></div>
+      <p id="qrScanStatus" class="qr-scan-status" role="status" aria-live="polite">Point the rear camera at a Conference Companion contact QR code.</p>
+      <button id="qrScanCancel" class="secondary-btn" type="button">Cancel</button>
+      <p class="qr-scan-alternative">Camera unavailable? Close this scanner and use <strong>Import vCard</strong>.</p>
+    </div>
+  </dialog>
+
+  <dialog id="installDialog" class="install-dialog">
+    <div class="install-dialog-card">
+      <div class="modal-top"><strong>Install Conference Companion</strong><button id="installDialogClose" class="icon-btn ghost" type="button" aria-label="Close installation instructions">×</button></div>
+      <p id="installInstructions"></p>
+      <button id="installDialogDone" class="primary-btn" type="button">Done</button>
+    </div>
+  </dialog>
 
   <div id="photoViewer" class="photo-viewer" role="dialog" aria-modal="true" aria-label="Photo viewer" hidden>
     <div class="photo-viewer-shell">

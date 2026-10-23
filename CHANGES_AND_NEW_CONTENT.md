@@ -112,3 +112,26 @@ acceptance coverage.
 - Remaining manual scope: physical camera/EXIF files, OS share sheets/calendar
   clients, installed-mode updates, QR camera scanning, screen readers and non-
   Chromium browser engines.
+
+## 2026-10-23 — Mobile install, live QR and personal-data controls (v1.1.4)
+
+- Corrected PWA installation UX with early native-prompt capture, installed-mode
+  detection, relative GitHub Pages manifest identity/scope, verified icon sizes,
+  and honest iOS/Android/desktop manual instructions when prompting is unsupported.
+- Replaced QR photo capture with an in-app live rear-camera preview. Native
+  `BarcodeDetector` is preferred; a vendored MIT-licensed offline worker handles
+  other browsers. Scanning stops and releases media on success, cancel,
+  navigation or inactivity, while manual vCard import remains available.
+- Changed Friend Book contacts to an alphabetical, collapsed, keyboard-accessible
+  list with complete details and private editing available on expansion.
+- Made compact mode visibly and measurably denser in Programme and My Schedule,
+  with immediate application and persisted preference behavior.
+- Added a separately confirmed, conference-scoped personal-data deletion flow.
+  It clears attendee state, notes, photos and metadata, contacts, profile and
+  preferences after pending writes settle, while preserving official packages,
+  other conferences, downloaded backups and separately saved device photos.
+- Added browser coverage for installation, offline QR decoding and scanner
+  lifecycle/errors, duplicate contacts, accordion behavior, measured compact
+  geometry, deletion cancellation/reload/isolation, and existing mobile widths.
+- Physical install surfaces, camera selection/permission UI and iOS standalone
+  behavior remain device-level interoperability checks.

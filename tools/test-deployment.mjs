@@ -14,6 +14,8 @@ for(const base of ['conference','fixtures/multi-track-no-posters','fixtures/mult
  try{zip=await packageZip({conference:pkg.conference,rows:rowsFromStructuredPackage(pkg),branding:pkg.branding,features:pkg.conference.features,identityRegistry:{people:{},locations:{},tracks:{}},dataVersion:1});}finally{globalThis.fetch=originalFetch;}
  const entries=await readStoredZip(zip.blob);
  assert.ok(entries.has('service-worker.js'));assert.ok(entries.has('.github/workflows/deploy.yml'));assert.ok(entries.has('.nojekyll'));
+ assert.ok(entries.has('src/vendor/qr-scanner/qr-scanner.min.js'));assert.ok(entries.has('src/vendor/qr-scanner/qr-scanner-worker.min.js'));assert.ok(entries.has('src/vendor/qr-scanner/LICENSE'));
+ const webManifest=JSON.parse(textEntry(entries,'manifest.webmanifest'));assert.equal(webManifest.id,'./');assert.equal(webManifest.start_url,'./');assert.equal(webManifest.scope,'./');assert.equal(webManifest.display,'standalone');
  const workflow=textEntry(entries,'.github/workflows/deploy.yml');assert.match(workflow,/path: "_site"/);assert.match(workflow,/run: npm test/);
  assert.ok(![...entries.keys()].some(x=>x.includes('node_modules')||x.includes('sourceFiles')));
  const target=await mkdtemp(join(tmpdir(),'conference-deployment-'));
