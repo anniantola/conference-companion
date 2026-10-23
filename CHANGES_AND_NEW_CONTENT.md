@@ -67,3 +67,27 @@
   The offline UI note/favorite regressions cover the previously failing sequence.
 - Generated deployment ZIPs now create `.nojekyll` directly instead of fetching a
   dotfile omitted from Pages artifacts; ZIP regressions simulate that missing file.
+
+## 2026-10-23 — Synchronize engine-update browser acceptance
+
+The deployment run for c132ee1 timed out in the clean-launch navigation. Its
+`ERR_ABORTED` message appeared when Playwright tore down the timed-out test.
+Closing the last page only permits a waiting service worker to activate; it does
+not await activation, cache cleanup or client claiming. The test immediately
+introduced a new scoped navigation and only checked activation afterward.
+
+The test now captures the replacement Playwright worker before registration,
+closes the editing client, and observes the exact replacement registration reach
+`activated` with no waiting worker before creating the clean-launch page. This
+observation creates no scoped document client. It also verifies that the editing
+page retains its original controller and unsaved form text, that the replacement
+is installed/waiting, and that the new page loads, is controlled by the replacement,
+and sees only the new engine cache. The temporary script interception ends after
+its cache-coherence assertion so it cannot affect the replacement installation.
+
+No production worker, storage, timeout or retry policy changed. Existing assertions
+remain, with additional lifecycle and clean-launch checks. The original failure
+was not reproduced in 30 local runs; its CI log and the missing lifecycle barrier
+support a test synchronization race, with no evidence of an application-triggered
+reload. Real device/browser lifecycle interoperability remains outside Chromium
+acceptance coverage.

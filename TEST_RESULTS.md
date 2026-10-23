@@ -1,3 +1,25 @@
+# Engine-update test synchronization follow-up — 2026-10-23
+
+- Reviewed failed Actions run 39914234056 for c132ee1. The clean-launch navigation
+  remained pending until the 45-second test deadline; teardown reported ERR_ABORTED.
+- Original test: 30/30 local repetitions passed, so the CI-specific hang was not
+  reproduced locally. Inspection found that closing a page was incorrectly used
+  as an activation-completion barrier.
+- Corrected test: **30/30 consecutive repetitions passed** using
+  `npm exec --package=node@22 -c 'playwright test -g "engine update waits" --repeat-each=30'`.
+- Complete `npm test`: all Node checks and **5/5 Chromium tests passed**.
+- `git diff --check`: passed. Timeouts/retries and production worker code unchanged.
+- Added checks for the editing client's original controller, installed/waiting
+  replacement, completed activation before navigation, clean-launch Builder UI,
+  new-page controller and removal of the previous engine cache.
+
+The test now observes the replacement worker without creating a scoped document
+client during activation. This fixes the synchronization gap; the exact Chromium
+internal cause of the original CI hang cannot be proven from its logs alone.
+Remote deployment results are reported after pushing the tested commit.
+
+---
+
 # Validation results — 2026-10-23, engine v1.1.2
 
 Executed the complete `npm test` suite with Node v22.23.4 and Playwright 1.64.1

@@ -78,18 +78,39 @@ test('atomic releases, corrupt/invalid/mutated updates, rollback and user data i
 test('engine update waits while a client edits and activates on clean launch',async({page,context})=>{
   await ready(page);await controlled(page);
   await page.locator('[data-target="settings"]').click();await page.locator('#profileName').fill('Unsaved editing');
+  const originalController=await page.evaluate(()=>navigator.serviceWorker.controller.scriptURL);
   const worker=await readFile('service-worker.js','utf8');
   const originalApp=await readFile('app.js','utf8');
   await context.route('**/app.js',route=>route.fulfill({contentType:'text/javascript',body:'// replacement engine'}));
   expect(await page.evaluate(()=>fetch('/app.js').then(r=>r.text()))).toBe(originalApp);
+  await context.unroute('**/app.js');
   // A genuine second service-worker script/cache, served by the local HTTP server.
   const {writeFile,unlink}=await import('node:fs/promises');const path='test-engine-worker.js';
   await writeFile(path,worker.replace('conference-companion-engine-1.1.2','conference-companion-engine-test'));
   try{
+    const replacementCreated=context.waitForEvent('serviceworker',worker=>worker.url().endsWith('/test-engine-worker.js'));
     await page.evaluate(async()=>{await navigator.serviceWorker.register('/test-engine-worker.js',{scope:'/'});});
+    const replacement=await replacementCreated;
     await expect.poll(()=>page.evaluate(async()=>Boolean((await navigator.serviceWorker.getRegistration()).waiting))).toBe(true);
     await expect(page.locator('#profileName')).toHaveValue('Unsaved editing');
-    const next=await context.newPage();await page.close();await next.goto('/builder.html');
+    expect(await page.evaluate(()=>navigator.serviceWorker.controller.scriptURL)).toBe(originalController);
+    expect(await replacement.evaluate(()=>self.registration.waiting.state)).toBe('installed');
+
+    // Closing the last client permits activation; it does not await activation.
+    // Observe through the worker, which is not a scoped document client. Opening
+    // a scoped page here can race activation/claim and hold navigation pending.
+    await page.close();
+    await expect.poll(()=>replacement.evaluate(()=>({
+      url:self.registration.active?.scriptURL,
+      state:self.registration.active?.state,
+      waiting:self.registration.waiting?.scriptURL||null
+    }))).toEqual({url:new URL('/test-engine-worker.js',originalController).href,state:'activated',waiting:null});
+
+    const next=await context.newPage();await next.goto('/builder.html');
     await expect.poll(()=>next.evaluate(async()=>{const r=await navigator.serviceWorker.getRegistration();return r.active?.scriptURL;})).toContain('test-engine-worker.js');
+    await expect(page.isClosed()).toBe(true);
+    await expect(next.locator('#programmeFile')).toBeVisible();
+    expect(await next.evaluate(()=>navigator.serviceWorker.controller.scriptURL)).toContain('test-engine-worker.js');
+    expect(await next.evaluate(()=>caches.keys())).toEqual(['conference-companion-engine-test']);
   }finally{await unlink(path);}
 });
