@@ -1,3 +1,21 @@
+# Friend Book My Card verification — 2026-10-23, engine v1.1.5
+
+The complete `npm test` gate passed with Node.js 22.23.4 and Playwright Chromium.
+All schema, semantic validation, core, static, release, importer, Builder
+regression, and generated deployment ZIP checks passed. Playwright completed
+**22/22 tests**, with no skips.
+
+The profile regression cancelled unsaved text and photo changes without altering
+storage, saved every existing profile field and photo, verified the summary after
+reload, exported the complete profile in the personal backup, changed the profile,
+and restored all fields and the photo from that backup. Existing vCard, QR,
+Friend Book, and 320/375/768 px mobile checks passed after moving the editor.
+
+`git diff --check` and JavaScript syntax checks passed. Physical mobile interaction
+and screen-reader checks remain outside Chromium automation.
+
+---
+
 # Mobile usability and privacy verification — 2026-10-23, engine v1.1.4
 
 Ran the complete `npm test` gate with Node.js 22.23.4 and Playwright Chromium.

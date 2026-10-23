@@ -1,4 +1,6 @@
 import {test,expect} from '@playwright/test';
+import {readFile} from 'node:fs/promises';
+import {readStoredZip,textEntry} from '../../src/zip.js';
 
 const fixture='/?conference=./fixtures/multiple-poster-sessions';
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=','base64');
@@ -24,7 +26,7 @@ test('PWA assets, Pages scope, native prompt and offline QR fallback are operati
   expect(result.manifest).toMatchObject({id:'./',start_url:'./',scope:'./',display:'standalone'});
   expect(result.scope).toBe('http://127.0.0.1:8080/');
   expect(result.dimensions).toEqual([[192,192],[512,512]]);
-  expect(result.caches).toContain('conference-companion-engine-1.1.4');
+  expect(result.caches).toContain('conference-companion-engine-1.1.5');
 
   await context.setOffline(true);
   const decoded=await page.evaluate(async()=>{
@@ -120,6 +122,38 @@ test('Friend Book is an alphabetical, keyboard-accessible expandable list',async
   await amy.click();await expect(page.locator('.friend-card-details:visible')).toHaveCount(0);
 });
 
+test('My Card editor saves, cancels, reloads and restores every profile field from backup',async({page})=>{
+  await ready(page);await page.locator('[data-target="settings"]').click();
+  await expect(page.locator('#settingsView #profileName')).toHaveCount(0);
+  await page.locator('[data-target="friends"]').click();
+  await expect(page.locator('#myCardSection')).toBeVisible();await expect(page.locator('#friendList')).toBeVisible();
+  const savedBefore=()=>page.evaluate(async()=>{const profile=await window.CONFERENCE_SERVICES.userStore.getProfile();return {...profile,hasPhoto:profile.photoBlob instanceof Blob};});
+
+  await page.locator('#editProfileBtn').click();
+  await page.locator('#profileName').fill('Discarded Edit');await page.locator('#profilePhotoInput').setInputFiles({name:'discarded.png',mimeType:'image/png',buffer:png});
+  await page.locator('#cancelProfileBtn').click();
+  const cancelled=await savedBefore();expect(Object.keys(cancelled).filter(key=>key!=='hasPhoto')).toEqual([]);expect(cancelled.hasPhoto).toBe(false);await expect(page.locator('#myCardSummary')).toContainText('Create your conference card');
+
+  await page.locator('#editProfileBtn').click();
+  const values={profileName:'Riley Researcher',profilePosition:'Principal Investigator',profileAffiliation:'Example Institute',profileEmail:'riley@example.test',profileOrcid:'0000-0002-1234-5678',profileLinkedin:'https://www.linkedin.com/in/riley',profileWebsite:'https://example.test/riley',profileBio:'Offline-first systems researcher',profilePapers:'https://doi.org/10.0000/alpha\nhttps://doi.org/10.0000/beta'};
+  for(const [id,value] of Object.entries(values))await page.locator(`#${id}`).fill(value);
+  await page.locator('#profilePhotoInput').setInputFiles({name:'profile.png',mimeType:'image/png',buffer:png});
+  await page.locator('#saveProfileBtn').click();await expect(page.locator('#profileSection')).toBeHidden();
+  await expect(page.locator('#myCardSummary')).toContainText('Riley Researcher');await expect(page.locator('#myCardSummary')).toContainText('Principal Investigator');await expect(page.locator('#myCardSummary')).toContainText('Example Institute');await expect(page.locator('#myCardSummary')).toContainText('riley@example.test');await expect(page.locator('#myCardSummary')).toContainText('Offline-first systems researcher');
+  let saved=await savedBefore();expect(saved.name).toBe(values.profileName);expect(saved.position).toBe(values.profilePosition);expect(saved.affiliation).toBe(values.profileAffiliation);expect(saved.email).toBe(values.profileEmail);expect(saved.orcid).toBe(values.profileOrcid);expect(saved.linkedin).toBe(values.profileLinkedin);expect(saved.website).toBe(values.profileWebsite);expect(saved.bio).toBe(values.profileBio);expect(saved.papers).toEqual(values.profilePapers.split('\n'));expect(saved.hasPhoto).toBe(true);
+
+  await page.reload();await expect(page.locator('#programList')).not.toBeEmpty();await page.locator('[data-target="friends"]').click();await expect(page.locator('#myCardSummary')).toContainText('Riley Researcher');await expect(page.locator('.friend-profile-photo')).toBeVisible();
+  await page.locator('[data-target="settings"]').click();const pending=page.waitForEvent('download');await page.locator('#exportBtn').click();const backup=await pending,backupPath=await backup.path();
+  const entries=await readStoredZip(new Blob([await readFile(backupPath)]));const payload=JSON.parse(textEntry(entries,'backup.json'));
+  expect(payload.profile.name).toBe(values.profileName);expect(payload.profilePhoto.file).toMatch(/^profile\//);expect(payload.profile.papers).toEqual(values.profilePapers.split('\n'));
+
+  await page.locator('[data-target="friends"]').click();await page.locator('#editProfileBtn').click();await page.locator('#profileName').fill('Temporary Change');await page.locator('#profilePapers').fill('changed');await page.locator('#saveProfileBtn').click();
+  await page.locator('[data-target="settings"]').click();await page.locator('#importInput').setInputFiles(backupPath);await expect(page.locator('#toast')).toContainText('Backup imported');
+  await page.locator('[data-target="friends"]').click();await expect(page.locator('#myCardSummary')).toContainText('Riley Researcher');await page.locator('#editProfileBtn').click();
+  for(const [id,value] of Object.entries(values))await expect(page.locator(`#${id}`)).toHaveValue(value);
+  await expect(page.locator('#profilePhotoPreview')).toBeVisible();await page.locator('#cancelProfileBtn').click();
+});
+
 test('compact schedule has measurable density and persists for Program and My Schedule',async({browser})=>{
   const context=await browser.newContext({viewport:{width:375,height:800},hasTouch:true,isMobile:true});const page=await context.newPage();await ready(page);
   const card=page.locator('#programList [data-event]').first();await card.locator('[data-star-event]').click();
@@ -136,12 +170,13 @@ test('delete all personal data supports cancellation, drains saves, reloads empt
   await ready(page);
   const event=page.locator('#programList [data-event]').first(),eventId=await event.getAttribute('data-event');await event.locator('[data-star-event]').click();await event.click();await page.locator('.presentation-note').fill('Delete me');await expect(page.locator('#noteSaveStatus')).toHaveText('Saved');await page.locator('#photoInput').setInputFiles({name:'private.png',mimeType:'image/png',buffer:png});await expect(page.locator('#modalPhotos [data-photo-id]')).toHaveCount(1);await page.locator('#modalClose').click();
   await page.locator('[data-target="posters"]').click();await page.locator('#posterList [data-star-poster="poster-a1"]').click();await page.locator('#posterList [data-poster="poster-a1"]').click();await page.locator('.presentation-note').fill('Poster note');await expect(page.locator('#noteSaveStatus')).toHaveText('Saved');await page.locator('#modalClose').click();
-  await page.locator('[data-target="settings"]').click();await page.locator('#themeSelect').selectOption('light');await page.locator('#compactToggle').click();await page.locator('#profileName').fill('Private Profile');await page.locator('#profilePhotoInput').setInputFiles({name:'profile.png',mimeType:'image/png',buffer:png});await page.locator('#saveProfileBtn').click();
+  await page.locator('[data-target="friends"]').click();await page.locator('#editProfileBtn').click();await page.locator('#profileName').fill('Private Profile');await page.locator('#profilePhotoInput').setInputFiles({name:'profile.png',mimeType:'image/png',buffer:png});await page.locator('#saveProfileBtn').click();
+  await page.locator('[data-target="settings"]').click();await page.locator('#themeSelect').selectOption('light');await page.locator('#compactToggle').click();
   await page.locator('[data-target="friends"]').click();await page.locator('#friendVcardInput').setInputFiles({name:'private.vcf',mimeType:'text/vcard',buffer:Buffer.from('BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Private Friend\r\nEMAIL:friend@example.test\r\nEND:VCARD\r\n')});await page.locator('[data-friend-toggle]').click();await page.locator('[data-friend-note]').fill('Pending private note');
   await page.evaluate(async()=>{const {createUserStore}=await import('/src/user-store.js');const other=createUserStore('isolated-conference');await other.ensureReady();await other.saveState({favorites:['other-event'],posterFavorites:[],notes:{'event:other-event':'Other note'}});await other.saveProfile({name:'Other Profile'});await other.saveFriend({id:'other-friend',name:'Other Friend'});localStorage.setItem('conferenceCompanion:isolated-conference:preferences:v1',JSON.stringify({compact:true}));await new Promise((resolve,reject)=>{const request=indexedDB.open('conferenceCompanion:isolated-conference:photos',1);request.onupgradeneeded=()=>{const store=request.result.createObjectStore('photos',{keyPath:'id',autoIncrement:true});store.createIndex('ownerKey','ownerKey',{unique:false});};request.onerror=()=>reject(request.error);request.onsuccess=()=>{const db=request.result,tx=db.transaction('photos','readwrite');tx.objectStore('photos').add({ownerKey:'event:other-event',ownerType:'event',ownerId:'other-event',blob:new Blob(['other']),addedAt:1});tx.oncomplete=()=>{db.close();resolve();};};});});
   await page.locator('[data-target="settings"]').click();
   page.once('dialog',dialog=>{expect(dialog.message()).toContain('downloaded backups');dialog.dismiss();});await page.locator('#deletePersonalDataBtn').click();
-  await expect(page.locator('#profileName')).toHaveValue('Private Profile');
+  await page.locator('[data-target="friends"]').click();await page.locator('#editProfileBtn').click();await expect(page.locator('#profileName')).toHaveValue('Private Profile');await page.locator('[data-target="settings"]').click();
 
   page.once('dialog',dialog=>{expect(dialog.message()).toContain('Official programme data');expect(dialog.message()).toContain('cannot be deleted');dialog.accept();});await page.locator('#deletePersonalDataBtn').click();
   await expect(page.locator('#profileName')).toHaveValue('');await expect(page.locator('#compactToggle')).toHaveAttribute('aria-checked','false');await expect(page.locator('#exportBtn')).toBeEnabled();

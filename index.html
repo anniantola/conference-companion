@@ -134,10 +134,32 @@
           <div><div class="eyebrow">PRIVATE CONTACTS</div><h2>Friend Book</h2></div>
           <span id="friendCount" class="count-badge">0</span>
         </div>
-        <div id="myCardSummary" class="friend-profile-card"></div>
-        <div class="button-row friend-actions">
-          <button id="friendShareBtn" class="primary-btn" type="button">Share my card</button>
-          <button id="downloadVcardBtn" class="secondary-btn" type="button">Download vCard</button>
+        <section id="myCardSection" class="friend-card-section">
+          <h3>My Card</h3>
+          <div id="myCardSummary" class="friend-profile-card"></div>
+          <div class="button-row friend-actions">
+            <button id="friendShareBtn" class="primary-btn" type="button">Share QR</button>
+            <button id="downloadVcardBtn" class="secondary-btn" type="button">Download vCard</button>
+            <button id="editProfileBtn" class="secondary-btn" type="button" aria-expanded="false" aria-controls="profileSection">Edit</button>
+          </div>
+          <div class="settings-section profile-edit-section" id="profileSection" hidden>
+            <div class="profile-editor">
+              <label>Name<input id="profileName" autocomplete="name"></label>
+              <label>Position<input id="profilePosition"></label>
+              <label>Affiliation<input id="profileAffiliation" autocomplete="organization"></label>
+              <label>Email<input id="profileEmail" type="email" autocomplete="email"></label>
+              <label>ORCID<input id="profileOrcid" placeholder="0000-0000-0000-0000"></label>
+              <label>LinkedIn<input id="profileLinkedin" type="url"></label>
+              <label>Website<input id="profileWebsite" type="url"></label>
+              <label>Profile photo<input id="profilePhotoInput" type="file" accept="image/*"></label>
+              <div class="profile-photo-cell"><img id="profilePhotoPreview" alt="Profile preview" hidden><button id="clearProfilePhotoBtn" class="secondary-btn" type="button" hidden>Remove photo</button></div>
+              <label class="profile-wide">Research interests / bio<textarea id="profileBio" rows="3"></textarea></label>
+              <label class="profile-wide">Selected papers / DOI links <small>One per line</small><textarea id="profilePapers" rows="3"></textarea></label>
+            </div>
+            <div class="button-row profile-edit-actions"><button id="saveProfileBtn" class="primary-btn" type="button">Save</button><button id="cancelProfileBtn" class="secondary-btn" type="button">Cancel</button></div>
+          </div>
+        </section>
+        <div class="button-row friend-actions friend-import-actions">
           <button id="scanFriendBtn" class="secondary-btn" type="button">Scan QR</button>
           <button id="importVcardBtn" class="secondary-btn" type="button">Import vCard</button>
           <input id="friendVcardInput" type="file" accept="text/vcard,.vcf,text/plain" hidden>
@@ -187,24 +209,6 @@
               <option value="device">My device</option>
             </select>
           </div>
-        </div>
-
-        <div class="settings-section" id="profileSection" hidden>
-          <h3>My conference card</h3>
-          <div class="profile-editor">
-            <label>Name<input id="profileName" autocomplete="name"></label>
-            <label>Position<input id="profilePosition"></label>
-            <label>Affiliation<input id="profileAffiliation" autocomplete="organization"></label>
-            <label>Email<input id="profileEmail" type="email" autocomplete="email"></label>
-            <label>ORCID<input id="profileOrcid" placeholder="0000-0000-0000-0000"></label>
-            <label>LinkedIn<input id="profileLinkedin" type="url"></label>
-            <label>Website<input id="profileWebsite" type="url"></label>
-            <label>Profile photo<input id="profilePhotoInput" type="file" accept="image/*"></label>
-            <div class="profile-photo-cell"><img id="profilePhotoPreview" alt="Profile preview" hidden><button id="clearProfilePhotoBtn" class="secondary-btn" type="button" hidden>Remove photo</button></div>
-            <label class="profile-wide">Research interests / bio<textarea id="profileBio" rows="3"></textarea></label>
-            <label class="profile-wide">Selected papers / DOI links <small>One per line</small><textarea id="profilePapers" rows="3"></textarea></label>
-          </div>
-          <div class="button-row"><button id="saveProfileBtn" class="primary-btn" type="button">Save card</button><button id="shareQrBtn" class="secondary-btn" type="button">Show QR</button><button id="shareQrFullBtn" class="secondary-btn" type="button">Open Friend Book</button></div>
         </div>
 
         <div class="settings-section" id="calendarSection" hidden>

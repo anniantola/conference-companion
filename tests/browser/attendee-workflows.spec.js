@@ -77,12 +77,11 @@ test('personal backup restores notes, photos, favorites, profile and private con
   await page.locator('#photoViewerNote').fill('Private photo note');await expect(page.locator('#photoViewerSaveStatus')).toHaveText('Saving…');await page.locator('#photoViewerNote').press('Tab');await expect(page.locator('#photoViewerSaveStatus')).toHaveText('Saved');await page.locator('#photoViewerClose').click();
   await page.locator('#modalClose').click();
 
-  await page.locator('[data-target="settings"]').click();
+  await page.locator('[data-target="friends"]').click();await page.locator('#editProfileBtn').click();
   await page.locator('#profileName').fill('Casey Example');
   await page.locator('#profileAffiliation').fill('Synthetic Institute');
   await page.locator('#profileEmail').fill('casey@example.test');
   await page.locator('#saveProfileBtn').click();
-  await page.locator('[data-target="friends"]').click();
   const vcard=await downloadText(page,()=>page.locator('#downloadVcardBtn').click());
   expect(vcard.text).toContain('FN:Casey Example');
   expect(vcard.text).toContain('casey@example.test');
@@ -108,7 +107,7 @@ test('personal backup restores notes, photos, favorites, profile and private con
   const payload=JSON.parse(textEntry(backupEntries,'backup.json'));
   expect(payload.state.favorites).toContain(eventId);expect(payload.photos).toHaveLength(1);expect(payload.photos[0].customTitle).toBe('Evidence photo');expect(payload.photos[0].customNote).toBe('Private photo note');expect(payload.friends[0].privateNotes).toBe('Private follow-up');
 
-  await page.locator('#profileName').fill('Changed');await page.locator('#saveProfileBtn').click();
+  await page.locator('[data-target="friends"]').click();await page.locator('#editProfileBtn').click();await page.locator('#profileName').fill('Changed');await page.locator('#saveProfileBtn').click();
   await page.locator('[data-target="program"]').click();await page.locator(`[data-star-event="${eventId}"]`).first().click();
   await page.locator(`#programList [data-event="${eventId}"]`).click();await page.locator('.presentation-note').fill('Changed note');await expect(page.locator('#noteSaveStatus')).toHaveText('Saved');await page.locator('#modalClose').click();
   await page.locator('[data-target="settings"]').click();await page.locator('#importInput').setInputFiles(backupPath);
@@ -121,8 +120,8 @@ test('personal backup restores notes, photos, favorites, profile and private con
   await expect(page.locator('#modalPhotos [data-photo-id]')).toHaveCount(1);
   await page.locator('#modalPhotos [data-photo-id]').click();await expect(page.locator('#photoViewerTitle')).toHaveValue('Evidence photo');await expect(page.locator('#photoViewerNote')).toHaveValue('Private photo note');await page.locator('#photoViewerClose').click();
   await page.locator('#modalClose').click();
-  await page.locator('[data-target="settings"]').click();await expect(page.locator('#profileName')).toHaveValue('Casey Example');
-  await page.locator('[data-target="friends"]').click();await page.locator('[data-friend-toggle]').click();await expect(page.locator('[data-friend-note]')).toHaveValue('Private follow-up');await expect(page.locator('[data-friend-tags]')).toHaveValue('poster, collaborator');
+  await page.locator('[data-target="friends"]').click();await page.locator('#editProfileBtn').click();await expect(page.locator('#profileName')).toHaveValue('Casey Example');
+  await page.locator('#cancelProfileBtn').click();await page.locator('[data-friend-toggle]').click();await expect(page.locator('[data-friend-note]')).toHaveValue('Private follow-up');await expect(page.locator('[data-friend-tags]')).toHaveValue('poster, collaborator');
 });
 
 for(const width of [320,375,768,1280]){
@@ -139,7 +138,7 @@ for(const width of [320,375,768,1280]){
     if(width===320){await page.locator('#photoInput').setInputFiles({name:'mobile.png',mimeType:'image/png',buffer:png});await expect(page.locator('#modalPhotos [data-photo-id]')).toHaveCount(1);await page.locator('#modalPhotos [data-photo-id]').click();await expect(page.locator('#detailModal')).not.toBeVisible();await page.locator('#photoViewerTitle').fill('Touch edit');await expect(page.locator('#photoViewerSaveStatus')).toHaveText('Saving…');await page.locator('#photoViewerTitle').press('Tab');await expect(page.locator('#photoViewerSaveStatus')).toHaveText('Saved');await page.locator('#photoViewerClose').click();await expect(page.locator('#detailModal')).toBeVisible();}
     await page.locator('#modalClose').click();
     for(const target of ['posters','gallery','friends','settings']){await page.locator(`[data-target="${target}"]`).click();await expect(page.locator(`[data-view="${target}"]`)).toHaveClass(/active/);await assertFits(target);}
-    await page.locator('#profileName').fill('Mobile User');await page.locator('#saveProfileBtn').click();await page.locator('#shareQrBtn').click();await expect(page.locator('#shareQrViewer')).toBeVisible();await assertFits('QR dialog');await page.locator('#shareQrClose').click();
+    await page.locator('[data-target="friends"]').click();await page.locator('#editProfileBtn').click();await page.locator('#profileName').fill('Mobile User');await page.locator('#saveProfileBtn').click();await page.locator('#friendShareBtn').click();await expect(page.locator('#shareQrViewer')).toBeVisible();await assertFits('QR dialog');await page.locator('#shareQrClose').click();
     await page.locator('[data-target="posters"]').click();await page.locator('[data-poster="poster-a1"]').click();await expect(page.locator('#detailModal')).toBeVisible();await assertFits('poster dialog');
     await context.close();
   });

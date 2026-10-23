@@ -135,3 +135,15 @@ acceptance coverage.
   geometry, deletion cancellation/reload/isolation, and existing mobile widths.
 - Physical install surfaces, camera selection/permission UI and iOS standalone
   behavior remain device-level interoperability checks.
+
+## 2026-10-23 — Friend Book My Card editor (v1.1.5)
+
+- Moved the existing profile editor out of Settings and placed My Card above the
+  alphabetical saved-contact list in Friend Book.
+- Added a saved-profile summary with photo, name, position, affiliation, email,
+  ORCID, LinkedIn, website, bio and selected papers, plus Share QR, Download vCard
+  and Edit actions.
+- Reused the existing profile form fields and storage. Save persists the draft;
+  Cancel restores the saved values and discards uncommitted photo changes.
+- Added browser regressions for cancellation, saving every profile field/photo,
+  reload persistence, backup export/restore and mobile Friend Book layout.

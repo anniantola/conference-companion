@@ -52,7 +52,7 @@ test('atomic releases, corrupt/invalid/mutated updates, rollback and user data i
   for(const name of ['conference-manifest.json','conference.json','programme.json','people.json','locations.json','branding.json'])files[name]=await readFile(`conference/${name}`,'utf8');
   let current={...files};
   await page.route('**/release/**',route=>{const name=new URL(route.request().url()).pathname.split('/').pop();return current[name]===undefined?route.fulfill({status:503,body:'unavailable'}):route.fulfill({contentType:'application/json',body:current[name]});});
-  const load=()=>page.evaluate(async()=>{const {loadConferencePackage}=await import('/src/package-store.js');const r=await loadConferencePackage('/release','1.1.4');return {version:r.pkg.manifest.dataVersion,source:r.source,warnings:r.warnings,id:r.pkg.conference.id};});
+  const load=()=>page.evaluate(async()=>{const {loadConferencePackage}=await import('/src/package-store.js');const r=await loadConferencePackage('/release','1.1.5');return {version:r.pkg.manifest.dataVersion,source:r.source,warnings:r.warnings,id:r.pkg.conference.id};});
   const first=await load();
   const state={favorites:['immutable-event'],posterFavorites:['immutable-poster'],notes:{'talk:immutable-event':'Private notes'}};
   await page.evaluate(async({id,state})=>{const {createUserStore}=await import('/src/user-store.js');const s=createUserStore(id);await s.saveState(state);await s.saveProfile({name:'Private attendee',photo:new Blob(['photo'])});await s.saveFriend({id:'friend',name:'Private contact'});await createUserStore('other-event').saveState({favorites:['other']});await new Promise((resolve,reject)=>{const request=indexedDB.open(`conferenceCompanion:${id}:photos`,1);request.onupgradeneeded=()=>{const store=request.result.createObjectStore('photos',{keyPath:'id',autoIncrement:true});store.createIndex('ownerKey','ownerKey',{unique:false});};request.onerror=()=>reject(request.error);request.onsuccess=()=>{const db=request.result,tx=db.transaction('photos','readwrite');tx.objectStore('photos').add({ownerKey:'event:immutable-event',ownerType:'event',ownerId:'immutable-event',blob:new Blob(['image']),addedAt:1});tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>reject(tx.error);};});},{id:first.id,state});
@@ -77,7 +77,7 @@ test('atomic releases, corrupt/invalid/mutated updates, rollback and user data i
 
 test('engine update waits while a client edits and activates on clean launch',async({page,context})=>{
   await ready(page);await controlled(page);
-  await page.locator('[data-target="settings"]').click();await page.locator('#profileName').fill('Unsaved editing');
+  await page.locator('[data-target="friends"]').click();await page.locator('#editProfileBtn').click();await page.locator('#profileName').fill('Unsaved editing');
   const originalController=await page.evaluate(()=>navigator.serviceWorker.controller.scriptURL);
   const worker=await readFile('service-worker.js','utf8');
   const originalApp=await readFile('app.js','utf8');
@@ -86,7 +86,7 @@ test('engine update waits while a client edits and activates on clean launch',as
   await context.unroute('**/app.js');
   // A genuine second service-worker script/cache, served by the local HTTP server.
   const {writeFile,unlink}=await import('node:fs/promises');const path='test-engine-worker.js';
-  await writeFile(path,worker.replace('conference-companion-engine-1.1.4','conference-companion-engine-test'));
+  await writeFile(path,worker.replace('conference-companion-engine-1.1.5','conference-companion-engine-test'));
   try{
     const replacementCreated=context.waitForEvent('serviceworker',worker=>worker.url().endsWith('/test-engine-worker.js'));
     await page.evaluate(async()=>{await navigator.serviceWorker.register('/test-engine-worker.js',{scope:'/'});});

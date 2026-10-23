@@ -281,3 +281,11 @@ standalone detection, real offline QR decoding, live scanner lifecycle/error
 handling, duplicate prevention, expandable contacts, measured compact layouts,
 and cancellation/deletion/reload/isolation. Native browser install surfaces,
 physical rear-camera selection and permission UI still require device testing.
+
+### Friend Book My Card editor (v1.1.5)
+
+The existing conference profile now appears above saved contacts in Friend Book.
+Its summary includes saved contact details, with Share QR, Download vCard and Edit
+actions beside it. Edit expands the existing profile fields; Save writes through
+the same conference-scoped profile store, while Cancel discards unsaved text and
+photo changes. Profile photos and fields remain part of personal backups.

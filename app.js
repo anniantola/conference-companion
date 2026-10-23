@@ -51,6 +51,8 @@
   let profile = {};
   let friends = [];
   let profilePhotoUrl = "";
+  let friendProfilePhotoUrl = "";
+  let profileDraft = null;
   let qrScanner = null;
   let qrScanStarting = false;
   let qrScanProcessing = false;
@@ -2224,8 +2226,8 @@
 
   function profileFromForm() {
     return {
-      ...profile,
-      id:profile.id || crypto.randomUUID(),
+      ...(profileDraft || profile),
+      id:(profileDraft || profile).id || crypto.randomUUID(),
       name:$("#profileName")?.value.trim() || "",
       position:$("#profilePosition")?.value.trim() || "",
       affiliation:$("#profileAffiliation")?.value.trim() || "",
@@ -2240,32 +2242,52 @@
     };
   }
 
-  function renderProfilePhoto() {
+  function renderProfilePhoto(source=profile) {
     if(profilePhotoUrl){URL.revokeObjectURL(profilePhotoUrl);profilePhotoUrl="";}
     const img=$("#profilePhotoPreview"),clear=$("#clearProfilePhotoBtn");if(!img)return;
-    if(profile?.photoBlob instanceof Blob){profilePhotoUrl=URL.createObjectURL(profile.photoBlob);img.src=profilePhotoUrl;img.hidden=false;if(clear)clear.hidden=false;}
+    if(source?.photoBlob instanceof Blob){profilePhotoUrl=URL.createObjectURL(source.photoBlob);img.src=profilePhotoUrl;img.hidden=false;if(clear)clear.hidden=false;}
     else{img.removeAttribute("src");img.hidden=true;if(clear)clear.hidden=true;}
   }
 
-  function fillProfileForm() {
+  function fillProfileForm(source=profile) {
     if (!$("#profileName")) return;
-    $("#profileName").value=profile.name||"";
-    $("#profilePosition").value=profile.position||"";
-    $("#profileAffiliation").value=profile.affiliation||(profile.affiliations||[])[0]||"";
-    $("#profileEmail").value=profile.email||(profile.emails||[])[0]||"";
-    $("#profileOrcid").value=profile.orcid||"";
-    $("#profileLinkedin").value=profile.linkedin||"";
-    $("#profileWebsite").value=profile.website||"";
-    $("#profileBio").value=profile.bio||"";
-    $("#profilePapers").value=(profile.papers||[]).map(x=>typeof x==="string"?x:(x.doi||x.title||"")).filter(Boolean).join("\n");
-    renderProfilePhoto();
+    $("#profileName").value=source.name||"";
+    $("#profilePosition").value=source.position||"";
+    $("#profileAffiliation").value=source.affiliation||(source.affiliations||[])[0]||"";
+    $("#profileEmail").value=source.email||(source.emails||[])[0]||"";
+    $("#profileOrcid").value=source.orcid||"";
+    $("#profileLinkedin").value=source.linkedin||"";
+    $("#profileWebsite").value=source.website||"";
+    $("#profileBio").value=source.bio||"";
+    $("#profilePapers").value=(source.papers||[]).map(x=>typeof x==="string"?x:(x.doi||x.title||"")).filter(Boolean).join("\n");
+    renderProfilePhoto(source);
+  }
+
+  function beginProfileEdit() {
+    profileDraft={...profile};
+    fillProfileForm(profileDraft);
+    $("#profileSection").hidden=false;
+    $("#editProfileBtn").setAttribute("aria-expanded","true");
+    $("#profileName").focus();
+  }
+
+  function cancelProfileEdit() {
+    profileDraft=null;
+    fillProfileForm(profile);
+    $("#profileSection").hidden=true;
+    $("#editProfileBtn").setAttribute("aria-expanded","false");
+    $("#editProfileBtn").focus();
   }
 
   async function saveProfile() {
-    profile=profileFromForm();
-    await trackPersonalWrite(USER_STORE?.saveProfile(profile));
-    renderFriendBook();
-    toast("Conference card saved");
+    const next=profileFromForm();
+    try{
+      await trackPersonalWrite(USER_STORE?.saveProfile(next));
+      profile=next;profileDraft=null;
+      $("#profileSection").hidden=true;$("#editProfileBtn").setAttribute("aria-expanded","false");
+      fillProfileForm(profile);renderFriendBook();
+      toast("Conference card saved");
+    }catch(error){console.error(error);toast("Could not save conference card");}
   }
 
   function friendContactHtml(friend) {
@@ -2300,7 +2322,22 @@
   function renderFriendBook() {
     if (!CONFERENCE.features?.friendBook) return;
     const summary=$("#myCardSummary");
-    if(summary) summary.innerHTML=profile?.name?`<h3>${esc(profile.name)}</h3><p>${esc([profile.position,profile.affiliation||(profile.affiliations||[])[0]].filter(Boolean).join(" · "))}</p><p>${esc(profile.email||(profile.emails||[])[0]||"")}</p>`:`<h3>Create your conference card</h3><p>Add your details in Settings, then share a compact vCard by QR.</p>`;
+    if(friendProfilePhotoUrl){URL.revokeObjectURL(friendProfilePhotoUrl);friendProfilePhotoUrl="";}
+    if(summary){
+      const photo=profile?.photoBlob instanceof Blob?(friendProfilePhotoUrl=URL.createObjectURL(profile.photoBlob),`<img class="friend-profile-photo" src="${esc(friendProfilePhotoUrl)}" alt="">`):"";
+      const details=[
+        profile.position?`<p>${esc(profile.position)}</p>`:"",
+        (profile.affiliation||(profile.affiliations||[])[0])?`<p>${esc(profile.affiliation||(profile.affiliations||[])[0])}</p>`:"",
+        (profile.email||(profile.emails||[])[0])?`<p><a href="mailto:${esc(profile.email||(profile.emails||[])[0])}">${esc(profile.email||(profile.emails||[])[0])}</a></p>`:"",
+        profile.orcid?`<p><a href="https://orcid.org/${esc(String(profile.orcid).replace(/^https?:\/\/orcid\.org\//,""))}" target="_blank" rel="noopener">ORCID ↗</a></p>`:"",
+        profile.linkedin?`<p><a href="${esc(profile.linkedin)}" target="_blank" rel="noopener">LinkedIn ↗</a></p>`:"",
+        profile.website?`<p><a href="${esc(profile.website)}" target="_blank" rel="noopener">Website ↗</a></p>`:"",
+        profile.bio?`<p>${esc(profile.bio)}</p>`:"",
+        (profile.papers||[]).length?`<p><strong>Selected papers</strong><br>${(profile.papers||[]).map(x=>esc(typeof x==="string"?x:(x.doi||x.title||""))).filter(Boolean).join(" · ")}</p>`:""
+      ].filter(Boolean).join("");
+      summary.innerHTML=profile?.name?`<div class="my-card-summary-layout ${photo?'with-photo':'no-photo'}">${photo}<div><h4>${esc(profile.name)}</h4>${details}</div></div>`:`<h4>Create your conference card</h4><p>Add your details with Edit, then share them by QR or vCard.</p>`;
+    }
+    const editor=$("#profileSection");if(editor&&profileDraft===null)editor.hidden=true;
     friends.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""),undefined,{sensitivity:"base"}));
     const list=$("#friendList");if(list) list.innerHTML=friends.length?friends.map(friendContactHtml).join(""):`<div class="empty-state"><strong>No contacts saved yet</strong>Scan a conference card QR or import a .vcf file.</div>`;
     if($("#friendCount")) $("#friendCount").textContent=String(friends.length);
@@ -2428,7 +2465,8 @@
       state.posterFavorites=(state.posterFavorites||[]).filter(id=>posterById.has(id));
       if(!state.notes||typeof state.notes!=="object"||Array.isArray(state.notes))state.notes={};
       state.notes=Object.fromEntries(Object.entries(state.notes).filter(([key,value])=>{const idx=String(key).indexOf(":");const type=idx>=0?key.slice(0,idx):"event",id=idx>=0?key.slice(idx+1):key;return typeof value==="string"&&((type==="event"&&byId.has(id))||(type==="poster"&&posterById.has(id)));}));
-      profile=payload.profile||profile||{};friends=Array.isArray(payload.friends)?payload.friends:friends;
+      profile=payload.profile||profile||{};profileDraft=null;friends=Array.isArray(payload.friends)?payload.friends:friends;
+      $("#profileSection").hidden=true;$("#editProfileBtn").setAttribute("aria-expanded","false");
       await trackPersonalWrite(USER_STORE?.saveState({favorites:state.favorites,posterFavorites:state.posterFavorites,notes:state.notes}));
       await trackPersonalWrite(USER_STORE?.saveProfile(profile));if(Array.isArray(payload.friends))await trackPersonalWrite(USER_STORE?.replaceFriends(friends));
       if(Array.isArray(payload.photos)&&photoFiles.size)await trackPersonalWrite(replaceAllPhotos(payload.photos,photoFiles));
@@ -2516,7 +2554,8 @@
       await Promise.all([USER_STORE?.clearAll(),clearAllPhotos()]);
       localStorage.removeItem(PREFS_KEY);
       state={...defaultState,day:detectConferenceDay(),view:"settings",notes:{}};
-      profile={};friends=[];expandedFriendIds.clear();
+      profile={};profileDraft=null;friends=[];expandedFriendIds.clear();
+      $("#editProfileBtn").setAttribute("aria-expanded","false");
       fillProfileForm();renderFriendBook();applyTheme();syncSettings();renderDays();renderProgram();renderPosters();renderMySchedule();renderGalleryNotes();await renderGallery();
       toast("All personal data for this conference was deleted");
     }catch(error){console.error(error);toast("Personal data could not be completely deleted. Please try again.");}
@@ -2542,7 +2581,7 @@
     const friendsEnabled=!!CONFERENCE.features?.friendBook;
     $("#friendView")?.toggleAttribute("hidden",!friendsEnabled);
     $("#friendsNavBtn")?.toggleAttribute("hidden",!friendsEnabled);
-    $("#profileSection")?.toggleAttribute("hidden",!friendsEnabled);
+    $("#myCardSection")?.toggleAttribute("hidden",!friendsEnabled);
     $("#calendarSection")?.toggleAttribute("hidden",!CONFERENCE.features?.calendarExport);
 
     const timeHelp=$("#conferenceTimeHelp"); if(timeHelp) timeHelp.textContent=`Programme times use ${CONFERENCE.timezoneLabel || CONFERENCE.timezone || "the conference timezone"}.`;
@@ -2716,11 +2755,11 @@
       try{await SERVICES.rollbackConferencePackage();location.reload();}catch(err){console.error(err);toast(err?.message||"No previous release is available");}
     });
 
+    $("#editProfileBtn")?.addEventListener("click",beginProfileEdit);
     $("#saveProfileBtn")?.addEventListener("click",saveProfile);
-    $("#profilePhotoInput")?.addEventListener("change",async e=>{const file=e.target.files?.[0];if(!file)return;const epoch=personalDataEpoch,photoBlob=await prepareImageBlob(file);if(personalDataDeleting||epoch!==personalDataEpoch)return;profile={...profile,photoBlob};await trackPersonalWrite(USER_STORE?.saveProfile(profile));renderProfilePhoto();toast("Profile photo saved locally");e.target.value="";});
-    $("#clearProfilePhotoBtn")?.addEventListener("click",async()=>{if(profile?.photoBlob)delete profile.photoBlob;await trackPersonalWrite(USER_STORE?.saveProfile(profile));renderProfilePhoto();toast("Profile photo removed");});
-    $("#shareQrBtn")?.addEventListener("click", openShareQr);
-    $("#shareQrFullBtn")?.addEventListener("click",()=>showView("friends"));
+    $("#cancelProfileBtn")?.addEventListener("click",cancelProfileEdit);
+    $("#profilePhotoInput")?.addEventListener("change",async e=>{const file=e.target.files?.[0];if(!file)return;const epoch=personalDataEpoch,photoBlob=await prepareImageBlob(file);if(personalDataDeleting||epoch!==personalDataEpoch)return;profileDraft={...(profileDraft||profile),photoBlob};renderProfilePhoto(profileDraft);e.target.value="";});
+    $("#clearProfilePhotoBtn")?.addEventListener("click",()=>{profileDraft={...(profileDraft||profile)};delete profileDraft.photoBlob;renderProfilePhoto(profileDraft);});
     $("#friendShareBtn")?.addEventListener("click",openShareQr);
     $("#downloadVcardBtn")?.addEventListener("click",downloadMyVcard);
     $("#scanFriendBtn")?.addEventListener("click",openFriendQrScan);

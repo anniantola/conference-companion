@@ -209,3 +209,11 @@ current conference only. The UI invalidates delayed work, cancels debounce timer
 and awaits active writes before clearing photos and rendering empty state. It does
 not touch canonical conference packages, engine caches or another conference's
 records.
+
+## 14. Friend Book profile editing (v1.1.5)
+
+The Friend Book My Card summary and expandable editor use the existing profile
+object and `userStore.getProfile`/`saveProfile` contract. A temporary in-memory
+draft holds form edits and selected profile photos until Save. Cancel reloads the
+persisted profile into the editor and revokes the draft preview URL. QR generation,
+vCard export and backup/restore continue to use the one saved profile object.
