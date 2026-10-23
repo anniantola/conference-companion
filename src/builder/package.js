@@ -4,7 +4,7 @@ import {calendarUidForEntity} from '../calendar.js';
 import {CURRENT_SCHEMA_VERSION} from '../migrations.js';
 
 const ENGINE_FILES = [
-  'index.html','app.js','bootstrap.js','styles.css','service-worker.js','.nojekyll',
+  'index.html','app.js','bootstrap.js','styles.css','service-worker.js',
   'src/validation.js','src/json-schema.js','src/migrations.js','src/package-store.js','src/model.js','src/user-store.js',
   'src/calendar.js','src/vcard.js','src/qrcode.js','src/backup.js','src/zip.js'
 ];
@@ -267,10 +267,11 @@ export async function buildPackage(project){
   const now=new Date().toISOString();
   const version=Number(project.dataVersion||1);
   const changelog=[...(project.changelog||[]).filter(x=>Number(x.version)!==version),{version,publishedAt:now,message:project.releaseMessage||'Published from Conference Builder.'}];
-  const manifest={schemaVersion:CURRENT_SCHEMA_VERSION,dataVersion:version,minimumEngineVersion:'1.1.1',publishedAt:now,files:['conference.json','programme.json','people.json','locations.json','branding.json'],checksums:{},changelog};
+  const manifest={schemaVersion:CURRENT_SCHEMA_VERSION,dataVersion:version,minimumEngineVersion:'1.1.2',publishedAt:now,files:['conference.json','programme.json','people.json','locations.json','branding.json'],checksums:{},changelog};
   const pkg={manifest,conference,programme,people:peopleJson,locations:locationsJson,branding};
   const report=validatePackage(pkg,{strictCalendarUid:true,policy:project.policy||{}});
   for(const row of rows){
+    for(const warning of row.importWarnings||[])report.warnings.push(`PDF page ${row.source?.page||'?'}, row ${row.source?.line||'?'}: ${warning}`);
     const confidence=Number(row.importConfidence??row.source?.confidence);
     if(row.source?.page&&Number.isFinite(confidence)&&confidence<0.7)report.warnings.push(`PDF page ${row.source.page}, row ${row.source.line||'?'}: low-confidence extraction (${Math.round(confidence*100)}%); organizer review required`);
   }
@@ -305,8 +306,8 @@ async function imageBytesToPng(asset,size){
 async function fetchBytes(path){const r=await fetch(path,{cache:'no-store'});if(!r.ok)throw new Error(`Could not include engine file ${path}`);return new Uint8Array(await r.arrayBuffer());}
 function manifestText(pkg){return JSON.stringify({name:pkg.conference.name,short_name:pkg.conference.shortName||pkg.conference.name,start_url:'./',scope:'./',display:'standalone',background_color:'#000000',theme_color:pkg.branding.primary||'#000000',icons:[{src:'./icon-192.png',sizes:'192x192',type:'image/png'},{src:'./icon-512.png',sizes:'512x512',type:'image/png',purpose:'any maskable'}]},null,2)+'\n';}
 function sharePreviewSvg(pkg){const title=String(pkg.conference.shortName||pkg.conference.name||'Conference').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630"><rect width="1200" height="630" fill="${pkg.branding.primary||'#000'}"/><rect x="60" y="60" width="1080" height="510" rx="44" fill="#fff" opacity=".96"/><text x="110" y="285" font-family="system-ui,sans-serif" font-weight="700" font-size="78" fill="#111">${title}</text><text x="110" y="370" font-family="system-ui,sans-serif" font-size="38" fill="#444">Conference Companion</text></svg>`;}
-function workflowText(){return `name: Validate and deploy Conference Companion\n\non:\n  push:\n    branches: ["main"]\n  workflow_dispatch:\n\npermissions:\n  contents: read\n  pages: write\n  id-token: write\n\nconcurrency:\n  group: "pages"\n  cancel-in-progress: false\n\njobs:\n  deploy:\n    environment:\n      name: github-pages\n      url: \${{ steps.deployment.outputs.page_url }}\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v6\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n      - name: Validate conference package\n        run: npm test\n      - uses: actions/configure-pages@v5\n      - uses: actions/upload-pages-artifact@v4\n        with:\n          path: "."\n      - name: Deploy to GitHub Pages\n        id: deployment\n        uses: actions/deploy-pages@v4\n`;}
-function generatedPackageJson(){return JSON.stringify({name:'conference-companion-deployment',version:'1.1.1',private:true,type:'module',scripts:{schema:'node tools/schema-check.mjs conference',validate:'node tools/validate-conference.mjs conference',test:'npm run schema && npm run validate'}},null,2)+'\n';}
+export function workflowText(){return `name: Validate and deploy Conference Companion\n\non:\n  push:\n    branches: ["main"]\n  workflow_dispatch:\n\npermissions:\n  contents: read\n  pages: write\n  id-token: write\n\nconcurrency:\n  group: "pages"\n  cancel-in-progress: false\n\njobs:\n  deploy:\n    environment:\n      name: github-pages\n      url: \${{ steps.deployment.outputs.page_url }}\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v6\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n      - name: Validate conference package\n        run: npm test\n      - name: Stage public application files\n        run: |\n          mkdir _site\n          cp -r index.html app.js bootstrap.js styles.css service-worker.js manifest.webmanifest icon-*.png share-preview.svg src schemas conference tools _site/\n      - uses: actions/configure-pages@v5\n      - uses: actions/upload-pages-artifact@v4\n        with:\n          path: "_site"\n      - name: Deploy to GitHub Pages\n        id: deployment\n        uses: actions/deploy-pages@v4\n`;}
+function generatedPackageJson(){return JSON.stringify({name:'conference-companion-deployment',version:'1.1.2',private:true,type:'module',scripts:{schema:'node tools/schema-check.mjs conference',validate:'node tools/validate-conference.mjs conference',test:'npm run schema && npm run validate'}},null,2)+'\n';}
 
 /** A repository-ready static deployment ZIP: stable engine + generated package + branded install assets. */
 export async function packageZip(project){
@@ -332,7 +333,7 @@ export async function packageZip(project){
   }
   entries.push({name:'tools/validate-conference.mjs',data:await fetchBytes('./tools/validate-conference.mjs')},{name:'tools/schema-check.mjs',data:await fetchBytes('./tools/schema-check.mjs')});
   for(const file of SCHEMA_FILES)entries.push({name:`schemas/${file}`,data:await fetchBytes(`./schemas/${file}`)});
-  entries.push({name:'package.json',data:generatedPackageJson()},{name:'.github/workflows/deploy.yml',data:workflowText()},{name:'manifest.webmanifest',data:manifestText(pkg)},{name:'share-preview.svg',data:sharePreviewSvg(pkg)});
+  entries.push({name:'.nojekyll',data:''},{name:'package.json',data:generatedPackageJson()},{name:'.github/workflows/deploy.yml',data:workflowText()},{name:'manifest.webmanifest',data:manifestText(pkg)},{name:'share-preview.svg',data:sharePreviewSvg(pkg)});
 
   const iconSource=project.appIcon?.bytes?project.appIcon:(project.logo?.bytes?project.logo:null);
   for(const size of [180,192,512]){

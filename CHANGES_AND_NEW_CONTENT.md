@@ -41,3 +41,29 @@
 - Ambiguous source-row reorderings are not silently discarded; verify retained rows via the Builder conflict panel. An organizer can explicitly delete unwanted rows.
 - The current GitHub branch was not modified by preparing this ZIP.
 - `TEST_RESULTS.md` (NEW): executed test matrix and the browser-environment limitation.
+
+## 2026-10-23 — Browser acceptance, PDF review and deployment (v1.1.2)
+
+- Added locked Playwright Chromium tests for navigation, offline notes/favorites,
+  preferences, Builder CSV mapping/bulk editing/autosave, package release failure
+  recovery, rollback, attendee data isolation and waiting engine updates.
+- Fixed engine asset coherence: installed assets use the active version cache
+  while replacement workers wait; conference JSON still uses package activation.
+- Improved deterministic PDF extraction with gutter separation, repeated timed
+  column inference, explicit room/track/session context, wrapped title retention,
+  numbered posters and provisional assignment/OCR warnings. Added layout fixtures.
+- Added reciprocal presentation membership, poster parent type and location cycle
+  validation, with regressions across both independent conference packages.
+- Added extracted deployment ZIP checks for both packages. Pages now stages public
+  files and excludes dependencies, tests and traces; generated workflows also stage
+  their attendee files. Development CI installs Chromium and runs the full suite.
+- Retained the six previous bug fixes and their tests. No conference programme or
+  attendee storage schema was changed. Browser coverage is Chromium automation;
+  real-device interoperability, arbitrary PDF/OCR quality and live Pages deployment
+  still require acceptance outside this local suite.
+- Browser repetition exposed a note-save race: navigation/preferences could reset
+  the shared write timer and reload before notes reached IndexedDB. Writes now
+  start immediately, and note status says Saved only after transaction completion.
+  The offline UI note/favorite regressions cover the previously failing sequence.
+- Generated deployment ZIPs now create `.nojekyll` directly instead of fetching a
+  dotfile omitted from Pages artifacts; ZIP regressions simulate that missing file.

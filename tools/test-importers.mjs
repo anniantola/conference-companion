@@ -13,3 +13,22 @@ const pdf=heuristicRowsFromPdf([{page:1,lines:['08.11.2027','10:00–10:30 Intro
 assert.equal(pdf[0].date,'2027-11-08');assert.equal(pdf[0].speaker,'First speaker');
 assert.throws(()=>parseCSV('a,b\n"never closed,b'),/unterminated/);
 console.log('Importer tests OK');
+
+const {itemsToLines}=await import('../src/builder/importers.js');
+const item=(str,x,y,width)=>({str,width,transform:[1,0,0,1,x,y]});
+assert.deepEqual(itemsToLines([item('09:00–09:30 Left',10,700,120),item('09:00–09:30 Right',320,700,140)]),['09:00–09:30 Left','09:00–09:30 Right']);
+const complex=heuristicRowsFromPdf([{page:1,lines:['2030-05-10','Track: Methods','Room: East','Session: Imaging','09:00–09:30 A wrapped','presentation title — Speaker One','10:00–11:00 Poster session','P12 Poster title — Author Two']},{page:2,ocr:true,lines:['09:00–09:30 Parallel talk | Unclear | Authors','Poster 13 Unassigned poster']}]);
+assert.equal(complex.length,4);assert.equal(complex[0].track,'Methods');assert.equal(complex[0].location,'East');assert.match(complex[0].title,/wrapped presentation/);
+assert.equal(complex[1].type,'poster');assert.equal(complex[1].posterNumber,'12');assert.equal(complex[1].start,'10:00');assert.equal(complex[1].speaker,'Author Two');
+assert.equal(complex[2].track,'');assert.equal(complex[2].speaker,'');assert.ok(complex[2].importWarnings.some(x=>x.includes('ambiguous')));assert.ok(complex[2].importWarnings.some(x=>x.includes('OCR')));
+assert.equal(complex[3].start,'');assert.ok(complex[3].importWarnings.some(x=>x.includes('no explicit session')));
+assert.ok(complex[2].importWarnings.some(x=>x.includes('parallel')));
+console.log('Complex PDF layout and conservative assignment regressions OK');
+const {pdfTextRegions}=await import('../src/builder/importers.js');
+const columns=pdfTextRegions([item('2030-05-10',10,800,100),item('Track: Left',10,760,90),item('Track: Right',320,760,90),item('09:00–09:30 Left one',10,700,150),item('09:00–09:30 Right one',320,700,150),item('09:30–10:00 Left two',10,650,150),item('09:30–10:00 Right two',320,650,150)]);
+assert.equal(columns.length,2);
+const parallel=heuristicRowsFromPdf([{page:1,lines:columns.flat(),columns}]);
+assert.deepEqual(parallel.map(r=>r.track),['Left','Left','Right','Right']);
+assert.equal(new Set(parallel.map(r=>r.source.id)).size,4);
+assert.ok(parallel.every(r=>r.date==='2030-05-10'));
+console.log('PDF independent column context regressions OK');

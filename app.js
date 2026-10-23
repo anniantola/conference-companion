@@ -60,7 +60,6 @@
     return {...defaultState, ...prefs, ...owned, notes:{...(owned.notes || {})}};
   }
   let state = loadState();
-  let userSaveTimer = null;
 
   function saveState() {
     const prefs = {
@@ -68,10 +67,10 @@
       day:state.day, posterCategory:state.posterCategory, view:state.view, galleryMode:state.galleryMode
     };
     localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
-    clearTimeout(userSaveTimer);
-    userSaveTimer = setTimeout(() => {
-      USER_STORE?.saveState({favorites:[...(state.favorites||[])],posterFavorites:[...(state.posterFavorites||[])],notes:{...(state.notes||{})}}).catch(console.error);
-    }, 60);
+    // Start the IndexedDB write now: preference/navigation changes must not
+    // postpone a previously saved note until after a reload.
+    return (USER_STORE?.saveState({favorites:[...(state.favorites||[])],posterFavorites:[...(state.posterFavorites||[])],notes:{...(state.notes||{})}}) || Promise.resolve())
+      .then(()=>true).catch(error=>{console.error(error);return false;});
   }
 
   function esc(v="") {
@@ -99,8 +98,9 @@
     const text = String(value || "");
     if (text.trim()) state.notes[key] = text;
     else delete state.notes[key];
-    saveState();
+    const saved=saveState();
     if (state.view === "gallery") renderGalleryNotes();
+    return saved;
   }
 
   function noteSectionHtml(type, id) {
@@ -2586,27 +2586,14 @@
       }
     });
 
-    let noteSaveTimer = null;
-    $("#modalContent").addEventListener("input", e => {
+    let noteSaveRevision = 0;
+    $("#modalContent").addEventListener("input", async e => {
       const note = e.target.closest("#modalNote");
       if (!note) return;
-      const status = $("#noteSaveStatus");
-      if (status) status.textContent = "Saving…";
-      clearTimeout(noteSaveTimer);
-      noteSaveTimer = setTimeout(() => {
-        saveNote(note.dataset.noteType, note.dataset.noteId, note.value);
-        const currentStatus = $("#noteSaveStatus");
-        if (currentStatus) currentStatus.textContent = "Saved";
-      }, 250);
-    });
-
-    $("#modalContent").addEventListener("change", e => {
-      const note = e.target.closest("#modalNote");
-      if (!note) return;
-      clearTimeout(noteSaveTimer);
-      saveNote(note.dataset.noteType, note.dataset.noteId, note.value);
-      const status = $("#noteSaveStatus");
-      if (status) status.textContent = "Saved";
+      const revision=++noteSaveRevision,status=$("#noteSaveStatus");
+      if(status)status.textContent="Saving…";
+      const saved=await saveNote(note.dataset.noteType,note.dataset.noteId,note.value);
+      if(revision===noteSaveRevision&&status?.isConnected)status.textContent=saved?"Saved":"Could not save; please try again";
     });
 
     $("#modalContent").addEventListener("click", async e => {

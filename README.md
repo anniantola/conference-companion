@@ -185,3 +185,41 @@ calendar dates. This command runs in `npm test` and the Pages deployment gate.
 Re-importing a source updates rows with matching source identities, preserves
 manual edits, and retains unmatched older rows with a visible warning instead
 of silently removing them. Review potentially obsolete rows in the Builder.
+
+### Browser and deployment regressions (v1.1.2)
+
+Use Node 22 or later. Install the locked test dependencies and free Chromium once:
+
+```bash
+npm ci
+npx playwright install --with-deps chromium
+npm test
+```
+
+`npm test` runs all Node checks and Playwright Chromium tests. `npm run test:unit`
+and `npm run test:browser` run them separately. Playwright starts its own local
+HTTP server on port 8080; stop any other server on that port first. Failed browser
+tests retain traces in `test-results/`. No API keys or hosted services are needed.
+
+Browser tests cover both unrelated packages, navigation, preferences, favorites,
+notes, offline reload, Builder CSV mapping/bulk edits/autosave, real IndexedDB
+package activation/rollback, corrupt and incomplete releases, semantic rejection,
+mutated and older releases, and preservation/isolation of attendee data. A real
+service-worker replacement verifies waiting activation and coherent cached engine
+scripts while a user edits. Generated deployment ZIPs are extracted and validated
+for both packages. Pages CI installs Chromium, runs the complete suite, and stages
+only public files into `_site`; dependencies and test traces are excluded.
+
+PDF extraction separates large gutters and infers independent columns when at
+least two timed anchors recur in each column. Explicit `Track:`, `Room:` and
+`Session:` headings provide context; numbered poster entries can inherit an
+explicit poster-session window. Wrapped titles, OCR, ambiguous authors and
+unassigned/overlapping entries produce organizer-review warnings. Every PDF row
+remains provisional. Complex tables, unlabelled tracks, cross-page poster lists
+and author-only continuation lines still require manual review. PDF.js/OCR are
+loaded from public CDNs when used; the automated layout tests use deterministic
+PDF text-item fixtures and do not certify arbitrary PDFs or CDN availability.
+
+Note writes now begin immediately and display “Saved” after the IndexedDB
+transaction completes, preventing navigation/preferences from delaying a pending
+note write past a reload.

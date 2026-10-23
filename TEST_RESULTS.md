@@ -1,3 +1,41 @@
+# Validation results — 2026-10-23, engine v1.1.2
+
+Executed the complete `npm test` suite with Node v22.23.4 and Playwright 1.64.1
+Chromium on Linux. System Node 18 was insufficient; Node 22 was supplied through
+`npm exec --package=node@22 -c 'npm test'`, matching the CI major version.
+Chromium downloaded and launched successfully in this session.
+
+| Check | Result |
+| --- | --- |
+| JSON Schemas, default and independent conference | Passed |
+| Semantic/referential validation, both conferences | Passed |
+| Core model, calendar, vCard/QR, backup and Builder identity/cascade tests | Passed |
+| Static/accessibility smoke checks and Pages public artifact staging | Passed |
+| Release integrity and cross-conference checks | Passed |
+| Importers including PDF columns, wrapped titles, posters and ambiguous assignments | Passed |
+| Existing six Builder bug regression groups | Passed unchanged |
+| New reciprocal membership, poster parent and location hierarchy regressions | Passed |
+| Generated deployment ZIP extraction and validators, both conferences | Passed |
+| Playwright navigation/preferences/offline notes/favorites, both conferences | Passed (2 tests) |
+| Playwright Builder import/mapping/bulk edit/autosave | Passed |
+| Playwright package activation/recovery/rollback and user data preservation | Passed |
+| Playwright waiting engine update and cached script coherence | Passed |
+
+Final result: all Node suites and **5/5 Chromium browser tests passed**, with no
+skipped tests. `git diff --check` also passed. During development browser testing
+exposed and verified a fix for note persistence delayed by navigation/preferences.
+
+Limits: no Safari/Firefox/physical-device acceptance, live GitHub Actions/Pages
+deployment, arbitrary organizer PDF corpus, CDN parsing/OCR integration, external
+calendar-client imports or camera hardware testing was performed. PDF layout
+regressions use deterministic PDF.js-shaped text items and extracted text. PDF
+rows remain provisional and require organizer review. No official programme data
+was supplied or invented.
+
+---
+
+## Historical results from the previous development snapshot
+
 # Builder bug-fix verification — 2026-10-22
 
 ## Automated checks: PASS

@@ -140,3 +140,27 @@ The Builder generates a repository-ready static deployment ZIP containing:
 - GitHub Pages workflow with `npm test` as a deployment gate.
 
 No organizer or GitHub credentials are embedded in the attendee PWA. Direct managed GitHub publishing, Git tags/releases, custom-domain automation, `webcal`, push and organizer accounts belong to the optional managed/Cloud layer and are intentionally not required by this static implementation.
+
+## 11. Automated browser acceptance and engine coherence (v1.1.2)
+
+Playwright exercises Chromium with real IndexedDB, Cache Storage and service
+workers against a local static server. Release tests replace only the HTTP
+package responses; activation, integrity checks and rollback use production
+modules. Browser contexts isolate attendee storage between tests.
+
+Installed engine assets are served from their versioned cache. A waiting worker
+cannot replace an active page's modules via network-first fetching. Conference
+JSON remains network-first and activates only through the package store.
+
+PDF column inference requires repeated timed anchors and keeps source provenance
+per page/column/line. Single-column source identities retain their previous shape.
+Heuristic results carry private review warnings into the Builder report, never
+into published conference JSON. Semantic validation additionally enforces parent
+presentation membership, poster-session types and acyclic location hierarchies.
+
+Development Pages builds install locked Playwright dependencies and gate deployment
+on the full suite. An explicit public-file staging script excludes development
+artifacts. Builder exports remain dependency-free attendee repositories; their
+own `npm test` checks exported schemas/data, and their generated workflow stages
+public files before upload. They do not claim to include the development browser
+suite or private Builder sources.

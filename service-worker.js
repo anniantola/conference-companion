@@ -1,4 +1,4 @@
-const CACHE = "conference-companion-engine-1.1.1";
+const CACHE = "conference-companion-engine-1.1.2";
 const ENGINE_ASSETS = [
   "./",
   "./index.html",
@@ -45,6 +45,15 @@ self.addEventListener("activate", event => {
 self.addEventListener("fetch", event => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
+
+  // Keep each installed engine coherent while its replacement waits. Network-first
+  // scripts can otherwise mix new modules with an old page during note editing.
+  const engineUrl = new URL(url.href);engineUrl.search='';
+  const isEngineAsset=ENGINE_ASSETS.some(path=>new URL(path,self.location.href).href===engineUrl.href);
+  if(url.origin===self.location.origin&&isEngineAsset){
+    event.respondWith(caches.open(CACHE).then(cache=>cache.match(engineUrl.href)).then(cached=>cached||fetch(event.request)));
+    return;
+  }
 
   // Runtime JSON Schemas belong to the engine and are safe to cache.
   if (url.pathname.includes("/schemas/") && url.pathname.endsWith(".json")) {

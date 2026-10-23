@@ -78,13 +78,35 @@ export async function importXlsx(file,sheetName=''){
   return rows.map((x,i)=>({...x,__sourceRow:i+2,__sheet:name}));
 }
 
-function itemsToLines(items){
+export function itemsToLines(items){
   const grouped=[];let lastY=null,line=[];
   const sorted=[...items].filter(x=>String(x.str||'').trim()).sort((a,b)=>{
     const ay=a.transform?.[5]||0,by=b.transform?.[5]||0;if(Math.abs(by-ay)>2)return by-ay;return (a.transform?.[4]||0)-(b.transform?.[4]||0);
   });
   for(const item of sorted){const y=item.transform?.[5]||0;if(lastY==null||Math.abs(y-lastY)<=2){line.push(item);}else{grouped.push(line);line=[item];}lastY=y;}if(line.length)grouped.push(line);
-  return grouped.map(xs=>xs.sort((a,b)=>(a.transform?.[4]||0)-(b.transform?.[4]||0)).map(x=>x.str).join(' ').replace(/\s+/g,' ').trim()).filter(Boolean);
+  return grouped.flatMap(xs=>{
+    const segments=[];let segment=[],right=null;
+    for(const item of xs.sort((a,b)=>(a.transform?.[4]||0)-(b.transform?.[4]||0))){
+      const x=item.transform?.[4]||0;
+      // A large gutter must not combine simultaneous presentations in adjacent columns.
+      if(right!==null&&x-right>48){segments.push(segment);segment=[];}
+      segment.push(item.str);right=x+Number(item.width||0);
+    }
+    if(segment.length)segments.push(segment);
+    return segments.map(parts=>parts.join(' ').replace(/\s+/g,' ').trim());
+  }).filter(Boolean);
+}
+
+/** Infer columns only from repeated timed anchors; uncertain layouts stay review drafts. */
+export function pdfTextRegions(items){
+  const timed=items.filter(item=>/\b\d{1,2}:\d{2}\s*[-–—]/.test(item.str||''));
+  const anchors=[];
+  for(const item of timed){const x=item.transform?.[4]||0;let anchor=anchors.find(a=>Math.abs(a.x-x)<24);if(!anchor){anchor={x,count:0};anchors.push(anchor);}anchor.count++;}
+  const columns=anchors.filter(a=>a.count>=2).sort((a,b)=>a.x-b.x);
+  if(columns.length<2||columns.some((a,i)=>i&&a.x-columns[i-1].x<120))return [itemsToLines(items)];
+  const top=Math.max(...timed.map(item=>item.transform?.[5]||0));
+  const shared=items.filter(item=>(item.transform?.[5]||0)>top&&/\b20\d{2}\b/.test(item.str||''));
+  return columns.map((column,index)=>itemsToLines([...shared,...items.filter(item=>!shared.includes(item)&&(item.transform?.[4]||0)>= (index?column.x-12:-Infinity)&&(item.transform?.[4]||0)<(columns[index+1]?.x-12||Infinity))]));
 }
 
 let tesseractModule=null;
@@ -103,11 +125,11 @@ export async function importPdf(file,onProgress=()=>{}){
   const pages=[];
   for(let p=1;p<=doc.numPages;p++){
     onProgress(p,doc.numPages,'text');
-    const page=await doc.getPage(p),content=await page.getTextContent();let lines=itemsToLines(content.items),ocr=false,ocrError='';
+    const page=await doc.getPage(p),content=await page.getTextContent();let columns=pdfTextRegions(content.items),lines=columns.flat(),ocr=false,ocrError='';
     if(lines.join(' ').trim().length<12){
       try{onProgress(p,doc.numPages,'ocr');lines=await ocrPdfPage(page);ocr=true;}catch(err){ocrError=err?.message||String(err);}
     }
-    pages.push({page:p,lines,ocr,ocrError});
+    pages.push({page:p,lines,columns:ocr?[lines]:columns,ocr,ocrError});
   }
   return pages;
 }
@@ -117,7 +139,37 @@ export function heuristicRowsFromPdf(pages,defaultDate='',sourceFileId='pdf'){
   const dateIso=/\b(20\d{2})[-\/.](\d{1,2})[-\/.](\d{1,2})\b/;
   const euroDate=/\b(\d{1,2})[./](\d{1,2})[./](20\d{2})\b/;
   const time=/\b([01]?\d|2[0-3]):([0-5]\d)\s*(?:[-–—]|to)\s*([01]?\d|2[0-3]):([0-5]\d)\b/i;
-  for(const page of pages){for(const [lineIndex,line] of page.lines.entries()){const dm=dateIso.exec(line),em=euroDate.exec(line);if(dm||em){currentDate=dm?`${dm[1]}-${String(dm[2]).padStart(2,'0')}-${String(dm[3]).padStart(2,'0')}`:`${em[3]}-${String(em[2]).padStart(2,'0')}-${String(em[1]).padStart(2,'0')}`;}const tm=time.exec(line);if(!tm)continue;const start=`${String(tm[1]).padStart(2,'0')}:${tm[2]}`,end=`${String(tm[3]).padStart(2,'0')}:${tm[4]}`;let title=line.replace(dm?.[0]||em?.[0]||'','').replace(tm[0],'').replace(/^\s*[-–—:|]\s*/,'').trim();let speaker='';const split=title.split(/\s+(?:—|–|\|)\s+/);if(split.length>1){title=split[0].trim();speaker=split.slice(1).join(' — ').trim();}const confidence=Math.min(0.95,0.45+(currentDate?0.2:0)+(title.length>3?0.2:0)+(speaker?0.1:0));rows.push({id:crypto.randomUUID(),date:currentDate,start,end,type:'talk',session:'',title,speaker,chair:'',affiliation:'',location:'',track:'',abstract:'',doi:'',posterNumber:'',importConfidence:confidence,source:{id:`${sourceFileId}:pdf:${page.page}:${lineIndex+1}`,fileId:sourceFileId,page:page.page,line:lineIndex+1,confidence,raw:line}});}}
+  for(const page of pages.flatMap(page=>(page.columns||[page.lines]).map((lines,column)=>({...page,lines,column})))){
+    // Context is deliberately page-local: a new page/column may belong to another track.
+    let context={location:'',track:'',session:''},posterWindow=null,lastRow=null;
+    for(const [lineIndex,raw] of page.lines.entries()){
+      const line=String(raw).trim(),dm=dateIso.exec(line),em=euroDate.exec(line);
+      if(dm||em){currentDate=dm?`${dm[1]}-${dm[2].padStart(2,'0')}-${dm[3].padStart(2,'0')}`:`${em[3]}-${em[2].padStart(2,'0')}-${em[1].padStart(2,'0')}`;posterWindow=null;lastRow=null;}
+      const heading=/^(Room|Location|Venue|Track|Stream|Session)\s*:\s*(.+)$/i.exec(line);
+      if(heading){const field=/track|stream/i.test(heading[1])?'track':/session/i.test(heading[1])?'session':'location';context[field]=heading[2];posterWindow=null;lastRow=null;continue;}
+      const tm=time.exec(line),poster=/^(?:Poster\s+|P)([A-Za-z]?\d+[A-Za-z]?)\s*[:.\-–]?\s+(.+)$/i.exec(line);
+      if(!tm&&!poster){
+        // Wrapped text is retained, but never silently classified as an author.
+        if(lastRow&&line&&!dm&&!em){lastRow.title+=' '+line;lastRow.importWarnings.push('Wrapped text appended to title; verify title and authors.');lastRow.importConfidence=Math.min(lastRow.importConfidence,0.6);}
+        continue;
+      }
+      const warnings=['PDF assignment is provisional; verify session, room, track and authors.'];
+      let title=poster?poster[2]:line.replace(dm?.[0]||em?.[0]||'','').replace(tm[0],'').replace(/^\s*[-–—:|]\s*/,'').trim();
+      let speaker='';const split=title.split(/\s+(?:—|–|\|)\s+/);
+      if(split.length===2){[title,speaker]=split.map(x=>x.trim());}else if(split.length>2)warnings.push('Multiple separators: author assignment is ambiguous.');
+      const start=tm?`${tm[1].padStart(2,'0')}:${tm[2]}`:posterWindow?.start||'',end=tm?`${tm[3].padStart(2,'0')}:${tm[4]}`:posterWindow?.end||'';
+      if(tm&&/^(?:poster session|posters)\b/i.test(title)){
+        posterWindow={start,end};context.session=title;lastRow=null;continue;
+      }
+      if(poster&&!posterWindow)warnings.push('Poster has no explicit session time; assign it before publishing.');
+      if(page.ocr)warnings.push('OCR text requires organizer review.');
+      if(!currentDate)warnings.push('Missing date.');
+      const row={id:crypto.randomUUID(),date:currentDate,start,end,type:poster?'poster':'talk',...context,title,speaker,chair:'',affiliation:'',abstract:'',doi:'',posterNumber:poster?.[1]||'',importConfidence:0.6,importWarnings:warnings,source:{id:`${sourceFileId}:pdf:${page.page}:${page.column?`column-${page.column}:`:''}${lineIndex+1}`,fileId:sourceFileId,page:page.page,column:page.column,line:lineIndex+1,confidence:0.6,raw:line}};
+      rows.push(row);lastRow=row;
+    }
+  }
+  // Overlapping entries without explicit context must remain visible as ambiguous drafts.
+  for(const row of rows)if(rows.some(other=>other!==row&&other.date===row.date&&other.start<row.end&&row.start<other.end&&(!row.location||!row.track)))row.importWarnings.push('Overlapping entries may belong to parallel columns/tracks; assign context manually.');
   return rows;
 }
 

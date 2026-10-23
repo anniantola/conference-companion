@@ -112,6 +112,7 @@ export function validatePackage(pkg, {strictCalendarUid = true, policy = {}} = {
     const session = sessionById.get(p.sessionId);
     const pm = minutes(p.start || session?.start), pe = minutes(p.end || session?.end);
     if (!Number.isFinite(pm) || !Number.isFinite(pe) || pe <= pm) errors.push(`presentation ${p.id}: invalid start/end`);
+    if (session && !(session.presentationIds || []).includes(p.id)) errors.push(`presentation ${p.id}: missing from parent presentationIds`);
     if (session) {
       const sm = minutes(session.start), se = minutes(session.end);
       if (Number.isFinite(pm) && Number.isFinite(pe) && Number.isFinite(sm) && Number.isFinite(se) && (pm < sm || pe > se)) {
@@ -130,6 +131,7 @@ export function validatePackage(pkg, {strictCalendarUid = true, policy = {}} = {
   for (const p of posters) {
     if (!p.title) errors.push(`poster ${p.id}: title required`);
     if (p.posterSessionId && !sessionIds.has(p.posterSessionId)) errors.push(`poster ${p.id}: unknown posterSessionId ${p.posterSessionId}`);
+    if (p.posterSessionId && sessionById.get(p.posterSessionId) && sessionById.get(p.posterSessionId).type !== 'poster-session') errors.push(`poster ${p.id}: parent must be a poster-session`);
     for (const id of p.authorIds || []) if (!personIds.has(id)) errors.push(`poster ${p.id}: unknown author ${id}`);
     if (p.calendarUid) registerUid(p.calendarUid, `poster ${p.id}`);
   }
@@ -144,6 +146,14 @@ export function validatePackage(pkg, {strictCalendarUid = true, policy = {}} = {
   for (const loc of locationRows) {
     if (!loc.name) errors.push(`location ${loc.id}: name required`);
     if (loc.parentLocationId && !locationIds.has(loc.parentLocationId)) errors.push(`location ${loc.id}: unknown parent ${loc.parentLocationId}`);
+  }
+
+  for (const loc of locationRows) {
+    const visited=new Set([loc.id]);let parent=loc.parentLocationId;
+    while(parent&&locationIds.has(parent)){
+      if(visited.has(parent)){errors.push(`location ${loc.id}: cyclic parent hierarchy`);break;}
+      visited.add(parent);parent=locationRows.find(x=>x.id===parent)?.parentLocationId;
+    }
   }
 
   // Structural conflict warnings.

@@ -21,11 +21,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
       - name: Validate and test
         run: npm test
+      - name: Stage public application files
+        run: node tools/stage-site.mjs
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:
-          path: "."
+          path: "_site"
       - uses: actions/deploy-pages@v4
         id: deployment

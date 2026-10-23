@@ -1,6 +1,6 @@
 {
   "name": "conference-companion",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "private": true,
   "type": "module",
   "description": "Offline-first, package-driven conference companion PWA and conference package Builder.",
@@ -9,13 +9,23 @@
     "validate:fixture": "node tools/validate-conference.mjs fixtures/multi-track-no-posters",
     "validate:all": "npm run validate && npm run validate:fixture",
     "test:core": "node tools/test-core.mjs",
-    "test": "npm run schema:all && npm run validate:all && npm run test:core && npm run test:static && npm run test:release && npm run test:importers && npm run test:bugfixes",
+    "test": "npm run test:unit && npm run test:browser",
     "schema": "node tools/schema-check.mjs conference",
     "schema:fixture": "node tools/schema-check.mjs fixtures/multi-track-no-posters",
     "schema:all": "npm run schema && npm run schema:fixture",
     "test:static": "node tools/test-static.mjs",
     "test:release": "node tools/test-release.mjs",
     "test:importers": "node tools/test-importers.mjs",
-    "test:bugfixes": "node tools/test-bugfixes.mjs"
+    "test:bugfixes": "node tools/test-bugfixes.mjs",
+    "test:unit": "npm run schema:all && npm run validate:all && npm run test:core && npm run test:static && npm run test:release && npm run test:importers && npm run test:bugfixes && npm run test:validation && npm run test:deployment",
+    "test:browser": "playwright test",
+    "test:validation": "node tools/test-validation.mjs",
+    "test:deployment": "node tools/test-deployment.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }
