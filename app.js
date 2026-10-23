@@ -12,7 +12,7 @@
   const POSTERS = MODEL?.posters || [];
   const LOCATION_ROWS = CONFIG.locations?.locations || [];
   const LOCATIONS = Object.fromEntries(LOCATION_ROWS.map(x => [x.id, x]));
-  const POSTER_SESSION = MODEL?.posterSession || null;
+  const POSTER_SESSIONS = MODEL?.posterSessions || (MODEL?.posterSession ? [MODEL.posterSession] : []);
   const PREFS_KEY = `conferenceCompanion:${CONFERENCE.id || "default"}:preferences:v1`;
   const PHOTO_DB = `conferenceCompanion:${CONFERENCE.id || "default"}:photos`;
 
@@ -43,6 +43,7 @@
   let modalPhotoObjectUrls = [];
   let photoViewerIds = [];
   let photoViewerIndex = -1;
+  let photoViewerReturnToDetail = false;
   let galleryPhotoCount = 0;
   let galleryNoteCount = 0;
   let galleryPhotoQuery = "";
@@ -520,17 +521,27 @@
     return `${e.start} · ${session}${e.title}${room}`;
   }
 
+  function posterSessionFor(poster) {
+    return poster?.posterSession || (poster?.posterSessionId ? MODEL?.session(poster.posterSessionId) : null) || null;
+  }
+
+  function activePosterSessions(capture) {
+    if (!capture?.date || !capture?.time) return [];
+    const minute=timeValue(capture.time);
+    return POSTER_SESSIONS.filter(session=>session.date===capture.date&&minute>=timeValue(session.start)-5&&minute<=timeValue(session.end)+5);
+  }
+
   function photoSuggestions(capture) {
     if (!capture?.date || !capture?.time) return [];
     const minute = timeValue(capture.time);
     const dateEvents = ITEMS.filter(e => e.date === capture.date && !["break","meal"].includes(e.kind));
-    const posterSession = dateEvents.find(e => e.kind === "poster-session" && minute >= timeValue(e.start)-5 && minute <= timeValue(e.end)+5);
+    const posterSessions = dateEvents.filter(e => e.kind === "poster-session" && minute >= timeValue(e.start)-5 && minute <= timeValue(e.end)+5);
     const ranked = [];
 
-    if (posterSession) {
+    for (const posterSession of posterSessions) {
       for (const id of state.posterFavorites) {
         const p = posterById.get(id);
-        if (p) ranked.push({type:"poster", id:p.id, score:1600, reason:"Starred poster during poster session"});
+        if (p && p.posterSessionId===posterSession.sessionId) ranked.push({type:"poster", id:p.id, score:1600, reason:`Starred poster in ${posterSession.title}`});
       }
       ranked.push({type:"event", id:posterSession.id, score:1000, reason:"Poster session at this time"});
     }
@@ -582,8 +593,10 @@
           `<option value="event:${esc(e.id)}">${esc(assignmentLabel("event",e.id))}</option>`
         ).join("") + `</optgroup>`;
       }
-      if (POSTER_SESSION && item.capture.date === POSTER_SESSION.date && state.posterFavorites.length) {
+      const activeSessionIds=new Set(activePosterSessions(item.capture).map(x=>x.id));
+      if (activeSessionIds.size && state.posterFavorites.length) {
         const posters = state.posterFavorites.map(id=>posterById.get(id)).filter(Boolean)
+          .filter(p=>activeSessionIds.has(p.posterSessionId))
           .filter(p => !suggestedKeys.has(assignmentKey("poster",p.id)));
         if (posters.length) {
           html += `<optgroup label="Other starred posters">` + posters.map(p =>
@@ -714,8 +727,8 @@
       const p = posterById.get(photo.ownerId);
       return {
         title: p ? `Poster #${p.number} · ${p.title}` : "Poster",
-        meta: posterSessionMeta(),
-        sortKey: `${POSTER_SESSION?.date || "9999-12-31"}|${POSTER_SESSION?.start || "23:59"}|${String(p?.number || 999).padStart(3,"0")}`
+        meta: posterSessionMeta(p),
+        sortKey: `${posterSessionFor(p)?.date || "9999-12-31"}|${posterSessionFor(p)?.start || "23:59"}|${String(p?.number || 999).padStart(3,"0")}`
       };
     }
     const e = byId.get(photo.ownerId);
@@ -808,8 +821,8 @@
           person: p.author || "",
           affiliation: p.affiliation || "",
           note,
-          meta: posterSessionMeta(),
-          sortKey: `${POSTER_SESSION?.date || "9999-12-31"}|${POSTER_SESSION?.start || "23:59"}|99|${String(p.number || 999).padStart(3,"0")}`
+          meta: posterSessionMeta(p),
+          sortKey: `${posterSessionFor(p)?.date || "9999-12-31"}|${posterSessionFor(p)?.start || "23:59"}|99|${String(p.number || 999).padStart(3,"0")}`
         });
       }
     }
@@ -1154,10 +1167,11 @@
         add(assignmentKey("event", e.id), assignmentLabel("event", e.id));
       }
 
-      if (POSTER_SESSION && capture.date === POSTER_SESSION.date) {
+      const activeSessionIds=new Set(activePosterSessions(capture).map(x=>x.id));
+      if (activeSessionIds.size) {
         for (const id of state.posterFavorites) {
           const p = posterById.get(id);
-          if (p) add(assignmentKey("poster", p.id), assignmentLabel("poster", p.id));
+          if (p&&activeSessionIds.has(p.posterSessionId)) add(assignmentKey("poster", p.id), assignmentLabel("poster", p.id));
         }
       }
     }
@@ -1223,6 +1237,9 @@
       if (!shown) return;
 
       const viewer = $("#photoViewer");
+      const detail = $("#detailModal");
+      photoViewerReturnToDetail = !!detail?.open;
+      if (photoViewerReturnToDetail) detail.close();
       viewer.hidden = false;
       viewer.setAttribute("aria-hidden", "false");
       document.documentElement.classList.add("photo-viewer-open");
@@ -1270,6 +1287,8 @@
 
     photoViewerIds = [];
     photoViewerIndex = -1;
+    if (photoViewerReturnToDetail && currentModal && !$("#detailModal").open) $("#detailModal").showModal();
+    photoViewerReturnToDetail = false;
     updatePhotoViewerControls();
   }
 
@@ -1551,16 +1570,17 @@
     return a.day===b.day && timeValue(a.start) < timeValue(b.end) && timeValue(b.start) < timeValue(a.end);
   }
 
-  function posterSessionMeta() {
-    if (!POSTER_SESSION) return "Poster session";
-    const day = DAYS.find(d=>d.date===POSTER_SESSION.date);
-    const loc = locationRow(POSTER_SESSION.locationId);
-    return `${day?.weekday || POSTER_SESSION.date} ${day?.dateLabel || ""} · ${POSTER_SESSION.start}–${POSTER_SESSION.end}${loc?` · ${loc.name}`:""}`;
+  function posterSessionMeta(posterOrSession) {
+    const session=posterOrSession?.type==="poster-session"?posterOrSession:posterSessionFor(posterOrSession);
+    if (!session) return "Poster session not assigned";
+    const day = DAYS.find(d=>d.date===session.date);
+    const loc = locationRow(session.locationId);
+    return `${session.title || "Poster session"} · ${day?.weekday || session.date} ${day?.dateLabel || ""} · ${session.start}–${session.end}${loc?` · ${loc.name}`:""}`;
   }
 
   function renderMySchedule() {
     const favEvents = state.favorites.map(id=>byId.get(id)).filter(Boolean).sort((a,b)=>a.date.localeCompare(b.date)||timeValue(a.start)-timeValue(b.start));
-    const favPosters = state.posterFavorites.map(id=>posterById.get(id)).filter(Boolean).sort((a,b)=>a.number-b.number);
+    const favPosters = state.posterFavorites.map(id=>posterById.get(id)).filter(Boolean).sort((a,b)=>`${posterSessionFor(a)?.date}|${posterSessionFor(a)?.start}|${a.number}`.localeCompare(`${posterSessionFor(b)?.date}|${posterSessionFor(b)?.start}|${b.number}`));
     $("#favoriteCount").textContent = favEvents.length + favPosters.length;
 
     if (!favEvents.length && !favPosters.length) {
@@ -1590,9 +1610,8 @@
     }).join("");
 
     if (favPosters.length) {
-      html += `<section class="my-day"><div class="my-day-head">Starred posters · ${esc(posterSessionMeta())}</div><div class="poster-list">
-        ${favPosters.map(p=>posterCard(p)).join("")}
-      </div></section>`;
+      const groups=new Map();for(const p of favPosters){const id=p.posterSessionId||"unassigned";if(!groups.has(id))groups.set(id,[]);groups.get(id).push(p);}
+      html += [...groups.values()].map(posters=>`<section class="my-day"><div class="my-day-head">Starred posters · ${esc(posterSessionMeta(posters[0]))}</div><div class="poster-list">${posters.map(p=>posterCard(p)).join("")}</div></section>`).join("");
     }
     $("#mySchedule").innerHTML = html;
     bindEventCards($("#mySchedule"));
@@ -1600,7 +1619,8 @@
   }
 
   function posterSearchText(p) {
-    return [p.number,p.title,p.author,p.affiliation,p.category,p.presentingAuthor,p.correspondingAuthor,p.abstract].filter(Boolean).join(" ").toLowerCase();
+    const session=posterSessionFor(p);
+    return [p.number,p.title,p.author,p.affiliation,p.category,p.presentingAuthor,p.correspondingAuthor,p.abstract,session?.title,session?.date,locationLabel(session?.locationId)].filter(Boolean).join(" ").toLowerCase();
   }
 
   function posterCard(p) {
@@ -1610,6 +1630,7 @@
       <div class="poster-top"><span class="poster-number">#${p.number}</span><span class="pill">${esc(p.category)}</span></div>
       <div class="poster-title">${esc(p.title)}</div>
       <div class="poster-author">${esc(p.author)}${p.affiliation?` · ${esc(p.affiliation)}`:""}</div>
+      <div class="poster-session-line">${esc(posterSessionMeta(p))}</div>
     </article>`;
   }
 
@@ -1638,7 +1659,8 @@
     let posters = POSTERS.filter(p => !q || posterSearchText(p).includes(q));
     if (state.posterCategory !== "all") posters = posters.filter(p => p.category===state.posterCategory);
     $("#posterMeta").innerHTML = `<span>${posters.length} posters</span><span>${state.posterFavorites.length} starred</span>`;
-    $("#posterList").innerHTML = posters.length ? posters.map(p=>posterCard(p)).join("") :
+    const groups=new Map();for(const p of posters){const id=p.posterSessionId||"unassigned";if(!groups.has(id))groups.set(id,[]);groups.get(id).push(p);}
+    $("#posterList").innerHTML = posters.length ? [...groups.values()].map(rows=>`<section class="poster-session-group"><h3>${esc(posterSessionMeta(rows[0]))}</h3><div class="poster-list">${rows.map(p=>posterCard(p)).join("")}</div></section>`).join("") :
       `<div class="empty-state"><strong>No matches</strong>Try another search or category.</div>`;
     bindPosterCards($("#posterList"));
   }
@@ -1719,8 +1741,8 @@
       <div class="modal-person">${esc(p.author)}</div>
       <div class="modal-aff">${esc(p.affiliation)}</div>
       <div class="modal-details">
-        <div class="detail-box"><span>Session</span><strong>${esc(posterSessionMeta())}</strong></div>
-        ${venueBoxHtml(resolvedVenue(POSTER_SESSION?.locationId))}
+        <div class="detail-box"><span>Session</span><strong>${esc(posterSessionMeta(p))}</strong></div>
+        ${venueBoxHtml(resolvedVenue(posterSessionFor(p)?.locationId))}
         <div class="detail-box"><span>Presenting author</span><strong>${esc(p.presentingAuthor || p.author || "—")}</strong></div>
         <div class="detail-box"><span>Corresponding author</span><strong>${esc(p.correspondingAuthor || "—")}</strong></div>
         ${p.sourcePage?`<div class="detail-box"><span>Programme</span><strong>PDF page ${p.sourcePage}</strong></div>`:""}
@@ -1807,8 +1829,8 @@
       if (!p) return {title:"Poster", meta:"Poster session", sortKey:"9999-12-31|23:59:59|8|poster"};
       return {
         title:`Poster #${p.number} · ${p.title}`,
-        meta:`${posterSessionMeta()}${p.author ? ` · ${p.author}` : ""}`,
-        sortKey:`${POSTER_SESSION?.date || "9999-12-31"}|${POSTER_SESSION?.start || "23:59"}:00|1|${String(p.number || 999).padStart(3,"0")}`
+        meta:`${posterSessionMeta(p)}${p.author ? ` · ${p.author}` : ""}`,
+        sortKey:`${posterSessionFor(p)?.date || "9999-12-31"}|${posterSessionFor(p)?.start || "23:59"}:00|1|${String(p.number || 999).padStart(3,"0")}`
       };
     }
     const e = byId.get(id);
@@ -2278,7 +2300,8 @@
 
   function exportStarredCalendar() {
     const items=state.favorites.map(id=>byId.get(id)).filter(Boolean);
-    if(state.posterFavorites.length&&POSTER_SESSION){const posterItem=byId.get(POSTER_SESSION.id);if(posterItem&&!items.some(x=>x.id===posterItem.id))items.push(posterItem);}
+    const posterSessionIds=new Set(state.posterFavorites.map(id=>posterById.get(id)?.posterSessionId).filter(Boolean));
+    for(const sessionId of posterSessionIds){const posterItem=byId.get(sessionId);if(posterItem&&!items.some(x=>x.id===posterItem.id))items.push(posterItem);}
     downloadCalendar(items,`${safeFilenamePart(CONFERENCE.id||"conference")}-starred.ics`);
   }
 

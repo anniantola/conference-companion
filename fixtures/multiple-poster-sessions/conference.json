@@ -1,0 +1,27 @@
+{
+  "id": "multiple-poster-sessions-fixture",
+  "name": "Synthetic Research Exchange",
+  "shortName": "SRE 2027",
+  "fullName": "Synthetic Research Exchange 2027",
+  "startDate": "2027-11-08",
+  "endDate": "2027-11-09",
+  "timezone": "America/New_York",
+  "timezoneLabel": "Eastern time",
+  "locale": "en-US",
+  "language": "en",
+  "city": "Philadelphia",
+  "country": "United States",
+  "officialWebsite": "https://example.net",
+  "contactEmail": "summit@example.net",
+  "mainVenueId": "venue-main",
+  "features": {
+    "posters": true,
+    "photos": true,
+    "notes": true,
+    "pptxExport": true,
+    "friendBook": true,
+    "calendarExport": true,
+    "announcements": true
+  },
+  "links": []
+}

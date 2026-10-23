@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {validatePackage} from '../src/validation.js';
-for(const base of ['conference','fixtures/multi-track-no-posters']){
+for(const base of ['conference','fixtures/multi-track-no-posters','fixtures/multiple-poster-sessions']){
  const pkg={};for(const [key,file] of Object.entries({manifest:'conference-manifest',conference:'conference',programme:'programme',people:'people',locations:'locations',branding:'branding'}))pkg[key]=JSON.parse(await readFile(`${base}/${file}.json`,'utf8'));
  assert.deepEqual(validatePackage(pkg).errors,[]);
  let bad=structuredClone(pkg);const p=bad.programme.presentations[0];const s=bad.programme.sessions.find(x=>x.id===p.sessionId);s.presentationIds=s.presentationIds.filter(id=>id!==p.id);
@@ -10,5 +10,6 @@ for(const base of ['conference','fixtures/multi-track-no-posters']){
  assert.ok(validatePackage(bad).errors.some(x=>x.includes('cyclic parent')));
  bad=structuredClone(pkg);bad.programme.posters.push({id:'test-poster',title:'Test',posterSessionId:s.id,authorIds:[]});
  assert.ok(validatePackage(bad).errors.some(x=>x.includes('parent must be a poster-session')));
+ if(pkg.programme.posters.length){bad=structuredClone(pkg);delete bad.programme.posters[0].posterSessionId;assert.ok(validatePackage(bad).errors.some(x=>x.includes('posterSessionId required')));}
 }
 console.log('Conference-independent referential validation regressions OK');

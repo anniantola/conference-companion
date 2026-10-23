@@ -6,7 +6,7 @@ import {execFileSync} from 'node:child_process';
 import {packageZip} from '../src/builder/package.js';
 import {rowsFromStructuredPackage} from '../src/builder/importers.js';
 import {readStoredZip,textEntry} from '../src/zip.js';
-for(const base of ['conference','fixtures/multi-track-no-posters']){
+for(const base of ['conference','fixtures/multi-track-no-posters','fixtures/multiple-poster-sessions']){
  const pkg={};for(const name of ['conference','programme','people','locations','branding'])pkg[name]=JSON.parse(await readFile(`${base}/${name}.json`,'utf8'));
  const originalFetch=globalThis.fetch;
  globalThis.fetch=async path=>{if(String(path).endsWith('.nojekyll'))return new Response('',{status:404});try{return new Response(await readFile(String(path).replace(/^\.\//,'')));}catch{return new Response('',{status:404});}};
@@ -25,4 +25,4 @@ for(const base of ['conference','fixtures/multi-track-no-posters']){
    for(const source of copy)assert.ok([...entries.keys()].some(name=>name===source||name.startsWith(source+'/')||(source==='icon-*.png'&&/^icon-\d+\.png$/.test(name))),`Missing generated staging source ${source}`);
  }finally{await rm(target,{recursive:true,force:true});}
 }
-console.log('Both conference deployment ZIPs validate after extraction');
+console.log('All three conference deployment ZIPs validate after extraction');

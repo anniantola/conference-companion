@@ -130,7 +130,8 @@ export function validatePackage(pkg, {strictCalendarUid = true, policy = {}} = {
 
   for (const p of posters) {
     if (!p.title) errors.push(`poster ${p.id}: title required`);
-    if (p.posterSessionId && !sessionIds.has(p.posterSessionId)) errors.push(`poster ${p.id}: unknown posterSessionId ${p.posterSessionId}`);
+    if (!p.posterSessionId) errors.push(`poster ${p.id}: posterSessionId required`);
+    else if (!sessionIds.has(p.posterSessionId)) errors.push(`poster ${p.id}: unknown posterSessionId ${p.posterSessionId}`);
     if (p.posterSessionId && sessionById.get(p.posterSessionId) && sessionById.get(p.posterSessionId).type !== 'poster-session') errors.push(`poster ${p.id}: parent must be a poster-session`);
     for (const id of p.authorIds || []) if (!personIds.has(id)) errors.push(`poster ${p.id}: unknown author ${id}`);
     if (p.calendarUid) registerUid(p.calendarUid, `poster ${p.id}`);

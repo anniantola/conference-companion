@@ -1,3 +1,28 @@
+# Attendee completion verification — 2026-10-23, engine v1.1.3
+
+Executed the complete `npm test` suite with the required Node.js 22.23.4
+runtime and Playwright Chromium on Linux. All schema, semantic validation,
+core, static/deployment, release, importer, Builder regression and generated
+deployment checks passed. Playwright completed **12/12 tests** with no skips.
+
+New browser coverage verifies multiple poster sessions; session-specific photo
+suggestions and calendars; notes, photos, favorites, complete backup/restore,
+profile/vCard and private Friend Book data; attendee layouts and touch paths at
+320, 375, 768 and 1280 pixels; package-update photo preservation; and a complete
+synthetic Builder import-to-deployed-attendee workflow.
+
+The system Node.js 18.19.1 runtime stopped at the generated-deployment test
+because it does not provide the required global Web Crypto API. The project and
+GitHub Actions specify Node 22 or later, so verification was rerun in that
+supported runtime and passed. `git diff --check` also passed.
+
+Limits: automated acceptance uses Chromium rather than Safari/Firefox or
+physical devices. Camera EXIF capture, OS share sheets/calendar clients,
+installed-PWA behavior, camera QR scanning and screen-reader behavior remain
+manual interoperability checks. PDF heuristics still require organizer review.
+
+---
+
 # Engine-update test synchronization follow-up — 2026-10-23
 
 - Reviewed failed Actions run 39914234056 for c132ee1. The clean-launch navigation

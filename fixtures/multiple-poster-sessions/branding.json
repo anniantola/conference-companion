@@ -1,0 +1,18 @@
+{
+  "logo": null,
+  "headerStyle": "text",
+  "primary": "#963b59",
+  "secondary": "#254e70",
+  "accent": "#a54e17",
+  "darkMode": true,
+  "trackColors": {
+    "materials": "#5b4b9a",
+    "devices": "#2f7d68",
+    "systems": "#a56a24"
+  },
+  "locationColors": {
+    "hall-a": "#5b4b9a",
+    "hall-b": "#2f7d68",
+    "hall-c": "#a56a24"
+  }
+}

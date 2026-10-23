@@ -6,7 +6,7 @@ import * as vcard from './src/vcard.js';
 import * as qr from './src/qrcode.js';
 import * as backup from './src/backup.js';
 
-const ENGINE_VERSION='1.1.2';
+const ENGINE_VERSION='1.1.3';
 const qs=new URLSearchParams(location.search);
 const base=(qs.get('conference')||'./conference').replace(/\/$/,'');
 const $=s=>document.querySelector(s);
@@ -24,8 +24,12 @@ function applyDocument(pkg,model,loadInfo){
   const fallback=$('.conference-logo-fallback');if(fallback){fallback.hidden=false;fallback.textContent=conference.shortName||conference.name;}
   const logo=$('.conference-logo');if(logo&&branding.logo){logo.src=resolvePackageUrl(branding.logo);logo.alt=conference.name;logo.hidden=false;}else if(logo)logo.hidden=true;
   const first=model.days[0],last=model.days.at(-1);const sub=$('.brand-subtitle');if(sub)sub.textContent=`${conference.city||''}${conference.city?' · ':''}${first?.dateLabel||conference.startDate}${last&&last.date!==first?.date?`–${last.dateLabel}`:''}`;
-  const posterSession=model.posterSession,posterHeading=$('#posterHeadingEyebrow');if(posterHeading&&posterSession){const dm=dateMeta(posterSession.date,conference.locale);posterHeading.textContent=`${dm.weekday.toUpperCase()} · ${posterSession.start}–${posterSession.end}`;}
-  const posterVenue=$('#posterHeadingVenue');if(posterVenue&&posterSession)posterVenue.textContent=(locations.locations||[]).find(x=>x.id===posterSession.locationId)?.name||'';
+  const posterSessions=model.posterSessions||[],posterSession=posterSessions[0],posterHeading=$('#posterHeadingEyebrow');
+  if(posterHeading&&posterSession){
+    if(posterSessions.length===1){const dm=dateMeta(posterSession.date,conference.locale);posterHeading.textContent=`${dm.weekday.toUpperCase()} · ${posterSession.start}–${posterSession.end}`;}
+    else posterHeading.textContent=`${posterSessions.length} POSTER SESSIONS`;
+  }
+  const posterVenue=$('#posterHeadingVenue');if(posterVenue&&posterSession)posterVenue.textContent=posterSessions.length===1?((locations.locations||[]).find(x=>x.id===posterSession.locationId)?.name||''):`${new Set(posterSessions.map(x=>x.date)).size} days · ${new Set(posterSessions.map(x=>x.locationId).filter(Boolean)).size} locations`;
   const build=$('.build-version');if(build)build.textContent=`Engine ${ENGINE_VERSION} · data ${manifest.dataVersion} · ${loadInfo.source}`;
   const installTitle=$('#installTitle');if(installTitle)installTitle.textContent=`Install ${conference.shortName||conference.name}`;
 }
@@ -37,7 +41,7 @@ function applyDocument(pkg,model,loadInfo){
     const model=createConferenceModel(pkg),userStore=createUserStore(pkg.conference.id);
     await userStore.ensureReady();
     const userState=await userStore.getState();
-    window.CONFERENCE_PACKAGE=pkg;window.CONFERENCE_MODEL=model;window.CONFERENCE_LOAD_INFO=loadInfo;window.CONFERENCE_CONFIG={...pkg,packageBase:base,engineVersion:ENGINE_VERSION,packageSource:loadInfo.source,packageWarnings:loadInfo.warnings||[],posterSession:model.posterSession};window.CONFERENCE_USER_STATE=userState;
+    window.CONFERENCE_PACKAGE=pkg;window.CONFERENCE_MODEL=model;window.CONFERENCE_LOAD_INFO=loadInfo;window.CONFERENCE_CONFIG={...pkg,packageBase:base,engineVersion:ENGINE_VERSION,packageSource:loadInfo.source,packageWarnings:loadInfo.warnings||[],posterSessions:model.posterSessions};window.CONFERENCE_USER_STATE=userState;
     window.CONFERENCE_SERVICES={userStore,calendar,vcard,qr,backup,getPackageDiagnostics:()=>getPackageDiagnostics(base),rollbackConferencePackage:()=>rollbackConferencePackage(base)};
     applyDocument(pkg,model,loadInfo);
     await import('./app.js');

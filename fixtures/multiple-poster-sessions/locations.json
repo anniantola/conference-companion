@@ -1,0 +1,36 @@
+{
+  "locations": [
+    {
+      "id": "venue-main",
+      "type": "venue",
+      "name": "Center for Engineering",
+      "address": "Philadelphia, Pennsylvania, USA",
+      "mapUrl": "https://www.openstreetmap.org/search?query=Philadelphia"
+    },
+    {
+      "id": "hall-a",
+      "type": "room",
+      "name": "East Auditorium",
+      "parentLocationId": "venue-main"
+    },
+    {
+      "id": "hall-b",
+      "type": "room",
+      "name": "West Lab",
+      "parentLocationId": "venue-main"
+    },
+    {
+      "id": "hall-c",
+      "type": "room",
+      "name": "Studio 3",
+      "parentLocationId": "venue-main"
+    },
+    {
+      "id": "social",
+      "type": "venue",
+      "name": "Downtown Reception Space",
+      "address": "Philadelphia, Pennsylvania, USA",
+      "mapUrl": "https://www.openstreetmap.org/search?query=Philadelphia"
+    }
+  ]
+}

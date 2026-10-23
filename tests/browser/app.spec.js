@@ -52,10 +52,10 @@ test('atomic releases, corrupt/invalid/mutated updates, rollback and user data i
   for(const name of ['conference-manifest.json','conference.json','programme.json','people.json','locations.json','branding.json'])files[name]=await readFile(`conference/${name}`,'utf8');
   let current={...files};
   await page.route('**/release/**',route=>{const name=new URL(route.request().url()).pathname.split('/').pop();return current[name]===undefined?route.fulfill({status:503,body:'unavailable'}):route.fulfill({contentType:'application/json',body:current[name]});});
-  const load=()=>page.evaluate(async()=>{const {loadConferencePackage}=await import('/src/package-store.js');const r=await loadConferencePackage('/release','1.1.2');return {version:r.pkg.manifest.dataVersion,source:r.source,warnings:r.warnings,id:r.pkg.conference.id};});
+  const load=()=>page.evaluate(async()=>{const {loadConferencePackage}=await import('/src/package-store.js');const r=await loadConferencePackage('/release','1.1.3');return {version:r.pkg.manifest.dataVersion,source:r.source,warnings:r.warnings,id:r.pkg.conference.id};});
   const first=await load();
   const state={favorites:['immutable-event'],posterFavorites:['immutable-poster'],notes:{'talk:immutable-event':'Private notes'}};
-  await page.evaluate(async({id,state})=>{const {createUserStore}=await import('/src/user-store.js');const s=createUserStore(id);await s.saveState(state);await s.saveProfile({name:'Private attendee',photo:new Blob(['photo'])});await s.saveFriend({id:'friend',name:'Private contact'});await createUserStore('other-event').saveState({favorites:['other']});},{id:first.id,state});
+  await page.evaluate(async({id,state})=>{const {createUserStore}=await import('/src/user-store.js');const s=createUserStore(id);await s.saveState(state);await s.saveProfile({name:'Private attendee',photo:new Blob(['photo'])});await s.saveFriend({id:'friend',name:'Private contact'});await createUserStore('other-event').saveState({favorites:['other']});await new Promise((resolve,reject)=>{const request=indexedDB.open(`conferenceCompanion:${id}:photos`,1);request.onupgradeneeded=()=>{const store=request.result.createObjectStore('photos',{keyPath:'id',autoIncrement:true});store.createIndex('ownerKey','ownerKey',{unique:false});};request.onerror=()=>reject(request.error);request.onsuccess=()=>{const db=request.result,tx=db.transaction('photos','readwrite');tx.objectStore('photos').add({ownerKey:'event:immutable-event',ownerType:'event',ownerId:'immutable-event',blob:new Blob(['image']),addedAt:1});tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>reject(tx.error);};});},{id:first.id,state});
   function release(version,mutate=()=>{}){
     current={...files};const programme=JSON.parse(current['programme.json']);mutate(programme);current['programme.json']=JSON.stringify(programme);
     const m=JSON.parse(files['conference-manifest.json']);m.dataVersion=version;
@@ -71,8 +71,8 @@ test('atomic releases, corrupt/invalid/mutated updates, rollback and user data i
   current={...files};expect((await load()).source).toBe('cache-newer');
   const rollback=await page.evaluate(async()=>{const m=await import('/src/package-store.js');const r=await m.rollbackConferencePackage('/release');return {version:r.dataVersion,diagnostics:await m.getPackageDiagnostics('/release')};});expect(rollback.version).toBe(first.version);expect(rollback.diagnostics.history).toHaveLength(2);
   await page.unroute('**/release/**');expect((await load()).source).toBe('cache-fallback');
-  const saved=await page.evaluate(async id=>{const {createUserStore}=await import('/src/user-store.js');const s=createUserStore(id);const profile=await s.getProfile();return {state:await s.getState(),name:profile.name,photo:await profile.photo.text(),friends:await s.listFriends(),other:await createUserStore('other-event').getState()};},first.id);
-  expect(saved.state).toEqual(state);expect(saved.name).toBe('Private attendee');expect(saved.photo).toBe('photo');expect(saved.friends[0].id).toBe('friend');expect(saved.other.favorites).toEqual(['other']);
+  const saved=await page.evaluate(async id=>{const {createUserStore}=await import('/src/user-store.js');const s=createUserStore(id);const profile=await s.getProfile();const photo=await new Promise((resolve,reject)=>{const request=indexedDB.open(`conferenceCompanion:${id}:photos`,1);request.onerror=()=>reject(request.error);request.onsuccess=()=>{const db=request.result,tx=db.transaction('photos','readonly'),get=tx.objectStore('photos').get(1);get.onsuccess=()=>resolve(get.result);get.onerror=()=>reject(get.error);tx.oncomplete=()=>db.close();};});return {state:await s.getState(),name:profile.name,photo:await profile.photo.text(),friends:await s.listFriends(),other:await createUserStore('other-event').getState(),storedPhoto:await photo.blob.text()};},first.id);
+  expect(saved.state).toEqual(state);expect(saved.name).toBe('Private attendee');expect(saved.photo).toBe('photo');expect(saved.friends[0].id).toBe('friend');expect(saved.other.favorites).toEqual(['other']);expect(saved.storedPhoto).toBe('image');
 });
 
 test('engine update waits while a client edits and activates on clean launch',async({page,context})=>{
@@ -86,7 +86,7 @@ test('engine update waits while a client edits and activates on clean launch',as
   await context.unroute('**/app.js');
   // A genuine second service-worker script/cache, served by the local HTTP server.
   const {writeFile,unlink}=await import('node:fs/promises');const path='test-engine-worker.js';
-  await writeFile(path,worker.replace('conference-companion-engine-1.1.2','conference-companion-engine-test'));
+  await writeFile(path,worker.replace('conference-companion-engine-1.1.3','conference-companion-engine-test'));
   try{
     const replacementCreated=context.waitForEvent('serviceworker',worker=>worker.url().endsWith('/test-engine-worker.js'));
     await page.evaluate(async()=>{await navigator.serviceWorker.register('/test-engine-worker.js',{scope:'/'});});

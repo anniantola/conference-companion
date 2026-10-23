@@ -1,0 +1,249 @@
+{
+  "tracks": [
+    {
+      "id": "common",
+      "name": "Common",
+      "order": 0
+    },
+    {
+      "id": "materials",
+      "name": "Materials",
+      "order": 1
+    },
+    {
+      "id": "devices",
+      "name": "Devices",
+      "order": 2
+    },
+    {
+      "id": "systems",
+      "name": "Systems",
+      "order": 3
+    }
+  ],
+  "sessions": [
+    {
+      "id": "ts-1",
+      "type": "session",
+      "title": "Opening",
+      "date": "2027-11-08",
+      "start": "09:00",
+      "end": "09:30",
+      "locationId": "hall-a",
+      "trackId": "common",
+      "chairIds": [],
+      "presentationIds": [
+        "tt-1"
+      ]
+    },
+    {
+      "id": "ts-2",
+      "type": "session",
+      "title": "Independent track session A",
+      "date": "2027-11-08",
+      "start": "10:00",
+      "end": "11:00",
+      "locationId": "hall-a",
+      "trackId": "materials",
+      "chairIds": [],
+      "presentationIds": [
+        "tt-2"
+      ]
+    },
+    {
+      "id": "ts-3",
+      "type": "session",
+      "title": "Independent track session B",
+      "date": "2027-11-08",
+      "start": "10:00",
+      "end": "11:00",
+      "locationId": "hall-b",
+      "trackId": "devices",
+      "chairIds": [],
+      "presentationIds": [
+        "tt-3"
+      ]
+    },
+    {
+      "id": "ts-4",
+      "type": "session",
+      "title": "Independent track session C",
+      "date": "2027-11-08",
+      "start": "10:00",
+      "end": "11:00",
+      "locationId": "hall-c",
+      "trackId": "systems",
+      "chairIds": [],
+      "presentationIds": [
+        "tt-4"
+      ]
+    },
+    {
+      "id": "ts-5",
+      "type": "break",
+      "title": "Coffee break",
+      "date": "2027-11-08",
+      "start": "11:00",
+      "end": "11:30",
+      "locationId": "venue-main",
+      "trackId": "common",
+      "chairIds": [],
+      "presentationIds": [],
+      "calendarUid": "ts-5@example.org",
+      "sequence": 0
+    },
+    {
+      "id": "ts-6",
+      "type": "social",
+      "title": "Conference reception",
+      "date": "2027-11-08",
+      "start": "18:00",
+      "end": "20:00",
+      "locationId": "social",
+      "trackId": "common",
+      "chairIds": [],
+      "presentationIds": [],
+      "calendarUid": "ts-6@example.org",
+      "sequence": 0
+    },
+    {
+      "id": "ts-7",
+      "type": "session",
+      "title": "Day 2 keynote",
+      "date": "2027-11-09",
+      "start": "09:00",
+      "end": "10:00",
+      "locationId": "hall-a",
+      "trackId": "common",
+      "chairIds": [],
+      "presentationIds": [
+        "tt-5"
+      ]
+    },
+    {
+      "id": "poster-morning",
+      "type": "poster-session",
+      "title": "Morning poster exchange",
+      "date": "2027-11-08",
+      "start": "11:30",
+      "end": "12:30",
+      "locationId": "hall-b",
+      "trackId": "common",
+      "chairIds": [],
+      "presentationIds": [],
+      "calendarUid": "poster-morning@example.org",
+      "sequence": 0
+    },
+    {
+      "id": "poster-afternoon",
+      "type": "poster-session",
+      "title": "Afternoon poster exchange",
+      "date": "2027-11-09",
+      "start": "14:00",
+      "end": "15:15",
+      "locationId": "hall-c",
+      "trackId": "common",
+      "chairIds": [],
+      "presentationIds": [],
+      "calendarUid": "poster-afternoon@example.org",
+      "sequence": 0
+    }
+  ],
+  "presentations": [
+    {
+      "id": "tt-1",
+      "sessionId": "ts-1",
+      "type": "special",
+      "start": "09:00",
+      "end": "09:30",
+      "title": "Welcome to Test Conference",
+      "speakerIds": [
+        "tp-1"
+      ],
+      "calendarUid": "tt-1@example.org",
+      "sequence": 0
+    },
+    {
+      "id": "tt-2",
+      "sessionId": "ts-2",
+      "type": "talk",
+      "start": "10:00",
+      "end": "10:30",
+      "title": "New Materials",
+      "speakerIds": [
+        "tp-1"
+      ],
+      "calendarUid": "tt-2@example.org",
+      "sequence": 0
+    },
+    {
+      "id": "tt-3",
+      "sessionId": "ts-3",
+      "type": "talk",
+      "start": "10:00",
+      "end": "10:30",
+      "title": "Embedded Computing",
+      "speakerIds": [
+        "tp-2"
+      ],
+      "calendarUid": "tt-3@example.org",
+      "sequence": 0
+    },
+    {
+      "id": "tt-4",
+      "sessionId": "ts-4",
+      "type": "talk",
+      "start": "10:00",
+      "end": "10:30",
+      "title": "Robust Systems",
+      "speakerIds": [
+        "tp-3"
+      ],
+      "calendarUid": "tt-4@example.org",
+      "sequence": 0
+    },
+    {
+      "id": "tt-5",
+      "sessionId": "ts-7",
+      "type": "plenary",
+      "start": "09:00",
+      "end": "10:00",
+      "title": "Building Connections",
+      "speakerIds": [
+        "tp-2"
+      ],
+      "calendarUid": "tt-5@example.org",
+      "sequence": 0
+    }
+  ],
+  "posters": [
+    {
+      "id": "poster-a1",
+      "posterSessionId": "poster-morning",
+      "number": "A1",
+      "title": "Synthetic materials poster",
+      "authorIds": ["tp-1"],
+      "category": "Materials",
+      "abstract": "Representative synthetic poster content for regression testing."
+    },
+    {
+      "id": "poster-a2",
+      "posterSessionId": "poster-morning",
+      "number": "A2",
+      "title": "Synthetic devices poster",
+      "authorIds": ["tp-2"],
+      "category": "Devices",
+      "abstract": "Representative synthetic poster content for regression testing."
+    },
+    {
+      "id": "poster-b1",
+      "posterSessionId": "poster-afternoon",
+      "number": "B1",
+      "title": "Synthetic systems poster",
+      "authorIds": ["tp-3"],
+      "category": "Systems",
+      "abstract": "Representative synthetic poster content for regression testing."
+    }
+  ],
+  "announcements": []
+}

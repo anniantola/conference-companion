@@ -91,3 +91,24 @@ was not reproduced in 30 local runs; its CI log and the missing lifecycle barrie
 support a test synchronization race, with no evidence of an application-triggered
 reload. Real device/browser lifecycle interoperability remains outside Chromium
 acceptance coverage.
+
+## 2026-10-23 — Attendee completion and mobile workflows (v1.1.3)
+
+- Replaced attendee single-poster-session inference with explicit parent-session
+  resolution for poster grouping, headings, search, favorites, notes, galleries,
+  photo assignment suggestions, details and starred calendar exports.
+- Required `posterSessionId` in schema and semantic validation. Added a synthetic,
+  independently validated two-day/two-room poster fixture.
+- Fixed structured-package re-import duplicating referenced poster sessions and
+  their calendar UIDs; unreferenced empty poster sessions remain preserved.
+- Fixed the full-screen photo editor being inert when launched above a native
+  event-details dialog. The details sheet now closes during editing and reopens
+  afterward without losing context.
+- Added real-browser personal backup/restore, editable photo metadata, favorites,
+  notes, profile/vCard, private contact, individual/starred/full calendar, package
+  update photo preservation, four-viewport mobile, and complete Builder deployment
+  workflows. Synthetic data covers parallel tracks, venues, poster sessions and a
+  social event; it contains no official conference programme information.
+- Remaining manual scope: physical camera/EXIF files, OS share sheets/calendar
+  clients, installed-mode updates, QR camera scanning, screen readers and non-
+  Chromium browser engines.

@@ -164,3 +164,24 @@ artifacts. Builder exports remain dependency-free attendee repositories; their
 own `npm test` checks exported schemas/data, and their generated workflow stages
 public files before upload. They do not claim to include the development browser
 suite or private Builder sources.
+
+## 12. Poster-session and attendee workflow completion (v1.1.3)
+
+`posterSessionId` is required for every Poster and must resolve to a Session whose
+type is `poster-session`. The model exposes `posterSessions` in chronological order
+and retains `posterSession` as a compatibility alias for the first session. Each
+poster projection carries its resolved parent. Attendee code never uses the alias
+to infer a poster's date, room, gallery order, photo match or calendar membership.
+
+Timestamp-based photo matching finds every active poster session at the capture
+time, then offers only starred posters belonging to those sessions. When parallel
+poster sessions overlap and no location metadata exists, all relevant active
+sessions remain visible for attendee review instead of selecting a room silently.
+
+The full-screen photo editor temporarily closes an open native details dialog and
+restores it on exit. This avoids the browser's native modal-inertness boundary while
+preserving the selected event/poster and the attendee's place.
+
+The third independent fixture and browser suites establish conference-independent
+coverage for multi-session posters, attendee-owned data, mobile layouts, Friend
+Book/calendar workflows, package updates and a Builder-to-attendee deployment.

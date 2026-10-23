@@ -1,6 +1,6 @@
 import './test-webcrypto.mjs';
 import assert from 'node:assert/strict';
-import {parseCSV,heuristicRowsFromPdf,guessMapping,rowsFromMapping} from '../src/builder/importers.js';
+import {parseCSV,heuristicRowsFromPdf,guessMapping,rowsFromMapping,rowsFromStructuredPackage} from '../src/builder/importers.js';
 const csv='date,title,abstract\n2027-11-08,"Talk, one","Two lines\nwith \"\"quoted\"\" content"\n2027-11-09,Talk two,Short';
 const rows=parseCSV(csv);
 assert.equal(rows.length,2);
@@ -32,3 +32,10 @@ assert.deepEqual(parallel.map(r=>r.track),['Left','Left','Right','Right']);
 assert.equal(new Set(parallel.map(r=>r.source.id)).size,4);
 assert.ok(parallel.every(r=>r.date==='2030-05-10'));
 console.log('PDF independent column context regressions OK');
+
+const structured={programme:{sessions:[{id:'ps-a',type:'poster-session',title:'Posters A',date:'2030-05-10',start:'12:00',end:'13:00',locationId:'room-a',trackId:'common',presentationIds:[],calendarUid:'ps-a@example.org'},{id:'ps-empty',type:'poster-session',title:'Empty posters',date:'2030-05-11',start:'12:00',end:'13:00',locationId:'room-b',trackId:'common',presentationIds:[],calendarUid:'ps-empty@example.org'}],presentations:[],posters:[{id:'pa',posterSessionId:'ps-a',title:'Poster A',authorIds:[]}],tracks:[{id:'common',name:'Common'}]},people:{people:[]},locations:{locations:[{id:'room-a',name:'Room A'},{id:'room-b',name:'Room B'}]}};
+const structuredRows=rowsFromStructuredPackage(structured);
+assert.equal(structuredRows.filter(x=>x.posterSessionId==='ps-a').length,1);
+assert.equal(structuredRows.filter(x=>x.sessionId==='ps-a').length,0);
+assert.equal(structuredRows.filter(x=>x.sessionId==='ps-empty').length,1);
+console.log('Structured multi-poster-session import regression OK');

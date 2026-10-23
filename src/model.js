@@ -84,10 +84,12 @@ export function createConferenceModel(pkg) {
   items.sort((a,b)=>a.date.localeCompare(b.date)||a.start.localeCompare(b.start)||a.track-b.track||a.title.localeCompare(b.title));
   const itemById = new Map(items.map(x => [x.id, x]));
 
-  const posterSession = (programme.sessions || []).find(x => x.type === "poster-session") || null;
+  const posterSessions = (programme.sessions || []).filter(x => x.type === "poster-session")
+    .sort((a,b)=>a.date.localeCompare(b.date)||a.start.localeCompare(b.start)||a.title.localeCompare(b.title));
+  const posterSession = posterSessions[0] || null;
   const posters = (programme.posters || []).map(p => {
     const authors = (p.authorIds || []).map(id => personById.get(id)).filter(Boolean);
-    const session = sessionById.get(p.posterSessionId) || posterSession;
+    const session = sessionById.get(p.posterSessionId) || null;
     return {
       ...p,
       raw:p,
@@ -96,12 +98,15 @@ export function createConferenceModel(pkg) {
       affiliation:authors.flatMap(x => x.affiliations || []).filter(Boolean).join("; "),
       posterSession:session || null
     };
+  }).sort((a,b)=>{
+    const sa=a.posterSession,sb=b.posterSession;
+    return `${sa?.date||'9999-12-31'}|${sa?.start||'23:59'}|${String(a.number||'')}`.localeCompare(`${sb?.date||'9999-12-31'}|${sb?.start||'23:59'}|${String(b.number||'')}`,undefined,{numeric:true});
   });
   const posterById = new Map(posters.map(x => [x.id, x]));
 
   return {
     conference, programme, people, locations,
-    days, items, posters, posterSession,
+    days, items, posters, posterSessions, posterSession,
     personById, locationById, sessionById, presentationById, posterById, posterByIdRaw, trackById, itemById,
     location(id) { return id ? locationById.get(id) || null : null; },
     person(id) { return id ? personById.get(id) || null : null; },

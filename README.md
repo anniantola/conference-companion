@@ -223,3 +223,33 @@ PDF text-item fixtures and do not certify arbitrary PDFs or CDN availability.
 Note writes now begin immediately and display “Saved” after the IndexedDB
 transaction completes, preventing navigation/preferences from delaying a pending
 note write past a reload.
+
+### Attendee completion regressions (v1.1.3)
+
+Poster support is session-specific. A package may define any number of
+`poster-session` records across dates and locations, and each poster must reference
+its parent with `posterSessionId`. The attendee app groups posters and starred
+posters chronologically by session; details, search, notes, gallery metadata,
+photo-time suggestions and starred calendar exports all use the referenced parent
+session. The synthetic `fixtures/multiple-poster-sessions` package verifies two
+days and rooms without introducing official programme content.
+
+Playwright now covers attendee layouts at 320, 375, 768 and 1280 pixels, including
+six-item bottom navigation, schedule filters, event/poster sheets, scrolling,
+notes, Gallery, Friend Book, Settings, QR and touch interaction. Personal-data
+coverage creates and edits notes/photos, favorites and a contact card; imports a
+vCard; saves private contact fields; exports individual/starred/full calendars;
+and round-trips a complete ZIP backup. Conference-package update tests also keep
+photo blobs alongside notes, profile and Friend Book data.
+
+The Builder browser test imports representative synthetic CSV data, maps fields,
+corrects a row, configures and validates the conference, downloads the deployment
+ZIP, inspects its canonical entities, then loads the generated conference package
+through the attendee UI. It covers parallel tracks, multiple venues, two poster
+sessions and a social event.
+
+Automated mobile checks detect document-level horizontal overflow and verify key
+controls, but they do not replace VoiceOver/TalkBack, physical camera, installed
+PWA, or platform file-share testing. Browser photo fixtures do not exercise EXIF
+parsing from real camera files. QR image scanning still depends on browser
+`BarcodeDetector` support; vCard file import is tested as the portable fallback.

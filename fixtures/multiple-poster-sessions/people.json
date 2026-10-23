@@ -1,0 +1,25 @@
+{
+  "people": [
+    {
+      "id": "tp-1",
+      "name": "Morgan Lee",
+      "affiliations": [
+        "Independent Institute for Engineering"
+      ]
+    },
+    {
+      "id": "tp-2",
+      "name": "Taylor Chen",
+      "affiliations": [
+        "Independent Institute for Engineering"
+      ]
+    },
+    {
+      "id": "tp-3",
+      "name": "Sam Rivera",
+      "affiliations": [
+        "Independent Institute for Engineering"
+      ]
+    }
+  ]
+}
