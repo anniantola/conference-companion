@@ -33,7 +33,8 @@ const workflow=fs.readFileSync(new URL('../.github/workflows/deploy.yml',import.
 assert(/npm test/.test(workflow),'deploy workflow must gate GitHub Pages deployment with npm test');
 console.log('Static/accessibility smoke tests OK');
 assert(workflow.includes('npm ci'),'CI must use locked dependencies');
-assert(workflow.includes('playwright install --with-deps chromium'),'CI must provision browser dependencies');
+assert(workflow.includes('runs-on: ubuntu-24.04'),'CI must pin the runner supported by its browser dependency installer');
+assert(workflow.includes('playwright install --with-deps chromium firefox webkit'),'CI must provision all three browser engines');
 assert(workflow.includes('path: "_site"'),'CI must not upload dependencies or browser traces');
 const {workflowText}=await import('../src/builder/package.js');
 assert(workflowText().includes('path: "_site"'),'Generated deployments must stage public assets');

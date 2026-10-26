@@ -15,7 +15,9 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
+    # Playwright's system dependency installer is validated on Ubuntu 24.04.
+    # Keep this pinned across the GitHub ubuntu-latest image migration.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v4
