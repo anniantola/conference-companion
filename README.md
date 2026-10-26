@@ -48,7 +48,7 @@ Open `builder.html` in the development repository. The Builder implements:
 - editable review table with multi-row selection and bulk edits;
 - first-class session editor so location/track/session-window changes are made once per Session and cascade to child talks;
 - source provenance and re-import conflict handling;
-- re-import reconciliation that prioritizes structured entity IDs, then requires a unique match across presentation title, schedule and session context; source row position alone never transfers an identity or organizer correction;
+- re-import reconciliation that prioritizes structured entity IDs and matches spreadsheets only against pre-import records from the same source sheet; presentation matches use title/presenter and schedule context, while posters require a poster number in matching session context; source row position alone never transfers an identity or organizer correction;
 - preservation of organizer-edited fields, entity IDs, calendar UIDs and SEQUENCE history on correctly matched re-imports; ambiguous matches remain separate and are reported for review, while missing source rows remain visible;
 - explicit person IDs for structured data, affiliation-aware identity matching, and a Builder review selector for unresolved same-name people without enough affiliation evidence;
 - stable private identities for conference, sessions, presentations, calendar UIDs, people, locations and tracks;

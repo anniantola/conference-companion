@@ -19,8 +19,9 @@
     "test:release": "node tools/test-release.mjs",
     "test:importers": "node tools/test-importers.mjs",
     "test:bugfixes": "node tools/test-bugfixes.mjs",
+    "test:builder-91": "node tools/test-builder-91-record.mjs",
     "test:builder-trust": "node tools/test-builder-trust.mjs",
-    "test:unit": "npm run schema:all && npm run validate:all && npm run test:core && npm run test:static && npm run test:release && npm run test:importers && npm run test:bugfixes && npm run test:builder-trust && npm run test:validation && npm run test:deployment",
+    "test:unit": "npm run schema:all && npm run validate:all && npm run test:core && npm run test:static && npm run test:release && npm run test:importers && npm run test:bugfixes && npm run test:builder-91 && npm run test:builder-trust && npm run test:validation && npm run test:deployment",
     "test:browser": "playwright test",
     "test:validation": "node tools/test-validation.mjs",
     "test:deployment": "node tools/test-deployment.mjs"

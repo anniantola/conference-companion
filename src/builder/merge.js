@@ -18,22 +18,32 @@ function scoreMatch(old, incoming) {
   // and corroboration from schedule/context fields; source row is never scored.
   const title=clean(a.title), sameTitle=!!title&&title===clean(b.title);
   const sameSpeaker=clean(a.speaker)===clean(b.speaker)&&!!clean(a.speaker);
+  const poster=clean(a.type)==='poster'||clean(b.type)==='poster';
+  const posterNumber=clean(a.posterNumber),samePosterNumber=!!posterNumber&&posterNumber===clean(b.posterNumber);
   const fields=['date','start','end','session','location','track','speaker','type'];
   const equal=fields.filter(k=>clean(a[k])&&clean(a[k])===clean(b[k])).length;
+  if(poster){
+    const context=['date','session','location','track'];
+    const contextEqual=context.filter(k=>clean(a[k])&&clean(a[k])===clean(b[k])).length;
+    const sessionContext=clean(a.date)&&clean(a.date)===clean(b.date)&&clean(a.session)&&clean(a.session)===clean(b.session)&&
+      ((clean(a.location)&&clean(a.location)===clean(b.location))||(clean(a.track)&&clean(a.track)===clean(b.track)));
+    return samePosterNumber&&sessionContext?120+contextEqual:0;
+  }
   if(sameTitle&&equal>=2)return 100+equal;
   // A renamed title can still match when its full time, session and speaker
   // context agree. This is deliberately stricter than row-number equality.
   const context=['date','start','end','session','location','track'];
   const contextEqual=context.filter(k=>clean(a[k])&&clean(a[k])===clean(b[k])).length;
-  if(contextEqual>=5&&(sameSpeaker||contextEqual===6))return 70+contextEqual;
+  if(sameSpeaker&&contextEqual>=4)return 70+contextEqual;
   return 0;
 }
 
 export function mergeImportedRows(existingRows, incomingRows, deletedSourceIds = []) {
-  const rows = [...(existingRows || [])];
+  const originalRows = [...(existingRows || [])];
+  const rows = [...originalRows];
   const existingSourceIds = new Set();
-  for (let i=0; i<rows.length; i++) {
-    const id=rows[i]?.source?.id;
+  for (let i=0; i<originalRows.length; i++) {
+    const id=originalRows[i]?.source?.id;
     if (id) {
       if (existingSourceIds.has(id)) throw new Error(`Existing programme has duplicate source ID: ${id}`);
       existingSourceIds.add(id);
@@ -59,20 +69,24 @@ export function mergeImportedRows(existingRows, incomingRows, deletedSourceIds =
     // Structured imports carry immutable entity IDs. Match those across source
     // files before considering spreadsheet content.
     if(incoming.entityId){
-      const explicit=rows.map((r,index)=>({r,index})).filter(x=>x.r.entityId===incoming.entityId&&!matchedRows.has(x.index));
+      const explicit=originalRows.map((r,index)=>({r,index})).filter(x=>x.r.entityId===incoming.entityId&&!matchedRows.has(x.index));
       if(explicit.length===1)i=explicit[0].index;
       else if(explicit.length>1){conflicts.push(`${sid}: ambiguous immutable entity ID ${incoming.entityId}; retained for organizer review`);rows.push(incoming);continue;}
     }
     if(i===undefined){
-      const candidates=rows.map((r,index)=>({r,index,score:scoreMatch(r,incoming)})).filter(x=>x.score>0&&!matchedRows.has(x.index));
+      const candidates=originalRows.map((r,index)=>({r,index,score:scoreMatch(r,incoming)})).filter(x=>x.score>0&&!matchedRows.has(x.index));
       candidates.sort((a,b)=>b.score-a.score);
-      if(candidates.length===1)i=candidates[0].index;
+      if(candidates.length&&(!candidates[1]||candidates[0].score>candidates[1].score))i=candidates[0].index;
       else if(candidates.length){
         conflicts.push(`${sid}: ambiguous presentation match (${candidates.length} candidates); retained for organizer review`);
         rows.push(incoming);continue;
       }
     }
-    if(i===undefined){rows.push(incoming); continue;}
+    if(i===undefined){
+      const sameSourceIndex=originalRows.findIndex(row=>row?.source?.id===sid);
+      if(sameSourceIndex>=0&&!matchedRows.has(sameSourceIndex))conflicts.push(`${sid}: source row content is not a safe identity match; existing and incoming records retained for review`);
+      rows.push(incoming); continue;
+    }
     const old=rows[i];
     matched.add(sid);
     if(old?.source?.id)matched.add(old.source.id);
@@ -106,7 +120,7 @@ export function mergeImportedRows(existingRows, incomingRows, deletedSourceIds =
   }
   // Never silently discard older imports or manual additions. Highlight stale rows
   // from the file currently being re-imported so the organizer can remove them.
-  for (const old of existingRows || []) {
+  for (const old of originalRows) {
     const id=old?.source?.id;
     if (id && !matched.has(id) && !seenIncoming.has(id) && incomingScopes.has(JSON.stringify([old.source?.fileId,old.source?.sheet||''])))
       conflicts.push(`${id}: missing from new import; retained for manual review`);

@@ -1,6 +1,19 @@
 import {test,expect} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
 import {readStoredZip,textEntry} from '../../src/zip.js';
+import {synthetic91Csv} from '../../tools/synthetic-91-csv.js';
+
+test('Builder CSV import retains all 91 synthetic records and all 18 shared-slot posters',async({page})=>{
+  await page.goto('/builder.html');
+  await page.locator('#programmeFile').setInputFiles({name:'synthetic-91-records.csv',mimeType:'text/csv',buffer:Buffer.from(synthetic91Csv())});
+  await page.locator('#importProgramme').click();await expect(page.locator('#mappingCard')).toBeVisible();
+  await page.locator('#applyMapping').click();
+  await expect(page.locator('#rowCount')).toHaveText('91 rows');
+  await expect(page.locator('#reviewTable tbody tr')).toHaveCount(91);
+  const types=await page.locator('#reviewTable [data-field="type"]').evaluateAll(elements=>elements.map(el=>el.value));
+  expect(types.filter(type=>type==='poster')).toHaveLength(18);
+  await expect(page.locator('#reviewTable input[data-field="title"]').last()).toHaveValue('Synthetic poster 18');
+});
 
 test('Builder produces a deployable synthetic multi-track, multi-poster conference',async({page})=>{
   await page.goto('/builder.html');

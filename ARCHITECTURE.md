@@ -37,10 +37,13 @@ Non-negotiable rules:
 - `dataVersion` handles official programme releases.
 
 Builder re-imports match structured immutable entity IDs first. Spreadsheet rows
-are reconciled using a unique, content-based match across presentation title,
-time and session context; a file/worksheet/row address is provenance only and
-cannot decide identity by itself. Tied candidates stay separate and require
-organizer review, and absent source records are retained with a warning.
+are reconciled only against records that existed before the incoming batch, and
+only within the same source file and worksheet. Presentation matches use a
+unique title/presenter and schedule context; posters require a poster number in
+matching session/date context. A file/worksheet/row address is provenance only
+and cannot decide identity by itself. Tied or insufficiently identified
+candidates stay separate and require organizer review, and absent source records
+are retained with a warning.
 Organizer corrections, entity IDs, calendar UIDs and calendar `SEQUENCE` are
 preserved only after a safe match. People identities use explicit IDs or
 name-plus-affiliation evidence; unresolved name-only cases stay distinct until
