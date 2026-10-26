@@ -5,18 +5,23 @@ import {synthetic91Csv} from '../../tools/synthetic-91-csv.js';
 
 test('Builder CSV import retains all 91 synthetic records and all 18 shared-slot posters',async({page})=>{
   await page.goto('/builder.html');
+  await page.locator('[data-goto-step="2"]').click();
   await page.locator('#programmeFile').setInputFiles({name:'synthetic-91-records.csv',mimeType:'text/csv',buffer:Buffer.from(synthetic91Csv())});
   await page.locator('#importProgramme').click();await expect(page.locator('#mappingCard')).toBeVisible();
-  await page.locator('#applyMapping').click();
+  await page.locator('#applyMapping').click();await page.locator('[data-goto-step="3"]').click();
   await expect(page.locator('#rowCount')).toHaveText('91 rows');
   await expect(page.locator('#reviewTable tbody tr')).toHaveCount(91);
   const types=await page.locator('#reviewTable [data-field="type"]').evaluateAll(elements=>elements.map(el=>el.value));
   expect(types.filter(type=>type==='poster')).toHaveLength(18);
   await expect(page.locator('#reviewTable input[data-field="title"]').last()).toHaveValue('Synthetic poster 18');
+  await page.setViewportSize({width:320,height:760});
+  const overflow=await page.evaluate(()=>({page:document.documentElement.scrollWidth,viewport:innerWidth,elements:['.builder-shell','[data-step="3"]','.wizard-nav','.table-wrap','.bulk-edit-bar','.session-editor-wrap','.session-grid','#conflictPanel'].map(selector=>{const el=document.querySelector(selector),r=el?.getBoundingClientRect();return `${selector}: ${Math.round(r?.right||0)} / ${el?.scrollWidth}`;})}));
+  expect(overflow.page,`Review table scrolls within its panel at 320px: ${overflow.elements.join(', ')}`).toBeLessThanOrEqual(overflow.viewport);
 });
 
 test('Builder produces a deployable synthetic multi-track, multi-poster conference',async({page})=>{
   await page.goto('/builder.html');
+  await page.locator('[data-goto-step="2"]').click();
   const csv=`date,start,end,type,session,title,speaker,affiliation,room,track,posterNumber
 2028-06-10,09:00,09:30,talk,Opening,Original title,Alex Example,Synthetic University,Hall A,Common,
 2028-06-10,10:00,10:30,talk,Parallel research,Materials talk,Morgan Sample,Materials Lab,Hall A,Materials,
@@ -25,11 +30,13 @@ test('Builder produces a deployable synthetic multi-track, multi-poster conferen
 2028-06-11,14:00,15:00,poster,Afternoon posters,Poster Beta,Taylor Sample,Devices Lab,Hall C,Common,B1
 2028-06-11,18:00,20:00,social,Conference social,Evening reception,,,Offsite Venue,Common,`;
   await page.locator('#programmeFile').setInputFiles({name:'synthetic-programme.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
-  await page.locator('#importProgramme').click();await expect(page.locator('#mappingCard')).toBeVisible();await page.locator('#applyMapping').click();
+  await page.locator('#importProgramme').click();await expect(page.locator('#mappingCard')).toBeVisible();await page.locator('#applyMapping').click();await page.locator('[data-goto-step="3"]').click();
   await expect(page.locator('#rowCount')).toHaveText('6 rows');
   await page.locator('[data-field="title"]').first().fill('Corrected opening title');
   const config={name:'Synthetic Conference',shortName:'SYN 2028',startDate:'2028-06-10',endDate:'2028-06-11',timezone:'Europe/Helsinki',city:'Helsinki',country:'Finland',venueName:'Synthetic Conference Center',venueAddress:'Example Street 1'};
+  await page.locator('[data-goto-step="1"]').click();
   for(const [field,value] of Object.entries(config))await page.locator(`[data-config="${field}"]`).fill(value);
+  await page.locator('[data-goto-step="8"]').click();
   await page.locator('#validateProject').click();await expect(page.locator('#validationReport .validation-error')).toHaveCount(0);
 
   const pending=page.waitForEvent('download');await page.locator('#downloadPackage').click();const download=await pending,path=await download.path();
@@ -56,11 +63,12 @@ test('Builder produces a deployable synthetic multi-track, multi-poster conferen
 
 test('Builder keeps same-name people distinct until an organizer resolves the identity',async({page})=>{
   await page.goto('/builder.html');
+  await page.locator('[data-goto-step="2"]').click();
   const csv=`date,start,end,type,session,title,speaker,affiliation,room,track
 2028-04-10,09:00,09:30,talk,Methods,First talk,Alex Example,,Hall A,Methods
 2028-04-10,10:00,10:30,talk,Methods,Second talk,Alex Example,,Hall A,Methods`;
   await page.locator('#programmeFile').setInputFiles({name:'ambiguous-people.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
-  await page.locator('#importProgramme').click();await page.locator('#applyMapping').click();
+  await page.locator('#importProgramme').click();await page.locator('#applyMapping').click();await page.locator('[data-goto-step="3"]').click();
   const identities=page.locator('#reviewTable select[data-person-identity]');await expect(identities).toHaveCount(2);
   const firstChoices=identities.nth(0).locator('option').evaluateAll(options=>options.map(o=>o.value).filter(Boolean));
   const secondChoices=identities.nth(1).locator('option').evaluateAll(options=>options.map(o=>o.value).filter(Boolean));
@@ -69,5 +77,5 @@ test('Builder keeps same-name people distinct until an organizer resolves the id
   await expect(page.locator('#reviewTable select[data-person-identity]')).toHaveCount(1);
   await page.locator('#reviewTable select[data-person-identity]').selectOption(first[1]);
   await expect(page.locator('#reviewTable select[data-person-identity]')).toHaveCount(0);
-  await expect(page.locator('#validationReport')).not.toContainText('Ambiguous person identity');
+  await page.locator('[data-goto-step="8"]').click();await expect(page.locator('#validationReport')).not.toContainText('Ambiguous person identity');
 });

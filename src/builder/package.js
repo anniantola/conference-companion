@@ -52,6 +52,7 @@ export function ensureProjectIdentities(project){
   project.identityRegistry.people ||= {};project.identityRegistry.locations ||= {};project.identityRegistry.tracks ||= {};
   project.sessionOverrides ||= {};
   const registry=project.identityRegistry;
+  const canonicalPersonId=id=>{const seen=new Set();while(project.personIdAliases?.[id]&&!seen.has(id)){seen.add(id);id=project.personIdAliases[id];}return id;};
   project.identityWarnings=[];
   const rows=project.rows||[];
   // One title can represent several separate sessions in the same day.
@@ -98,13 +99,18 @@ export function ensureProjectIdentities(project){
     registerGroup(key,id,row);
     return id;
   };
-  const personId=(name,affiliation='',preferred='')=>{
+  const personId=(name,affiliation='',preferred='',role='speaker')=>{
     const n=String(name||'').trim().toLowerCase(),a=String(affiliation||'').trim().toLowerCase();if(!n)return '';
-    if(preferred){if(a)registry.people[`${n}|${a}`]=preferred;return preferred;}
+    if(preferred){preferred=canonicalPersonId(preferred);if(a)registry.people[`${n}|${a}`]=preferred;return preferred;}
     const exact=`${n}|${a}`;
-    if(a&&registry.people[exact])return registry.people[exact];
-    const known=[...new Set(Object.entries(registry.people).filter(([key])=>key.startsWith(`${n}|`)).map(([,id])=>id))];
-    if(!a&&known.length)project.identityWarnings.push(`Ambiguous person "${name}": choose an existing person ID or add an affiliation to resolve the identity.`);
+    if(a&&registry.people[exact])return canonicalPersonId(registry.people[exact]);
+    const known=[...new Set(Object.entries(registry.people).filter(([key])=>key.startsWith(`${n}|`)&&key!==exact).map(([,id])=>canonicalPersonId(id)))];
+    if(!a){
+      if(known.length===1)return known[0];
+      if(known.length>1)project.identityWarnings.push(`Ambiguous person "${name}": choose an existing person ID or add an affiliation to resolve the identity.`);
+      if(role==='chair'&&registry.people[exact])return canonicalPersonId(registry.people[exact]);
+      if(role==='speaker')return `person-${crypto.randomUUID()}`;
+    }
     const id=`person-${crypto.randomUUID()}`;registry.people[exact]=id;return id;
   };
   const locationId=(name,preferred='')=>{if(preferred)return preferred;const k=String(name||'').trim().toLowerCase();if(!k)return 'venue-main';return registry.locations[k]||(registry.locations[k]=`loc-${crypto.randomUUID()}`);};
@@ -116,6 +122,13 @@ export function ensureProjectIdentities(project){
     (timeValue(a.start)??Infinity)-(timeValue(b.start)??Infinity) ||
     String(a.id||'').localeCompare(String(b.id||''))
   );
+  // Register affiliated speakers before resolving name-only chair references.
+  // Their row order must not decide whether a chair gets a duplicate identity.
+  for(const row of orderedRows){
+    if(!String(row.affiliation||'').trim())continue;
+    const names=parseNames(row.speaker);
+    row.speakerEntityIds=names.map((name,i)=>personId(name,row.affiliation,(row.speakerEntityIds||[])[i]));
+  }
   for(const row of orderedRows){
     if(!row.id)row.id=crypto.randomUUID();
     const type=String(row.type||'talk').toLowerCase();
@@ -125,11 +138,11 @@ export function ensureProjectIdentities(project){
     row.trackEntityId=trackId(row.track||'Common',row.trackEntityId);
     const speakerNames=parseNames(row.speaker),chairNames=parseNames(row.chair);
     row.speakerEntityIds=speakerNames.map((name,i)=>personId(name,row.affiliation,(row.speakerEntityIds||[])[i]));
-    row.chairEntityIds=chairNames.map((name,i)=>personId(name,'',(row.chairEntityIds||[])[i]));
+    row.chairEntityIds=chairNames.map((name,i)=>personId(name,'',(row.chairEntityIds||[])[i],'chair'));
     if(!String(row.affiliation||'').trim()){
       for(const [index,name] of speakerNames.entries()){
-        if(row.personIdentityResolved||(row.speakerEntityIds?.[index]&&row.source?.id?.includes(':package:')))continue;
-        const key=name.toLowerCase(),known=[...new Set(Object.entries(registry.people).filter(([k])=>k.startsWith(`${key}|`)).map(([,id])=>id))];
+        if(row.personIdentityResolved||row.personIdentityResolvedNames?.[name.toLowerCase()]||(row.speakerEntityIds?.[index]&&row.source?.id?.includes(':package:')))continue;
+        const key=name.toLowerCase(),known=[...new Set(Object.entries(registry.people).filter(([k])=>k.startsWith(`${key}|`)).map(([,id])=>canonicalPersonId(id)))];
         if(known.length>1){row.personIdentityConflict=true;row.personIdentityCandidates=[...new Set([...known,...(row.speakerEntityIds||[])])];}
       }
     }
@@ -157,8 +170,8 @@ export function ensureProjectIdentities(project){
   }
   const noAffByName=new Map();
   for(const row of rows){
-    if(String(row.affiliation||'').trim())continue;
     for(const [role,field] of [['speaker','speakerEntityIds'],['chair','chairEntityIds']]){
+      if(role==='speaker'&&String(row.affiliation||'').trim())continue;
       const names=parseNames(row[role]);for(const [index,name] of names.entries()){
         const key=name.toLowerCase(),ids=row[field]||[];if(!noAffByName.has(key))noAffByName.set(key,[]);
         noAffByName.get(key).push({row,name,id:ids[index]});
@@ -166,9 +179,14 @@ export function ensureProjectIdentities(project){
     }
   }
   for(const [name,occurrences] of noAffByName){
-    const candidates=[...new Set([...occurrences.map(x=>x.id),...occurrences.flatMap(x=>x.row.personIdentityCandidates||[])].filter(Boolean))];
-    if(candidates.length<=1&&occurrences.every(item=>item.row.personIdentityResolved)){for(const item of occurrences){item.row.personIdentityConflict=false;delete item.row.personIdentityCandidates;}}
-    else if(candidates.length)for(const item of occurrences){if(!item.row.personIdentityResolved){item.row.personIdentityConflict=true;item.row.personIdentityCandidates=candidates;}}
+    const known=Object.entries(registry.people).filter(([identity])=>identity.startsWith(`${name}|`)).map(([,id])=>id);
+    const candidates=[...new Set([...occurrences.map(x=>x.id),...known].filter(Boolean).map(canonicalPersonId))];
+    if(candidates.length>1)for(const item of occurrences){
+      if(item.row.personIdentityResolved||item.row.personIdentityResolvedNames?.[name])continue;
+      item.row.personIdentityConflict=true;
+      item.row.personIdentityCandidates=[...new Set([...(item.row.personIdentityCandidates||[]),...candidates])];
+      item.row.personIdentityCandidatesByName={...(item.row.personIdentityCandidatesByName||{}),[name]:candidates};
+    }
   }
   return project;
 }
@@ -190,7 +208,9 @@ export async function buildPackage(project){
     if(preferredId&&personById.has(preferredId)){
       const existing=personById.get(preferredId);for(const aff of cleanAff.split(';').map(x=>x.trim()).filter(Boolean))if(!existing.affiliations.includes(aff))existing.affiliations.push(aff);peopleKey.set(key,preferredId);return preferredId;
     }
-    if(peopleKey.has(key))return peopleKey.get(key);
+    // Explicit IDs are authoritative, including when two people share both a
+    // name and an affiliation. Never collapse those records by display fields.
+    if(!preferredId&&peopleKey.has(key))return peopleKey.get(key);
     if(!cleanAff&&!preferredId&&peopleNameKey.has(nameKey)){
       const sameName=people.filter(p=>p.name.toLowerCase()===nameKey);
       if(sameName.length===1)return sameName[0].id;

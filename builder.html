@@ -14,11 +14,13 @@
   </header>
 
   <main class="builder-shell">
-    <section class="panel">
+    <nav class="wizard-nav" aria-label="Builder steps"><div id="wizardSteps" class="wizard-steps"></div><p id="wizardProgress" class="wizard-progress" aria-live="polite"></p></nav>
+    <p id="builderSaveStatus" class="save-status" role="status" aria-live="polite">Project ready</p>
+    <section class="panel" data-step="1">
       <div class="step-title"><span>1</span><div><h2>Conference details</h2><p>These fields become <code>conference.json</code>.</p></div></div>
       <div class="form-grid" id="conferenceForm">
-        <label>Name<input data-config="name" placeholder="NEURONICS 2027"></label>
-        <label>Short name<input data-config="shortName" placeholder="NEURONICS 2027"></label>
+        <label>Name<input data-config="name" placeholder="Conference name"></label>
+        <label>Short name<input data-config="shortName" placeholder="Short name"></label>
         <label>Start date<input data-config="startDate" type="date"></label>
         <label>End date<input data-config="endDate" type="date"></label>
         <label>Timezone<input data-config="timezone" value="Europe/Helsinki"></label>
@@ -31,7 +33,7 @@
       </div>
     </section>
 
-    <section class="panel">
+    <section class="panel" data-step="2" hidden>
       <div class="step-title"><span>2</span><div><h2>Programme import</h2><p>PDF is extracted for review. XLSX/CSV/JSON use deterministic column mapping.</p></div></div>
       <div class="import-row">
         <input id="programmeFile" type="file" accept=".pdf,.xlsx,.xls,.csv,.json,application/pdf,application/json,text/csv">
@@ -47,7 +49,7 @@
       <details id="pdfExtract" hidden><summary>PDF extracted text</summary><textarea id="pdfText" rows="10" spellcheck="false"></textarea></details>
     </section>
 
-    <section class="panel">
+    <section class="panel" data-step="3" hidden>
       <div class="step-title"><span>3</span><div><h2>Review & fix</h2><p>Edit imported rows directly. All changes are autosaved as private Builder project state.</p></div></div>
       <div class="table-actions"><button id="addRow" class="secondary-btn">+ Add row</button><span id="rowCount" class="muted">0 rows</span></div>
       <div class="bulk-edit-bar"><strong>Bulk edit selected rows</strong><select id="bulkField"></select><input id="bulkValue" placeholder="New value"><button id="applyBulkEdit" class="secondary-btn" type="button">Apply</button><span id="selectedRowCount" class="muted">0 selected</span></div>
@@ -56,18 +58,19 @@
       <div id="conflictPanel" class="conflict-panel" hidden><h3>Re-import conflicts</h3><p class="muted">Organizer edits are preserved; changed source values are listed here for review.</p><div id="conflictList"></div></div>
     </section>
 
-    <section class="panel split-panel">
-      <div>
+    <section class="panel" data-step="4" hidden>
         <div class="step-title"><span>4</span><div><h2>People</h2><p>Generated from reviewed programme rows.</p></div></div>
-        <div class="table-actions"><button id="addPerson" class="secondary-btn" type="button">+ Add person</button></div><div id="peoplePreview" class="preview-list"></div>
-      </div>
-      <div>
+        <div class="people-tools"><label>Search people<input id="peopleSearch" type="search" placeholder="Name or affiliation"></label><label>Role<select id="peopleRole"><option value="all">All roles</option><option value="speaker">Speaker</option><option value="chair">Chair</option><option value="author">Author</option></select></label><button id="reviewDuplicates" class="secondary-btn" type="button">Review possible duplicates <span id="duplicateCount"></span></button><button id="addPerson" class="secondary-btn" type="button">+ Add person</button></div>
+        <div id="duplicateReview" class="duplicate-review" hidden></div>
+        <div id="peoplePreview" class="people-directory"></div>
+        <div id="personEditor" class="person-editor" hidden></div>
+    </section>
+    <section class="panel" data-step="5" hidden>
         <div class="step-title"><span>5</span><div><h2>Locations & tracks</h2><p>Locations and tracks are normalized to immutable IDs.</p></div></div>
         <div class="table-actions"><button id="addLocation" class="secondary-btn" type="button">+ Add location</button></div><div id="locationsPreview" class="preview-list"></div>
-      </div>
     </section>
 
-    <section class="panel">
+    <section class="panel" data-step="6" hidden>
       <div class="step-title"><span>6</span><div><h2>Branding</h2><p>Visual identity lives in <code>branding.json</code>; install assets remain deployment assets.</p></div></div>
       <div class="form-grid">
         <label>Primary color<input id="primaryColor" type="color" value="#5b4b9a"></label>
@@ -82,8 +85,8 @@
       </div>
     </section>
 
-    <section class="panel">
-      <div class="step-title"><span>7</span><div><h2>Features</h2><p>Turn optional attendee modules on or off for this conference.</p></div></div>
+    <section class="panel" data-step="7" hidden>
+      <div class="step-title"><span>7</span><div><h2>Features & announcements</h2><p>Turn optional attendee modules on or off for this conference.</p></div></div>
       <div class="feature-grid">
         <label><input type="checkbox" data-feature="photos" checked> Photos</label>
         <label><input type="checkbox" data-feature="notes" checked> Notes</label>
@@ -104,7 +107,7 @@
       </div>
     </section>
 
-    <section class="panel publish-panel">
+    <section class="panel publish-panel" data-step="8" hidden>
       <div class="step-title"><span>8</span><div><h2>Preview, validate & publish</h2><p>Publishing is blocked by structural errors. Warnings remain reviewable.</p></div></div>
       <div class="publish-grid">
         <div class="phone-preview"><div class="phone-head" id="previewBrand">Conference</div><div id="phoneSchedule" class="phone-body"></div></div>
@@ -120,6 +123,7 @@
         </div>
       </div>
     </section>
+    <div class="wizard-footer"><button id="previousStep" class="secondary-btn" type="button">← Previous</button><span id="wizardFooterProgress" class="muted"></span><button id="nextStep" class="primary-btn" type="button">Next →</button></div>
   </main>
   <div id="toast" class="toast"></div>
   <script type="module" src="./src/builder/main.js"></script>

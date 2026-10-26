@@ -34,15 +34,16 @@ for(const base of ['conference','fixtures/multi-track-no-posters']){
 }
 test('Builder CSV mapping, bulk edits and private autosave',async({page})=>{
   await page.goto('/builder.html');
+  await page.locator('[data-goto-step="2"]').click();
   await page.locator('#programmeFile').setInputFiles({name:'programme.csv',mimeType:'text/csv',buffer:Buffer.from('date,start,end,title,session,speaker,room,track\n2030-05-10,09:00,09:30,Sample talk,Methods,A. Example,Room A,Methods')});
   await page.locator('#importProgramme').click();await expect(page.locator('#mappingCard')).toBeVisible();
-  await page.locator('#applyMapping').click();await expect(page.locator('#rowCount')).toHaveText('1 rows');
+  await page.locator('#applyMapping').click();await page.locator('[data-goto-step="3"]').click();await expect(page.locator('#rowCount')).toHaveText('1 rows');
   await page.locator('#selectAllRows').check();await page.locator('#bulkField').selectOption('location');
   await page.locator('#bulkValue').fill('Room B');await page.locator('#applyBulkEdit').click();
   await expect(page.locator('[data-field="location"]')).toHaveValue('Room B');
   await expect.poll(()=>page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return (await loadProject())?.rows?.[0]?.location;})).toBe('Room B');
   await page.reload();await expect(page.locator('[data-field="location"]')).toHaveValue('Room B');
-  await page.locator('#validateProject').click();await expect(page.locator('#validationReport')).toContainText('conference.startDate');
+  await page.locator('[data-goto-step="8"]').click();await page.locator('#validateProject').click();await expect(page.locator('#validationReport')).toContainText('conference.startDate');
 });
 
 // Real IndexedDB and fetch: mock only the release server, not application modules.
@@ -107,6 +108,7 @@ test('engine update waits while a client edits and activates on clean launch',as
     const next=await context.newPage();await next.goto('/builder.html');
     await expect.poll(()=>next.evaluate(async()=>{const r=await navigator.serviceWorker.getRegistration();return r.active?.scriptURL;})).toContain('test-engine-worker.js');
     await expect(page.isClosed()).toBe(true);
+    await next.locator('[data-goto-step="2"]').click();
     await expect(next.locator('#programmeFile')).toBeVisible();
     expect(await next.evaluate(()=>navigator.serviceWorker.controller.scriptURL)).toContain('test-engine-worker.js');
     expect(await next.evaluate(()=>caches.keys())).toEqual(['conference-companion-engine-test']);

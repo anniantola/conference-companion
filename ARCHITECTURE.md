@@ -46,8 +46,15 @@ candidates stay separate and require organizer review, and absent source records
 are retained with a warning.
 Organizer corrections, entity IDs, calendar UIDs and calendar `SEQUENCE` are
 preserved only after a safe match. People identities use explicit IDs or
-name-plus-affiliation evidence; unresolved name-only cases stay distinct until
-an organizer chooses a person ID.
+name-plus-affiliation evidence. Identity assignment registers affiliated
+speakers before resolving chairs, so an unaffiliated chair reuses a single
+reliable known identity. Multiple known affiliations for the same name remain
+separate until an organizer resolves them. Existing saved IDs are retained.
+The Builder's explicit profile merge records an alias, updates all row
+speaker/chair IDs and keeps the selected surviving profile and field values;
+the alias also applies to future structured re-imports. The People directory
+renders compact rows and a single active editor. Wizard navigation and the
+active step are Builder project state and do not affect attendee packages.
 
 `src/model.js` indexes canonical entities by ID and creates UI projections without rebuilding a legacy conference model. Programme items use `locationId` directly; there is no room-name compatibility field.
 

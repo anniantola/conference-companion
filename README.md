@@ -41,6 +41,7 @@ A same-version release with changed checksums is treated as a mutated release an
 
 Open `builder.html` in the development repository. The Builder implements:
 
+- an eight-step wizard with direct step navigation, Previous/Next controls, active-step persistence, and validation links to the relevant step; steps can be visited in any order;
 - PDF import through PDF.js with OCR fallback for image-only pages and low-confidence review warnings;
 - XLS/XLSX import through SheetJS with explicit worksheet selection;
 - CSV and structured JSON import;
@@ -50,9 +51,9 @@ Open `builder.html` in the development repository. The Builder implements:
 - source provenance and re-import conflict handling;
 - re-import reconciliation that prioritizes structured entity IDs and matches spreadsheets only against pre-import records from the same source sheet; presentation matches use title/presenter and schedule context, while posters require a poster number in matching session context; source row position alone never transfers an identity or organizer correction;
 - preservation of organizer-edited fields, entity IDs, calendar UIDs and SEQUENCE history on correctly matched re-imports; ambiguous matches remain separate and are reported for review, while missing source rows remain visible;
-- explicit person IDs for structured data, affiliation-aware identity matching, and a Builder review selector for unresolved same-name people without enough affiliation evidence;
+- explicit person IDs for structured data, affiliation-aware identity matching, reuse of unambiguous affiliated speaker identities for recurring chairs, and a Builder review selector for unresolved same-name people;
 - stable private identities for conference, sessions, presentations, calendar UIDs, people, locations and tracks;
-- people editing including ORCID/web links and optional uploaded speaker photos;
+- an alphabetic People directory with search, role filters, one Save/Cancel editor, ORCID/web links and optional uploaded photographs; possible duplicates can be compared and merged explicitly, with a chosen surviving ID and field values;
 - location editing including hierarchy, map URL and coordinates;
 - track editing and per-location/per-track color palettes;
 - branding, app icon, conference logo and sponsor assets;
@@ -61,11 +62,13 @@ Open `builder.html` in the development repository. The Builder implements:
 - JSON Schema contract validation plus semantic/referential validation before ZIP export;
 - missing PDF schedule fields and incomplete programme rows remain editable drafts and block export until corrected;
 - stable data versions and changelog history, with export tracking separated from the organizer's explicit confirmation that a release was deployed;
-- private Builder project autosave in IndexedDB;
+- private Builder project autosave in IndexedDB with visible save failures;
 - Builder project ZIP export/import, including source files and assets;
 - repository-ready deployment ZIP generation with the attendee engine, conference package, install assets, validator and GitHub Pages workflow.
 
 The Builder deliberately keeps source files, mappings, provenance, manual overrides and re-import metadata private. They are not published in attendee conference JSON.
+
+The synthetic 91-row regression contains 23 distinct person names and 18 posters. Before the chair identity fix it generated 45 profiles, including 22 accidental duplicate chair profiles; fresh imports now generate 23. Previously saved projects keep their existing person IDs until an organizer confirms a merge. A confirmed merge updates programme references and preserves the selected profile details, affiliations, papers and chosen photograph. Project ZIPs from earlier Builder versions remain importable.
 
 Downloading a deployment ZIP records an export only. After uploading and deploying that ZIP, the organizer can confirm the published version in the Builder. A confirmed data version is bound to its content fingerprint: unchanged content can be re-exported, while changed content requires a higher version. Builder package validation runs the repository JSON Schemas and semantic checks before an export is enabled.
 
