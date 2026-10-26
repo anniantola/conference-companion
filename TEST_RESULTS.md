@@ -6,10 +6,16 @@ generated deployment ZIP checks passed. The complete browser command ran all
 three configured projects: Chromium and Firefox passed **48/48** tests. The
 five-run Firefox backup-failure recovery regression also passed **5/5**.
 
+GitHub Actions run [40305099093](https://github.com/anniantola/conference-companion/actions/runs/40305099093)
+then passed the complete `npm test` gate, including **72/72 Playwright tests**
+across Chromium, Firefox, and WebKit, and deployed the Pages artifact from
+commit `bc50291`. The deployed `bootstrap.js` reports engine v1.2.0.
+
 WebKit's 24 tests could not launch in this local environment because the host is
 missing WebKit runtime libraries. The GitHub Actions deployment workflow installs
-Chromium, Firefox, WebKit, and their system dependencies; its full result is
-recorded after the push. No local WebKit pass is claimed.
+Chromium, Firefox, WebKit, and their system dependencies. No local WebKit pass is
+claimed. The workflow pins Ubuntu 24.04 because `ubuntu-latest` had migrated to
+Ubuntu 26.04 and its Playwright dependency-install step stalled there.
 
 Coverage includes strict external URL validation in conference packages and
 vCards/QR contact import, malformed and missing-photo backup rejection, rollback
