@@ -162,5 +162,10 @@ acceptance coverage.
   Escape dismissal and focus restoration.
 - Added Chromium, Firefox and WebKit Playwright projects and CI dependencies,
   plus malformed-backup, rollback, unsafe-link and dialog keyboard regressions.
+- Stored attendee photos, profile images, and Builder files as typed bytes in
+  IndexedDB and reconstruct Blobs when loading, addressing WebKit persistence
+  errors while retaining reads for older native-Blob records.
+- Reworked Builder persistence reads to resolve at transaction completion and
+  preserve imported source-file data through storage and reload.
 - Documented restore semantics, URL policy, update lifecycle and device-test
   limitations.

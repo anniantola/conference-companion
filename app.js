@@ -1,5 +1,6 @@
 
 import {normalizeEmail,normalizeOrcid,normalizeExternalLink,normalizeWebUrl} from './src/safe-url.js';
+import {encodeStoredValue,decodeStoredValue} from './src/user-store.js';
 
 (() => {
   const CONFIG = window.CONFERENCE_CONFIG || {};
@@ -232,9 +233,11 @@ import {normalizeEmail,normalizeOrcid,normalizeExternalLink,normalizeWebUrl} fro
     return new Promise((resolve, reject) => {
       const tx = db.transaction(PHOTO_STORE, "readonly");
       const req = tx.objectStore(PHOTO_STORE).index("ownerKey").getAll(photoOwnerKey(type,id));
-      req.onsuccess = () => resolve((req.result || []).sort((a,b)=>(a.addedAt||0)-(b.addedAt||0)));
+      let rows=[];
+      req.onsuccess = () => {rows=(req.result || []).sort((a,b)=>(a.addedAt||0)-(b.addedAt||0));};
       req.onerror = () => reject(req.error);
-      tx.oncomplete = () => db.close();
+      tx.oncomplete = () => {db.close();resolve(decodeStoredValue(rows));};
+      tx.onabort = () => {db.close();reject(tx.error||new Error('Photo read aborted'));};
     });
   }
 
@@ -243,9 +246,11 @@ import {normalizeEmail,normalizeOrcid,normalizeExternalLink,normalizeWebUrl} fro
     return new Promise((resolve, reject) => {
       const tx = db.transaction(PHOTO_STORE, "readonly");
       const req = tx.objectStore(PHOTO_STORE).getAll();
-      req.onsuccess = () => resolve((req.result || []).sort((x,y)=>(x.addedAt||0)-(y.addedAt||0)));
+      let rows=[];
+      req.onsuccess = () => {rows=(req.result || []).sort((x,y)=>(x.addedAt||0)-(y.addedAt||0));};
       req.onerror = () => reject(req.error);
-      tx.oncomplete = () => db.close();
+      tx.oncomplete = () => {db.close();resolve(decodeStoredValue(rows));};
+      tx.onabort = () => {db.close();reject(tx.error||new Error('Photo read aborted'));};
     });
   }
 
@@ -259,6 +264,7 @@ import {normalizeEmail,normalizeOrcid,normalizeExternalLink,normalizeWebUrl} fro
     return trackPersonalWrite((async()=>{
     const blob = await prepareImageBlob(file);
     const thumbnailBlob = await prepareThumbnailBlob(blob);
+    const storedMedia=await encodeStoredValue({blob,thumbnailBlob});
     if(personalDataDeleting||personalDataRestoring||epoch!==personalDataEpoch)throw new Error("Personal data changed while saving photo");
     const db = await openPhotoDb();
     return new Promise((resolve, reject) => {
@@ -274,8 +280,8 @@ import {normalizeEmail,normalizeOrcid,normalizeExternalLink,normalizeWebUrl} fro
         captureTime: metadata.captureTime || null,
         timestampSource: metadata.timestampSource || null,
         addedAt: Date.now(),
-        thumbnailBlob,
-        blob
+        thumbnailBlob:storedMedia.thumbnailBlob,
+        blob:storedMedia.blob
       });
       let generatedId,txError=null;
       req.onsuccess = () => {generatedId=req.result;};
@@ -369,26 +375,28 @@ import {normalizeEmail,normalizeOrcid,normalizeExternalLink,normalizeWebUrl} fro
     return new Promise((resolve, reject) => {
       const tx = db.transaction(PHOTO_STORE, "readonly");
       const req = tx.objectStore(PHOTO_STORE).get(Number(photoId));
-      req.onsuccess = () => resolve(req.result || null);
+      let row=null;
+      req.onsuccess = () => {row=req.result||null;};
       req.onerror = () => reject(req.error);
-      tx.oncomplete = () => db.close();
+      tx.oncomplete = () => {db.close();resolve(row?decodeStoredValue(row):null);};
+      tx.onabort = () => {db.close();reject(tx.error||new Error('Photo read aborted'));};
     });
   }
 
   async function replaceAllPhotos(photoMeta=[], photoFiles=new Map()) {
+    const rows=[];
+    for(const meta of photoMeta||[]){
+      const blob=photoFiles.get(meta.file);if(!blob)continue;
+      const row={...meta,blob};delete row.file;delete row.type;
+      row.ownerKey=row.ownerKey||photoOwnerKey(row.ownerType||'unclassified',row.ownerId||'unclassified');
+      rows.push(await encodeStoredValue(row));
+    }
     const db = await openPhotoDb();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(PHOTO_STORE, "readwrite");
       const store = tx.objectStore(PHOTO_STORE);
       store.clear();
-      for (const meta of photoMeta || []) {
-        const blob = photoFiles.get(meta.file);
-        if (!blob) continue;
-        const row = {...meta, blob};
-        delete row.file; delete row.type;
-        row.ownerKey = row.ownerKey || photoOwnerKey(row.ownerType || "unclassified", row.ownerId || "unclassified");
-        store.put(row);
-      }
+      for(const row of rows)store.put(row);
       tx.oncomplete = () => { db.close(); resolve(); };
       tx.onerror = () => { db.close(); reject(tx.error); };
       tx.onabort = () => { db.close(); reject(tx.error || new Error("Photo restore aborted")); };
@@ -396,13 +404,14 @@ import {normalizeEmail,normalizeOrcid,normalizeExternalLink,normalizeWebUrl} fro
   }
 
   async function replacePhotoRows(photos=[]) {
+    const storedPhotos=await Promise.all(photos.map(encodeStoredValue));
     const db=await openPhotoDb();
     await new Promise((resolve,reject)=>{
       const tx=db.transaction(PHOTO_STORE,'readwrite'),store=tx.objectStore(PHOTO_STORE);
       let txError=null;
       const fail=(where,error)=>{txError ||= new Error(`${where}: ${error?.name||'Error'}: ${error?.message||String(error)}`);};
       const clear=store.clear();clear.onerror=()=>fail('clear',clear.error);
-      for(const photo of photos){const request=store.put(photo);request.onerror=()=>fail(`put photo ${photo.id}`,request.error);}
+      for(const photo of storedPhotos){const request=store.put(photo);request.onerror=()=>fail(`put photo ${photo.id}`,request.error);}
       tx.oncomplete=()=>{db.close();resolve();};
       tx.onerror=()=>fail('transaction',tx.error);
       tx.onabort=()=>{db.close();reject(txError||tx.error||new Error('Photo restore aborted'));};
@@ -465,6 +474,7 @@ import {normalizeEmail,normalizeOrcid,normalizeExternalLink,normalizeWebUrl} fro
   }
 
   async function persistPhotoThumbnail(photoId, thumbnailBlob) {
+    const storedThumbnail=await encodeStoredValue(thumbnailBlob);
     const db = await openPhotoDb();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(PHOTO_STORE, "readwrite");
@@ -473,7 +483,7 @@ import {normalizeEmail,normalizeOrcid,normalizeExternalLink,normalizeWebUrl} fro
       req.onsuccess = () => {
         const photo = req.result;
         if (photo && !photo.thumbnailBlob) {
-          photo.thumbnailBlob = thumbnailBlob;
+          photo.thumbnailBlob = storedThumbnail;
           store.put(photo);
         }
       };

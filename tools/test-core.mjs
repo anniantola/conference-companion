@@ -12,6 +12,7 @@ import {buildPackage} from '../src/builder/package.js';
 import {validateJsonSchema} from '../src/json-schema.js';
 import {migratePackage,CURRENT_SCHEMA_VERSION} from '../src/migrations.js';
 import {normalizeExternalLink,normalizeOrcid,normalizeWebUrl} from '../src/safe-url.js';
+import {encodeStoredValue,decodeStoredValue} from '../src/user-store.js';
 
 const read=name=>JSON.parse(fs.readFileSync(new URL(`../conference/${name}`,import.meta.url),'utf8'));
 const pkg={manifest:read('conference-manifest.json'),conference:read('conference.json'),programme:read('programme.json'),people:read('people.json'),locations:read('locations.json'),branding:read('branding.json')};
@@ -64,6 +65,9 @@ assert.equal(normalizeOrcid('https://orcid.org/0000-0000-0000-0001'),'0000-0000-
 assert.throws(()=>parseVCard('BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Unsafe\r\nURL:javascript:alert(1)\r\nEND:VCARD'));
 const compact=compactProfileVCard(profile);const matrix=qrMatrix(compact);if(matrix.length<21||matrix.some(row=>row.some(v=>typeof v!=='boolean')))throw new Error('QR matrix invalid');
 const zip=createStoredZip([{name:'a.txt',data:'hello'},{name:'b.txt',data:'world'}]);const entries=await readStoredZip(zip);if(textEntry(entries,'a.txt')!=='hello'||textEntry(entries,'b.txt')!=='world')throw new Error('ZIP round trip failed');
+const storedBinary=await encodeStoredValue({profile:{photoBlob:new Blob(['pilot-image'],{type:'image/png'})},photos:[new File(['thumb'],'thumb.png',{type:'image/png'})]});
+if(storedBinary.profile.photoBlob instanceof Blob||!(storedBinary.profile.photoBlob.bytes instanceof Uint8Array))throw new Error('IndexedDB storage must encode Blob content as bytes');
+const restoredBinary=decodeStoredValue(storedBinary);if(!(restoredBinary.profile.photoBlob instanceof Blob)||await restoredBinary.profile.photoBlob.text()!=='pilot-image'||!(restoredBinary.photos[0] instanceof Blob)||restoredBinary.photos[0].type!=='image/png')throw new Error('IndexedDB binary compatibility round trip failed');
 
 const png=Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=','base64'));
 const backupBlob=await createPersonalBackup({conferenceId:'demo',state:{favorites:['x'],notes:{}},profile:{name:'Ada',photoBlob:new Blob([png],{type:'image/png'})},friends:[],photos:[]});

@@ -303,6 +303,9 @@ corrupted, or invalid photo rejects the whole restore and leaves existing
 records in place. User data commits in one IndexedDB transaction; the separate
 photo database is restored from a snapshot if a later commit fails. Official
 conference packages and separately saved device photos are not part of restore.
+For WebKit compatibility, attendee and Builder photo/file Blobs are stored as
+typed bytes in IndexedDB and rebuilt as Blobs when loaded; existing native-Blob
+records are still accepted.
 
 Imported links from vCards, QR cards, backups, and conference packages allow
 HTTPS, validated email links, ORCID identifiers, and DOI references. Executable

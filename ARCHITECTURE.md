@@ -232,6 +232,13 @@ second database commit or preference write fails, the first commit is rolled
 back. Visible application state changes only after storage commits succeed.
 Conference packages remain in their independent package store.
 
+User-owned `Blob`/`File` values are stored in IndexedDB as typed byte arrays and
+reconstructed as `Blob` values when read. This avoids WebKit's IndexedDB
+File/Blob persistence failures while keeping the app-facing profile, photo,
+backup, and Builder project contracts unchanged. Existing records containing
+native Blob values remain readable; Builder source files retain their name,
+type, and other metadata alongside the encoded bytes.
+
 `src/safe-url.js` defines the shared external-link policy. User and package URLs
 are restricted to HTTPS (plus `mailto:` for validated email links); ORCID IDs
 and DOI references have dedicated parsing and normalization. Relative package
