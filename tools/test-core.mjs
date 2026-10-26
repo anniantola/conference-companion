@@ -11,6 +11,7 @@ import {createPersonalBackup,parsePersonalBackup} from '../src/backup.js';
 import {buildPackage} from '../src/builder/package.js';
 import {validateJsonSchema} from '../src/json-schema.js';
 import {migratePackage,CURRENT_SCHEMA_VERSION} from '../src/migrations.js';
+import {normalizeExternalLink,normalizeOrcid,normalizeWebUrl} from '../src/safe-url.js';
 
 const read=name=>JSON.parse(fs.readFileSync(new URL(`../conference/${name}`,import.meta.url),'utf8'));
 const pkg={manifest:read('conference-manifest.json'),conference:read('conference.json'),programme:read('programme.json'),people:read('people.json'),locations:read('locations.json'),branding:read('branding.json')};
@@ -55,11 +56,27 @@ if(fixtureModel.items.some(x=>!x.locationId||!fixtureModel.location(x.locationId
 
 const profile={name:'Ada Example',position:'Researcher',affiliation:'Example University',email:'ada@example.org',orcid:'0000-0000-0000-0001',website:'https://example.org'};
 const card=profileToVCard(profile),parsed=parseVCard(card);if(parsed.name!==profile.name||parsed.email!==profile.email)throw new Error('vCard round trip failed');
+assert.equal(normalizeWebUrl('javascript:alert(1)'),'');
+assert.equal(normalizeWebUrl('https://example.org/research'),'https://example.org/research');
+assert.equal(normalizeExternalLink('mailto:ada@example.org'),'mailto:ada@example.org');
+assert.equal(normalizeWebUrl('10.1234/example.doi'),'https://doi.org/10.1234/example.doi');
+assert.equal(normalizeOrcid('https://orcid.org/0000-0000-0000-0001'),'0000-0000-0000-0001');
+assert.throws(()=>parseVCard('BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Unsafe\r\nURL:javascript:alert(1)\r\nEND:VCARD'));
 const compact=compactProfileVCard(profile);const matrix=qrMatrix(compact);if(matrix.length<21||matrix.some(row=>row.some(v=>typeof v!=='boolean')))throw new Error('QR matrix invalid');
 const zip=createStoredZip([{name:'a.txt',data:'hello'},{name:'b.txt',data:'world'}]);const entries=await readStoredZip(zip);if(textEntry(entries,'a.txt')!=='hello'||textEntry(entries,'b.txt')!=='world')throw new Error('ZIP round trip failed');
 
-const backupBlob=await createPersonalBackup({conferenceId:'demo',state:{favorites:['x'],notes:{}},profile:{name:'Ada',photoBlob:new Blob([new Uint8Array([1,2,3])],{type:'image/png'})},friends:[],photos:[]});
+const png=Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=','base64'));
+const backupBlob=await createPersonalBackup({conferenceId:'demo',state:{favorites:['x'],notes:{}},profile:{name:'Ada',photoBlob:new Blob([png],{type:'image/png'})},friends:[],photos:[]});
 const parsedBackup=await parsePersonalBackup(backupBlob);if(parsedBackup.payload.profile.name!=='Ada'||!(parsedBackup.payload.profile.photoBlob instanceof Blob))throw new Error('Personal backup profile-photo round trip failed');
+const brokenZip=createStoredZip([{name:'backup.json',data:JSON.stringify({format:'conference-companion-backup',version:3,conferenceId:'demo',state:{},profile:{},friends:[],photos:[{id:1,file:'photos/00000001.png',type:'image/png',ownerType:'event',ownerId:'x'}]})}]);
+await assert.rejects(()=>parsePersonalBackup(brokenZip),/missing/);
+const corruptedPhotoZip=createStoredZip([
+  {name:'backup.json',data:JSON.stringify({format:'conference-companion-backup',version:3,conferenceId:'demo',state:{},profile:{},friends:[],photos:[{id:1,file:'photos/00000001.png',type:'image/png',ownerType:'event',ownerId:'x'}]})},
+  {name:'photos/00000001.png',data:new Uint8Array([1,2,3,4])}
+]);
+await assert.rejects(()=>parsePersonalBackup(corruptedPhotoZip),/corrupted/);
+const unsafeBackup={format:'conference-companion-backup',version:3,conferenceId:'demo',state:{},profile:{name:'Bad URL',website:'javascript:alert(1)'},friends:[],photos:[]};
+await assert.rejects(()=>parsePersonalBackup(new File([JSON.stringify(unsafeBackup)],'unsafe.json',{type:'application/json'})),/HTTPS URL/);
 
 const builderProject={conference:{name:'Identity Test',shortName:'Identity Test',startDate:'2027-05-01',endDate:'2027-05-01',timezone:'Europe/Helsinki',venueName:'Venue'},rows:[{id:'row-1',date:'2027-05-01',start:'10:00',end:'10:30',type:'talk',session:'Session A',title:'Original title',speaker:'Person A',affiliation:'Lab',location:'Room A',track:'Track A'}],features:{},branding:{primary:'#000000',secondary:'#222222',accent:'#000000',trackColors:{},locationColors:{}},identityRegistry:{people:{},locations:{},tracks:{}},dataVersion:1,lastPublishedVersion:0,changelog:[]};
 const built1=await buildPackage(builderProject);if(built1.report.errors.length)throw new Error(built1.report.errors.join('; '));

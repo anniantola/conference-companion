@@ -104,6 +104,31 @@ export function createUserStore(conferenceId) {
         tx.onerror = () => { db.close(); reject(tx.error); };
       });
     },
+    async replacePersonalData({state, profile, friends} = {}) {
+      const normalizedFriends = (friends || []).map(friend => ({
+        ...friend,
+        id:friend.id || crypto.randomUUID(),
+        savedAt:friend.savedAt || Date.now()
+      }));
+      const db = await openDb();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(["states", "profiles", "friends"], "readwrite");
+        let txError = null;
+        const states = tx.objectStore("states"), profiles = tx.objectStore("profiles"), friendStore = tx.objectStore("friends");
+        const keys = friendStore.index("conferenceId").getAllKeys(id);
+        keys.onsuccess = () => {
+          states.put({conferenceId:id, data:state || {favorites:[],posterFavorites:[],notes:{}}, updatedAt:Date.now()});
+          profiles.put({conferenceId:id, data:profile || {}, updatedAt:Date.now()});
+          for (const key of keys.result || []) friendStore.delete(key);
+          for (const friend of normalizedFriends) friendStore.put({key:`${id}:${friend.id}`, conferenceId:id, data:friend, updatedAt:Date.now()});
+        };
+        keys.onerror = () => { txError = keys.error; };
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onerror = () => { txError ||= tx.error; };
+        tx.onabort = () => { db.close(); reject(txError || tx.error || new Error("Personal-data restore aborted")); };
+      });
+      return normalizedFriends;
+    },
     async clearAll() {
       const db = await openDb();
       await new Promise((resolve, reject) => {

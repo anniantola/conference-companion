@@ -1,4 +1,5 @@
 const SESSION_TYPES = new Set(["session","break","meal","social","poster-session","registration","special"]);
+import {validatePackageUrls} from './safe-url.js';
 
 function minutes(value) {
   const m = /^(\d{1,2}):(\d{2})$/.exec(String(value || ""));
@@ -31,6 +32,7 @@ function overlaps(aStart, aEnd, bStart, bEnd) {
 export function validatePackage(pkg, {strictCalendarUid = true, policy = {}} = {}) {
   const errors = [], warnings = [];
   const {manifest = {}, conference = {}, programme = {}, people = {}, locations = {}, branding = {}} = pkg || {};
+  errors.push(...validatePackageUrls(pkg || {}));
 
   if (!conference.id) errors.push("conference.id is required");
   if (!conference.name) errors.push("conference.name is required");

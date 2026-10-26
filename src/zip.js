@@ -68,18 +68,30 @@ function readU32(v,o){return (v[o]|(v[o+1]<<8)|(v[o+2]<<16)|(v[o+3]<<24))>>>0;}
 
 export async function readStoredZip(blob) {
   const data = new Uint8Array(await blob.arrayBuffer());
+  if (data.length > 512 * 1024 * 1024) throw new Error('ZIP file is too large');
   const entries = new Map();
   let o = 0;
   while (o + 30 <= data.length && readU32(data,o) === 0x04034b50) {
     const method = readU16(data,o+8);
-    if (method !== 0) throw new Error('This backup uses an unsupported compressed ZIP entry');
+    const flags = readU16(data,o+6);
+    if (method !== 0 || (flags & 0x0009)) throw new Error('This ZIP uses unsupported entry encoding');
+    const expectedCrc = readU32(data,o+14);
     const compressedSize = readU32(data,o+18);
+    const uncompressedSize = readU32(data,o+22);
     const nameLen = readU16(data,o+26), extraLen = readU16(data,o+28);
+    if (compressedSize !== uncompressedSize) throw new Error('Invalid stored ZIP entry size');
     const name = decoder.decode(data.slice(o+30,o+30+nameLen));
     const start = o+30+nameLen+extraLen, end = start+compressedSize;
-    entries.set(name, data.slice(start,end));
+    if (!name || name.startsWith('/') || name.includes('\\') || name.split('/').some(part=>part==='..') || end > data.length || start < o+30) {
+      throw new Error('ZIP contains an invalid entry path or truncated file');
+    }
+    if (entries.has(name)) throw new Error(`ZIP contains a duplicate entry: ${name}`);
+    const content=data.slice(start,end);
+    if (crc32(content)!==expectedCrc) throw new Error(`ZIP entry failed its integrity check: ${name}`);
+    entries.set(name, content);
     o = end;
   }
+  if (!entries.size || o+4>data.length || readU32(data,o)!==0x02014b50) throw new Error('Invalid or incomplete ZIP archive');
   return entries;
 }
 

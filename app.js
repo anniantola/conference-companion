@@ -1,4 +1,6 @@
 
+import {normalizeEmail,normalizeOrcid,normalizeExternalLink,normalizeWebUrl} from './src/safe-url.js';
+
 (() => {
   const CONFIG = window.CONFERENCE_CONFIG || {};
   const CONFERENCE = CONFIG.conference || {};
@@ -44,6 +46,8 @@
   let photoViewerIds = [];
   let photoViewerIndex = -1;
   let photoViewerReturnToDetail = false;
+  let photoViewerReturnFocus = null;
+  let shareQrReturnFocus = null;
   let galleryPhotoCount = 0;
   let galleryNoteCount = 0;
   let galleryPhotoQuery = "";
@@ -60,6 +64,7 @@
   const pendingPersonalWrites = new Set();
   let personalDataEpoch = 0;
   let personalDataDeleting = false;
+  let personalDataRestoring = false;
   let photoMetaSaveTimer = null;
 
   function trackPersonalWrite(promise) {
@@ -67,6 +72,23 @@
     pendingPersonalWrites.add(tracked);
     tracked.then(() => pendingPersonalWrites.delete(tracked), () => pendingPersonalWrites.delete(tracked));
     return tracked;
+  }
+
+  function flushPendingPersonalDebounces() {
+    const writes=[];
+    if(photoMetaSaveTimer!==null){
+      clearTimeout(photoMetaSaveTimer);photoMetaSaveTimer=null;
+      const title=$('#photoViewerTitle'),note=$('#photoViewerNote'),photoId=title?.dataset.photoId;
+      if(photoId){writes.push(updatePhotoTitle(photoId,title.value));writes.push(updatePhotoNote(photoId,note?.value||''));}
+    }
+    for(const el of $$('[data-friend-note],[data-friend-tags],[data-friend-met-at]')){
+      if(el._saveTimer==null)continue;
+      clearTimeout(el._saveTimer);el._saveTimer=null;
+      const field=el.matches('[data-friend-note]')?'privateNotes':el.matches('[data-friend-tags]')?'tags':'metAt';
+      const id=el.dataset.friendNote||el.dataset.friendTags||el.dataset.friendMetAt;
+      writes.push(saveFriendPrivate(id,field,el.value));
+    }
+    return Promise.allSettled(writes);
   }
 
   function loadState() {
@@ -80,7 +102,7 @@
   let state = loadState();
 
   function saveState() {
-    if (personalDataDeleting) return Promise.resolve(false);
+    if (personalDataDeleting||personalDataRestoring) return Promise.resolve(false);
     const prefs = {
       theme:state.theme, compact:state.compact, timeMode:state.timeMode, locationId:state.locationId, track:state.track,
       day:state.day, posterCategory:state.posterCategory, view:state.view, galleryMode:state.galleryMode
@@ -94,6 +116,18 @@
 
   function esc(v="") {
     return String(v).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
+  }
+
+  function keepDialogFocusInside(event) {
+    if(event.key!=="Tab")return;
+    const dialog=event.target.closest?.('dialog[open]');if(!dialog)return;
+    const focusable=[...dialog.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')]
+      .filter(el=>!el.hidden&&el.getAttribute('aria-hidden')!=='true'&&el.getClientRects().length);
+    if(!focusable.length){event.preventDefault();dialog.focus();return;}
+    const first=focusable[0],last=focusable.at(-1),active=document.activeElement;
+    if((event.shiftKey&&active===first)||(!event.shiftKey&&active===last)){
+      event.preventDefault();(event.shiftKey?last:first).focus();
+    }
   }
 
   function packageAssetUrl(value) {
@@ -154,18 +188,24 @@
       return toast("Could not create QR card");
     }
     const viewer = $("#shareQrViewer");
+    shareQrReturnFocus=document.activeElement;
     viewer.hidden = false;
+    viewer.showModal();
     viewer.setAttribute("aria-hidden", "false");
+    $("#shareQrClose").focus();
     document.documentElement.classList.add("share-qr-open");
     document.body.classList.add("share-qr-open");
   }
 
   function closeShareQr() {
     const viewer = $("#shareQrViewer");
+    if(viewer.open)viewer.close();
     viewer.hidden = true;
     viewer.setAttribute("aria-hidden", "true");
     document.documentElement.classList.remove("share-qr-open");
     document.body.classList.remove("share-qr-open");
+    if(shareQrReturnFocus?.isConnected)shareQrReturnFocus.focus();
+    shareQrReturnFocus=null;
   }
 
   function openPhotoDb() {
@@ -209,12 +249,17 @@
     });
   }
 
+  async function clonePhotoRowsForRestore(photos=[]) {
+    const copyBlob=async blob=>blob instanceof Blob?new Blob([await blob.arrayBuffer()],{type:blob.type}):blob;
+    return Promise.all(photos.map(async photo=>({...photo,blob:await copyBlob(photo.blob),thumbnailBlob:await copyBlob(photo.thumbnailBlob)})));
+  }
+
   function storePhoto(type, id, file, metadata={}) {
     const epoch=personalDataEpoch;
     return trackPersonalWrite((async()=>{
     const blob = await prepareImageBlob(file);
     const thumbnailBlob = await prepareThumbnailBlob(blob);
-    if(personalDataDeleting||epoch!==personalDataEpoch)throw new Error("Personal data changed while saving photo");
+    if(personalDataDeleting||personalDataRestoring||epoch!==personalDataEpoch)throw new Error("Personal data changed while saving photo");
     const db = await openPhotoDb();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(PHOTO_STORE, "readwrite");
@@ -232,9 +277,12 @@
         thumbnailBlob,
         blob
       });
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-      tx.oncomplete = () => db.close();
+      let generatedId,txError=null;
+      req.onsuccess = () => {generatedId=req.result;};
+      req.onerror = () => {txError=req.error;};
+      tx.oncomplete = () => {db.close();resolve(generatedId);};
+      tx.onerror = () => {txError ||= tx.error;};
+      tx.onabort = () => {db.close();reject(txError||tx.error||new Error('Photo save aborted'));};
     });
     })());
   }
@@ -344,6 +392,20 @@
       tx.oncomplete = () => { db.close(); resolve(); };
       tx.onerror = () => { db.close(); reject(tx.error); };
       tx.onabort = () => { db.close(); reject(tx.error || new Error("Photo restore aborted")); };
+    });
+  }
+
+  async function replacePhotoRows(photos=[]) {
+    const db=await openPhotoDb();
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction(PHOTO_STORE,'readwrite'),store=tx.objectStore(PHOTO_STORE);
+      let txError=null;
+      const fail=(where,error)=>{txError ||= new Error(`${where}: ${error?.name||'Error'}: ${error?.message||String(error)}`);};
+      const clear=store.clear();clear.onerror=()=>fail('clear',clear.error);
+      for(const photo of photos){const request=store.put(photo);request.onerror=()=>fail(`put photo ${photo.id}`,request.error);}
+      tx.oncomplete=()=>{db.close();resolve();};
+      tx.onerror=()=>fail('transaction',tx.error);
+      tx.onabort=()=>{db.close();reject(txError||tx.error||new Error('Photo restore aborted'));};
     });
   }
 
@@ -1278,9 +1340,11 @@
       const viewer = $("#photoViewer");
       const detail = $("#detailModal");
       photoViewerReturnToDetail = !!detail?.open;
+      photoViewerReturnFocus=document.activeElement;
       if (photoViewerReturnToDetail) detail.close();
       viewer.hidden = false;
-      viewer.setAttribute("aria-hidden", "false");
+      viewer.showModal();
+      $("#photoViewerClose").focus();
       document.documentElement.classList.add("photo-viewer-open");
       document.body.classList.add("photo-viewer-open");
     } catch {
@@ -1301,8 +1365,8 @@
 
   function closePhotoViewer() {
     const dlg = $("#photoViewer");
+    if(dlg.open)dlg.close();
     dlg.hidden = true;
-    dlg.setAttribute("aria-hidden", "true");
     document.documentElement.classList.remove("photo-viewer-open");
     document.body.classList.remove("photo-viewer-open");
 
@@ -1329,6 +1393,8 @@
     if (photoViewerReturnToDetail && currentModal && !$("#detailModal").open) $("#detailModal").showModal();
     photoViewerReturnToDetail = false;
     updatePhotoViewerControls();
+    if(photoViewerReturnFocus?.isConnected)photoViewerReturnFocus.focus();
+    photoViewerReturnFocus=null;
   }
 
   function conferenceNowParts() {
@@ -1742,7 +1808,8 @@
     const roomName = resolved.room?.name || (room ? locationLabel(room) : "");
     const strongText = roomName ? `${roomName} · ${resolved.venue.name}` : resolved.venue.name;
     const body = `<span>Venue</span><strong>${esc(strongText)}</strong><small>${esc(resolved.venue.address || "")}${resolved.venue.mapUrl?" · Open Maps ↗":""}</small>`;
-    return resolved.venue.mapUrl ? `<a class="detail-box detail-link" href="${esc(resolved.venue.mapUrl)}" target="_blank" rel="noopener">${body}</a>` : `<div class="detail-box">${body}</div>`;
+    const mapUrl=normalizeWebUrl(resolved.venue.mapUrl);
+    return mapUrl ? `<a class="detail-box detail-link" href="${esc(mapUrl)}" target="_blank" rel="noopener noreferrer">${body}</a>` : `<div class="detail-box">${body}</div>`;
   }
 
   function openEvent(id) {
@@ -1764,7 +1831,7 @@
       ${CONFERENCE.features?.calendarExport && e.calendarUid?`<button id="modalCalendarBtn" class="secondary-btn calendar-inline-btn" type="button">Add to calendar</button>`:""}
       ${noteSectionHtml("event", e.id)}
       ${photoSectionHtml()}
-      ${e.sourcePage && CONFERENCE.programmePdf?`<a class="pdf-link" href="${esc(CONFERENCE.programmePdf)}#page=${e.sourcePage}" target="_blank" rel="noopener">Open this page in the PDF ↗</a>`:""}`;
+      ${e.sourcePage && normalizeWebUrl(CONFERENCE.programmePdf,{allowRelative:true})?`<a class="pdf-link" href="${esc(normalizeWebUrl(CONFERENCE.programmePdf,{allowRelative:true}))}#page=${e.sourcePage}" target="_blank" rel="noopener noreferrer">Open this page in the PDF ↗</a>`:""}`;
     refreshModalStar();
     $("#detailModal").showModal();
     renderModalPhotos();
@@ -1790,7 +1857,7 @@
       ${noteSectionHtml("poster", p.id)}
       ${photoSectionHtml()}
       ${p.abstract ? `<section class="abstract-section"><h3>Abstract</h3><div class="abstract-text">${abstractHtml}</div></section>` : ""}
-      ${p.sourcePage && CONFERENCE.programmePdf?`<a class="pdf-link" href="${esc(CONFERENCE.programmePdf)}#page=${p.sourcePage}" target="_blank" rel="noopener">Open this poster in the programme PDF ↗</a>`:""}`;
+      ${p.sourcePage && normalizeWebUrl(CONFERENCE.programmePdf,{allowRelative:true})?`<a class="pdf-link" href="${esc(normalizeWebUrl(CONFERENCE.programmePdf,{allowRelative:true}))}#page=${p.sourcePage}" target="_blank" rel="noopener noreferrer">Open this poster in the programme PDF ↗</a>`:""}`;
     refreshModalStar();
     $("#detailModal").showModal();
     renderModalPhotos();
@@ -2281,6 +2348,11 @@
 
   async function saveProfile() {
     const next=profileFromForm();
+    if(next.email&&!normalizeEmail(next.email)){toast('Enter a valid email address');$('#profileEmail').focus();return;}
+    if(next.orcid){const value=normalizeOrcid(next.orcid);if(!value){toast('Enter a valid ORCID identifier');$('#profileOrcid').focus();return;}next.orcid=value;}
+    for(const field of ['website','linkedin'])if(next[field]){const value=normalizeWebUrl(next[field]);if(!value){toast(`${field==='website'?'Website':'LinkedIn'} must use a safe HTTPS URL`);$(`#profile${field==='website'?'Website':'Linkedin'}`).focus();return;}next[field]=value;}
+    const unsafePaper=next.papers.find(value=>/^[a-z][a-z0-9+.-]*:/i.test(value)&&!/^doi:/i.test(value)&&!normalizeWebUrl(value));
+    if(unsafePaper){toast('Selected paper links must use HTTPS or DOI references');$('#profilePapers').focus();return;}
     try{
       await trackPersonalWrite(USER_STORE?.saveProfile(next));
       profile=next;profileDraft=null;
@@ -2291,15 +2363,15 @@
   }
 
   function friendContactHtml(friend) {
-    const emails=[...new Set([...(friend.emails||[]),friend.email].filter(Boolean))];
+    const emails=[...new Set([...(friend.emails||[]),friend.email].map(normalizeEmail).filter(Boolean))];
     const affiliations=[...new Set([...(friend.affiliations||[]),friend.affiliation].filter(Boolean))];
     const linkRows=[
-      friend.orcid?{label:"ORCID",url:`https://orcid.org/${String(friend.orcid).replace(/^https?:\/\/orcid\.org\//,"")}`}:null,
+      normalizeOrcid(friend.orcid)?{label:"ORCID",url:`https://orcid.org/${normalizeOrcid(friend.orcid)}`}:null,
       friend.linkedin?{label:"LinkedIn",url:friend.linkedin}:null,
       friend.website?{label:"Website",url:friend.website}:null,
       ...(friend.links||[]).map((link,index)=>typeof link==="string"?{label:`Link ${index+1}`,url:link}:link)
-    ].filter(link=>link?.url);
-    const links=linkRows.map(link=>`<a href="${esc(link.url)}" target="_blank" rel="noopener">${esc(link.label||"Link")} ↗</a>`).join(" · ");
+    ].map(link=>link?.url?{...link,url:normalizeExternalLink(link.url)}:link).filter(link=>link?.url);
+    const links=linkRows.map(link=>`<a href="${esc(link.url)}" target="_blank" rel="noopener noreferrer">${esc(link.label||"Link")} ↗</a>`).join(" · ");
     const papers=(friend.papers||[]).map(p=>typeof p==="string"?p:(p.doi||p.title||"")).filter(Boolean);
     const events=MODEL.calendarItems().slice().sort((a,b)=>`${a.date}|${a.start}`.localeCompare(`${b.date}|${b.start}`));
     const eventOptions=events.map(e=>`<option value="${esc(e.id)}" ${e.id===friend.metAtEventId?'selected':''}>${esc(`${e.date} ${e.start} · ${e.title}`)}</option>`).join("");
@@ -2328,10 +2400,10 @@
       const details=[
         profile.position?`<p>${esc(profile.position)}</p>`:"",
         (profile.affiliation||(profile.affiliations||[])[0])?`<p>${esc(profile.affiliation||(profile.affiliations||[])[0])}</p>`:"",
-        (profile.email||(profile.emails||[])[0])?`<p><a href="mailto:${esc(profile.email||(profile.emails||[])[0])}">${esc(profile.email||(profile.emails||[])[0])}</a></p>`:"",
-        profile.orcid?`<p><a href="https://orcid.org/${esc(String(profile.orcid).replace(/^https?:\/\/orcid\.org\//,""))}" target="_blank" rel="noopener">ORCID ↗</a></p>`:"",
-        profile.linkedin?`<p><a href="${esc(profile.linkedin)}" target="_blank" rel="noopener">LinkedIn ↗</a></p>`:"",
-        profile.website?`<p><a href="${esc(profile.website)}" target="_blank" rel="noopener">Website ↗</a></p>`:"",
+        normalizeEmail(profile.email||(profile.emails||[])[0])?`<p><a href="mailto:${esc(normalizeEmail(profile.email||(profile.emails||[])[0]))}">${esc(normalizeEmail(profile.email||(profile.emails||[])[0]))}</a></p>`:"",
+        normalizeOrcid(profile.orcid)?`<p><a href="https://orcid.org/${esc(normalizeOrcid(profile.orcid))}" target="_blank" rel="noopener noreferrer">ORCID ↗</a></p>`:"",
+        normalizeWebUrl(profile.linkedin)?`<p><a href="${esc(normalizeWebUrl(profile.linkedin))}" target="_blank" rel="noopener noreferrer">LinkedIn ↗</a></p>`:"",
+        normalizeWebUrl(profile.website)?`<p><a href="${esc(normalizeWebUrl(profile.website))}" target="_blank" rel="noopener noreferrer">Website ↗</a></p>`:"",
         profile.bio?`<p>${esc(profile.bio)}</p>`:"",
         (profile.papers||[]).length?`<p><strong>Selected papers</strong><br>${(profile.papers||[]).map(x=>esc(typeof x==="string"?x:(x.doi||x.title||""))).filter(Boolean).join(" · ")}</p>`:""
       ].filter(Boolean).join("");
@@ -2455,23 +2527,77 @@
 
   async function importState(file) {
     const epoch=personalDataEpoch;
+    let oldSnapshot=null,photosChanged=false,userDataChanged=false,prefsChanged=false,restoreCommitted=false;
+    const importButton=$('#importBtn'),originalImportLabel=importButton?.textContent;
+    if(importButton){importButton.disabled=true;importButton.textContent='Checking backup…';}
+    toast('Checking backup…');
     try {
       const {payload,photoFiles}=await SERVICES.backup.parsePersonalBackup(file);
       if(epoch!==personalDataEpoch||personalDataDeleting)return;
-      if(payload.conferenceId&&payload.conferenceId!==CONFERENCE.id&&!confirm(`This backup belongs to ${payload.conferenceId}. Import compatible personal data into ${CONFERENCE.id} anyway?`))return;
-      const incoming=payload.state||payload;
-      state={...state,...incoming};
-      state.favorites=(state.favorites||[]).filter(id=>byId.has(id));
-      state.posterFavorites=(state.posterFavorites||[]).filter(id=>posterById.has(id));
-      if(!state.notes||typeof state.notes!=="object"||Array.isArray(state.notes))state.notes={};
-      state.notes=Object.fromEntries(Object.entries(state.notes).filter(([key,value])=>{const idx=String(key).indexOf(":");const type=idx>=0?key.slice(0,idx):"event",id=idx>=0?key.slice(idx+1):key;return typeof value==="string"&&((type==="event"&&byId.has(id))||(type==="poster"&&posterById.has(id)));}));
-      profile=payload.profile||profile||{};profileDraft=null;friends=Array.isArray(payload.friends)?payload.friends:friends;
+      const conferenceMismatch=payload.conferenceId!==CONFERENCE.id;
+      const message=`Restore this backup by replacing all saved personal data${conferenceMismatch?` from ${payload.conferenceId} into ${CONFERENCE.id}`:''}? Current favorites, notes, photos, contacts, profile and preferences will be replaced.`;
+      if(!confirm(message))return;
+      if(importButton)importButton.textContent='Restoring backup…';
+      toast('Restoring backup…');
+      const incoming=payload.state;
+      const nextState={...defaultState};
+      for(const key of Object.keys(defaultState))if(Object.hasOwn(incoming,key))nextState[key]=incoming[key];
+      nextState.favorites=(incoming.favorites||[]).filter(id=>byId.has(id));
+      nextState.posterFavorites=(incoming.posterFavorites||[]).filter(id=>posterById.has(id));
+      const rawNotes=incoming.notes||{};
+      nextState.notes=Object.fromEntries(Object.entries(rawNotes).filter(([key,value])=>{const idx=String(key).indexOf(":");const type=idx>=0?key.slice(0,idx):"event",id=idx>=0?key.slice(idx+1):key;return typeof value==="string"&&((type==="event"&&byId.has(id))||(type==="poster"&&posterById.has(id)));}));
+      const nextProfile=payload.profile||{};
+      const nextFriends=payload.friends||[];
+      const nextPhotos=[];
+      for(const meta of payload.photos||[]){
+        const blob=photoFiles.get(meta.file);
+        if(!blob)throw new Error(`Backup photo is missing: ${meta.file}`);
+        if(typeof createImageBitmap==='function'){const bitmap=await createImageBitmap(blob);bitmap.close();}
+        else {const url=URL.createObjectURL(blob);try{const img=new Image();img.src=url;await img.decode();}finally{URL.revokeObjectURL(url);}}
+        const row={...meta,blob};delete row.file;delete row.type;
+        row.ownerKey=photoOwnerKey(row.ownerType,row.ownerId);nextPhotos.push(row);
+      }
+      if(nextProfile.photoBlob){
+        if(typeof createImageBitmap==='function'){const bitmap=await createImageBitmap(nextProfile.photoBlob);bitmap.close();}
+        else {const url=URL.createObjectURL(nextProfile.photoBlob);try{const img=new Image();img.src=url;await img.decode();}finally{URL.revokeObjectURL(url);}}
+      }
+      if(epoch!==personalDataEpoch||personalDataDeleting)return;
+
+      personalDataRestoring=true;personalDataEpoch++;
+      const shell=document.querySelector('.app-shell');if(shell)shell.inert=true;
+      await flushPendingPersonalDebounces();
+      await Promise.allSettled([...pendingPersonalWrites]);
+      await stopFriendQrScan();
+      if(!$('#photoViewer').hidden)closePhotoViewer();
+      if($('#shareQrViewer').open)closeShareQr();
+      if($('#detailModal').open)$('#detailModal').close();
+      oldSnapshot={
+        state:await USER_STORE.getState(),profile:await USER_STORE.getProfile(),friends:await USER_STORE.listFriends(),
+        photos:await clonePhotoRowsForRestore(await getAllPhotos()),prefs:localStorage.getItem(PREFS_KEY)
+      };
+      await replacePhotoRows(nextPhotos);photosChanged=true;
+      const normalizedFriends=await USER_STORE.replacePersonalData({state:{favorites:nextState.favorites,posterFavorites:nextState.posterFavorites,notes:nextState.notes},profile:nextProfile,friends:nextFriends});userDataChanged=true;
+      const prefs={theme:nextState.theme,compact:nextState.compact,timeMode:nextState.timeMode,locationId:nextState.locationId,track:nextState.track,day:nextState.day,posterCategory:nextState.posterCategory,view:nextState.view,galleryMode:nextState.galleryMode};
+      localStorage.setItem(PREFS_KEY,JSON.stringify(prefs));prefsChanged=true;
+      restoreCommitted=true;
+
+      state=nextState;profile=nextProfile;profileDraft=null;friends=normalizedFriends;expandedFriendIds.clear();
       $("#profileSection").hidden=true;$("#editProfileBtn").setAttribute("aria-expanded","false");
-      await trackPersonalWrite(USER_STORE?.saveState({favorites:state.favorites,posterFavorites:state.posterFavorites,notes:state.notes}));
-      await trackPersonalWrite(USER_STORE?.saveProfile(profile));if(Array.isArray(payload.friends))await trackPersonalWrite(USER_STORE?.replaceFriends(friends));
-      if(Array.isArray(payload.photos)&&photoFiles.size)await trackPersonalWrite(replaceAllPhotos(payload.photos,photoFiles));
-      saveState();fillProfileForm();renderFriendBook();applyTheme();syncSettings();renderProgram();renderPosters();renderMySchedule();renderGalleryNotes();await renderGallery();toast("Backup imported");
-    } catch(err){console.error(err);toast("Could not import that backup");}
+      fillProfileForm();renderFriendBook();applyTheme();syncSettings();renderDays();renderProgram();renderPosters();renderMySchedule();renderGalleryNotes();await renderGallery();toast("Backup restored");
+    } catch(err){
+      console.error(err);
+      if(oldSnapshot&&!restoreCommitted){
+        try{
+          if(photosChanged)await replacePhotoRows(oldSnapshot.photos);
+          if(userDataChanged)await USER_STORE.replacePersonalData({state:oldSnapshot.state,profile:oldSnapshot.profile,friends:oldSnapshot.friends});
+          if(prefsChanged){if(oldSnapshot.prefs==null)localStorage.removeItem(PREFS_KEY);else localStorage.setItem(PREFS_KEY,oldSnapshot.prefs);}
+        }catch(rollbackError){console.error(`Backup restore rollback failed: ${rollbackError?.name||'Error'}: ${rollbackError?.message||String(rollbackError)}`);toast('Restore failed and stored data could not be fully rolled back');return;}
+      }
+      toast(restoreCommitted?"Backup restored. Refresh to update the display.":"Could not restore that backup. Existing personal data was preserved.");
+    }finally{
+      if(personalDataRestoring){personalDataRestoring=false;const shell=document.querySelector('.app-shell');if(shell)shell.inert=false;}
+      if(importButton){importButton.disabled=false;importButton.textContent=originalImportLabel||'Import backup ZIP';}
+    }
   }
 
   function isStandalone() {
@@ -2590,14 +2716,15 @@
     const locList=$("#conferenceLocations");
     if(locList){
       const venues=LOCATION_ROWS.filter(x=>x.type!=="room");
-      locList.innerHTML=venues.map(v=>{const rooms=LOCATION_ROWS.filter(r=>r.parentLocationId===v.id).map(r=>r.name).join(", "); const desc=[rooms,v.description,v.address].filter(Boolean).join(" · "); const body=`<div><strong>${esc(v.name)}</strong><p>${esc(desc)}</p></div><span>↗</span>`; return v.mapUrl?`<a class="source-card venue-card" href="${esc(v.mapUrl)}" target="_blank" rel="noopener">${body}</a>`:`<div class="source-card venue-card">${body}</div>`;}).join("");
+      locList.innerHTML=venues.map(v=>{const rooms=LOCATION_ROWS.filter(r=>r.parentLocationId===v.id).map(r=>r.name).join(", "); const desc=[rooms,v.description,v.address].filter(Boolean).join(" · "); const body=`<div><strong>${esc(v.name)}</strong><p>${esc(desc)}</p></div><span>↗</span>`,mapUrl=normalizeWebUrl(v.mapUrl); return mapUrl?`<a class="source-card venue-card" href="${esc(mapUrl)}" target="_blank" rel="noopener noreferrer">${body}</a>`:`<div class="source-card venue-card">${body}</div>`;}).join("");
       $("#locationsSection")?.toggleAttribute("hidden",!venues.length);
     }
     const info=$("#officialConferenceInfo");
     if(info){
-      const links=(CONFERENCE.links||[]).map(l=>`<a class="source-card" href="${esc(l.url)}" target="_blank" rel="noopener"><div><strong>${esc(l.label)}</strong><p>${esc(l.description||"")}</p></div><span>↗</span></a>`).join("");
+      const links=(CONFERENCE.links||[]).map(l=>({link:l,url:normalizeExternalLink(l.url)})).filter(x=>x.url).map(({link,url})=>`<a class="source-card" href="${esc(url)}" target="_blank" rel="noopener noreferrer"><div><strong>${esc(link.label)}</strong><p>${esc(link.description||"")}</p></div><span>↗</span></a>`).join("");
       const sponsors=(BRANDING.sponsorAssets||[]).map(src=>`<img src="${esc(packageAssetUrl(src))}" alt="Sponsor or partner logo" loading="lazy">`).join("");
-      info.innerHTML=`<div class="official-info-card"><strong>${esc(CONFERENCE.fullName || CONFERENCE.name || "Conference")}</strong><p>${esc(CONFERENCE.startDate||"")}–${esc(CONFERENCE.endDate||"")}${CONFERENCE.city?` · ${esc(CONFERENCE.city)}`:""}</p>${CONFERENCE.contactEmail?`<a href="mailto:${esc(CONFERENCE.contactEmail)}">${esc(CONFERENCE.contactEmail)}</a>`:""}</div>${links?`<div class="location-list source-links">${links}</div>`:""}${sponsors?`<div class="sponsor-grid">${sponsors}</div>`:""}`;
+      const contactEmail=normalizeEmail(CONFERENCE.contactEmail);
+      info.innerHTML=`<div class="official-info-card"><strong>${esc(CONFERENCE.fullName || CONFERENCE.name || "Conference")}</strong><p>${esc(CONFERENCE.startDate||"")}–${esc(CONFERENCE.endDate||"")}${CONFERENCE.city?` · ${esc(CONFERENCE.city)}`:""}</p>${contactEmail?`<a href="mailto:${esc(contactEmail)}">${esc(contactEmail)}</a>`:""}</div>${links?`<div class="location-list source-links">${links}</div>`:""}${sponsors?`<div class="sponsor-grid">${sponsors}</div>`:""}`;
     }
   }
 
@@ -2768,6 +2895,9 @@
     $("#qrScanClose")?.addEventListener("click",()=>stopFriendQrScan());
     $("#qrScanCancel")?.addEventListener("click",()=>stopFriendQrScan());
     $("#qrScanDialog")?.addEventListener("cancel",e=>{e.preventDefault();stopFriendQrScan();});
+    $("#shareQrViewer")?.addEventListener("cancel",e=>{e.preventDefault();closeShareQr();});
+    $("#photoViewer")?.addEventListener("cancel",e=>{e.preventDefault();closePhotoViewer();});
+    $("#photoViewer")?.addEventListener("click",e=>{if(e.target===$("#photoViewer"))closePhotoViewer();});
     $("#friendList")?.addEventListener("input",e=>{
       const metEvent=e.target.closest("[data-friend-event]");if(metEvent){saveFriendPrivate(metEvent.dataset.friendEvent,"metAtEventId",metEvent.value);return;}
       const metAt=e.target.closest("[data-friend-met-at]");if(metAt){clearTimeout(metAt._saveTimer);metAt._saveTimer=setTimeout(()=>saveFriendPrivate(metAt.dataset.friendMetAt,"metAt",metAt.value),250);return;}
@@ -2971,6 +3101,7 @@
       movePhotoViewer(dx < 0 ? 1 : -1);
     }, {passive:true});
     document.addEventListener("keydown", e => {
+      keepDialogFocusInside(e);
       if (!$("#photoViewer").hidden) {
         if (e.key === "ArrowLeft") {
           e.preventDefault();
@@ -2994,6 +3125,7 @@
 
     $("#modalClose").addEventListener("click",()=>$("#detailModal").close());
     $("#detailModal").addEventListener("click",e=>{ if(e.target===$("#detailModal")) $("#detailModal").close(); });
+    $("#detailModal").addEventListener("close",()=>{if(!photoViewerReturnToDetail)currentModal=null;});
     $("#modalStar").addEventListener("click",()=>{
       if (!currentModal) return;
       currentModal.type==="event" ? toggleEventFavorite(currentModal.id) : togglePosterFavorite(currentModal.id);

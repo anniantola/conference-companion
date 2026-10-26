@@ -5,8 +5,9 @@ import * as calendar from './src/calendar.js';
 import * as vcard from './src/vcard.js';
 import * as qr from './src/qrcode.js';
 import * as backup from './src/backup.js';
+import {normalizeWebUrl} from './src/safe-url.js';
 
-const ENGINE_VERSION='1.1.5';
+const ENGINE_VERSION='1.2.0';
 const qs=new URLSearchParams(location.search);
 const base=(qs.get('conference')||'./conference').replace(/\/$/,'');
 const $=s=>document.querySelector(s);
@@ -20,7 +21,7 @@ window.addEventListener('beforeinstallprompt',event=>{
 });
 
 function fail(message){document.body.innerHTML=`<main style="font-family:system-ui;padding:24px;max-width:760px;margin:auto"><h1>Conference app could not start</h1><p>${String(message||'Unknown error')}</p><p><code>${base}</code></p></main>`;}
-function resolvePackageUrl(value){if(!value)return value;if(/^(?:[a-z]+:|\/)/i.test(value))return value;return `${base}/${String(value).replace(/^\.\//,'')}`;}
+function resolvePackageUrl(value){if(!value)return value;const safe=normalizeWebUrl(value,{allowRelative:true});if(!safe)return '';if(/^https:/i.test(safe))return safe;return `${base}/${safe}`;}
 function dateMeta(date,locale){const d=new Date(`${date}T12:00:00Z`);return{weekday:new Intl.DateTimeFormat(locale||'en-GB',{weekday:'long',timeZone:'UTC'}).format(d),dateLabel:new Intl.DateTimeFormat(locale||'en-GB',{day:'numeric',month:'long',timeZone:'UTC'}).format(d)};}
 
 function applyDocument(pkg,model,loadInfo){
@@ -28,7 +29,7 @@ function applyDocument(pkg,model,loadInfo){
   const desc=document.querySelector('meta[name="description"]');if(desc)desc.content=`Conference companion for ${conference.fullName||conference.name}.`;
   const apple=document.querySelector('meta[name="apple-mobile-web-app-title"]');if(apple)apple.content=conference.shortName||conference.name;
   const root=document.documentElement;if(branding.primary)root.style.setProperty('--accent',branding.primary);if(branding.secondary)root.style.setProperty('--secondary',branding.secondary);root.dataset.headerStyle=branding.headerStyle||'text';root.dataset.typography=branding.typography||'system';
-  const brand=$('.brand-lockup');if(brand)brand.href=conference.officialWebsite||'#';
+  const brand=$('.brand-lockup');if(brand)brand.href=normalizeWebUrl(conference.officialWebsite)||'#';
   const fallback=$('.conference-logo-fallback');if(fallback){fallback.hidden=false;fallback.textContent=conference.shortName||conference.name;}
   const logo=$('.conference-logo');if(logo&&branding.logo){logo.src=resolvePackageUrl(branding.logo);logo.alt=conference.name;logo.hidden=false;}else if(logo)logo.hidden=true;
   const first=model.days[0],last=model.days.at(-1);const sub=$('.brand-subtitle');if(sub)sub.textContent=`${conference.city||''}${conference.city?' · ':''}${first?.dateLabel||conference.startDate}${last&&last.date!==first?.date?`–${last.dateLabel}`:''}`;

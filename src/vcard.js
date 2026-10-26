@@ -1,3 +1,5 @@
+import {normalizeEmail, normalizeOrcid, normalizeWebUrl} from './safe-url.js';
+
 function esc(value='') { return String(value).replace(/\\/g,'\\\\').replace(/\n/g,'\\n').replace(/,/g,'\\,').replace(/;/g,'\\;'); }
 function unesc(value='') { return String(value).replace(/\\n/gi,'\n').replace(/\\,/g,',').replace(/\\;/g,';').replace(/\\\\/g,'\\'); }
 function compactUrl(value='') { return String(value).trim(); }
@@ -5,15 +7,23 @@ function compactUrl(value='') { return String(value).trim(); }
 export function profileToVCard(profile, {compact=false}={}) {
   const name=String(profile.name||'').trim();
   if(!name) throw new Error('Name is required for a profile card');
+  const website=profile.website?normalizeWebUrl(profile.website):'';
+  const linkedin=profile.linkedin?normalizeWebUrl(profile.linkedin):'';
+  const orcid=profile.orcid?normalizeOrcid(profile.orcid):'';
+  const email=(profile.emails||[])[0]||profile.email||'';
+  if(profile.website&&!website)throw new Error('Website must be an HTTPS URL or DOI reference');
+  if(profile.linkedin&&!linkedin)throw new Error('LinkedIn must be an HTTPS URL');
+  if(profile.orcid&&!orcid)throw new Error('ORCID must be a valid ORCID identifier');
+  if(email&&!normalizeEmail(email))throw new Error('Email address is invalid');
   const lines=['BEGIN:VCARD','VERSION:4.0',`FN:${esc(name)}`];
   if(profile.position) lines.push(`TITLE:${esc(profile.position)}`);
   const org=(profile.affiliations||profile.affiliation?[...(Array.isArray(profile.affiliations)?profile.affiliations:[]),...(profile.affiliation?[profile.affiliation]:[])]:[]).filter(Boolean);
   if(org.length) lines.push(`ORG:${esc(org[0])}`);
   const emails=Array.isArray(profile.emails)?profile.emails:(profile.email?[profile.email]:[]);
-  if(emails[0]) lines.push(`EMAIL:${esc(emails[0])}`);
-  if(profile.website) lines.push(`URL:${compactUrl(profile.website)}`);
-  if(profile.orcid) lines.push(`URL;TYPE=ORCID:https://orcid.org/${String(profile.orcid).replace(/^https?:\/\/orcid\.org\//,'')}`);
-  if(!compact && profile.linkedin) lines.push(`URL;TYPE=LinkedIn:${compactUrl(profile.linkedin)}`);
+  if(email) lines.push(`EMAIL:${esc(email)}`);
+  if(website) lines.push(`URL:${compactUrl(website)}`);
+  if(orcid) lines.push(`URL;TYPE=ORCID:https://orcid.org/${orcid}`);
+  if(!compact && linkedin) lines.push(`URL;TYPE=LinkedIn:${compactUrl(linkedin)}`);
   if(!compact && profile.bio) lines.push(`NOTE:${esc(profile.bio)}`);
   if(!compact) for(const p of profile.papers||[]) if(p) lines.push(`X-PAPER:${esc(typeof p==='string'?p:(p.doi||p.title||''))}`);
   lines.push('END:VCARD');
@@ -46,14 +56,28 @@ export function parseVCard(text) {
     if(base==='FN') out.name=value;
     else if(base==='TITLE') out.position=value;
     else if(base==='ORG') out.affiliations=value.split(';').filter(Boolean);
-    else if(base==='EMAIL') out.emails.push(value);
+    else if(base==='EMAIL') {
+      const email=normalizeEmail(value);
+      if(!email)throw new Error('vCard contains an invalid email address');
+      out.emails.push(email);
+    }
     else if(base==='NOTE') out.bio=value;
     else if(base==='URL') {
-      if(/TYPE=ORCID/i.test(key)||/orcid\.org/i.test(value)) out.orcid=value.replace(/^https?:\/\/orcid\.org\//,'');
-      else if(/TYPE=LinkedIn/i.test(key)||/linkedin\.com/i.test(value)) out.linkedin=value;
-      else if(!out.website) out.website=value;
-      else out.links.push(value);
-    } else if(base==='X-PAPER') out.papers.push(value);
+      if(/TYPE=ORCID/i.test(key)||/orcid\.org/i.test(value)) {
+        const orcid=normalizeOrcid(value);
+        if(!orcid)throw new Error('vCard contains an invalid ORCID URL');
+        out.orcid=orcid;
+      } else {
+        const url=normalizeWebUrl(value);
+        if(!url)throw new Error('vCard contains an unsafe URL');
+        if(/TYPE=LinkedIn/i.test(key)||/linkedin\.com/i.test(url))out.linkedin=url;
+        else if(!out.website)out.website=url;
+        else out.links.push(url);
+      }
+    } else if(base==='X-PAPER') {
+      if(/^[a-z][a-z0-9+.-]*:/i.test(value)&&!/^doi:/i.test(value)&&!/^https:/i.test(value))throw new Error('vCard contains an unsafe paper reference');
+      out.papers.push(value);
+    }
   }
   if(!out.name) throw new Error('vCard has no name');
   out.email=out.emails[0]||'';

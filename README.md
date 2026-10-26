@@ -1,5 +1,7 @@
 # Conference Companion
 
+Current engine release: **v1.2.0**.
+
 Conference Companion is a standalone, offline-first conference PWA plus a browser-based Conference Builder. The attendee engine is stable and conference content is published as a normalized, versioned data package rather than being hard-coded into the UI.
 
 ## What is implemented
@@ -289,3 +291,32 @@ Its summary includes saved contact details, with Share QR, Download vCard and Ed
 actions beside it. Edit expands the existing profile fields; Save writes through
 the same conference-scoped profile store, while Cancel discards unsaved text and
 photo changes. Profile photos and fields remain part of personal backups.
+
+### Production pilot hardening (v1.2.0)
+
+Personal backup restore is a **replace** operation for the current conference's
+attendee-owned data: favorites, notes, preferences, profile, contacts, and
+application-stored photos. A confirmation explains replacement before storage
+changes. The full backup is checked first, including ZIP integrity, required
+photo files and image data, contact fields, and external links. A missing,
+corrupted, or invalid photo rejects the whole restore and leaves existing
+records in place. User data commits in one IndexedDB transaction; the separate
+photo database is restored from a snapshot if a later commit fails. Official
+conference packages and separately saved device photos are not part of restore.
+
+Imported links from vCards, QR cards, backups, and conference packages allow
+HTTPS, validated email links, ORCID identifiers, and DOI references. Executable
+schemes, protocol-relative URLs, URL credentials, and unsafe relative asset
+paths are rejected. DOI references are normalized to `https://doi.org/…` when
+used as links; email fields remain email addresses.
+
+The QR and photo overlays use native modal dialogs for browser-managed focus
+containment, Escape handling, and return focus. Dialogs and scanner controls
+have explicit accessible names. Playwright runs in Chromium, Firefox, and WebKit
+in CI, including offline navigation, persistence, and engine-update lifecycle
+checks. A waiting engine worker still activates only after open clients close;
+it does not force a reload or clear attendee data.
+
+Automated checks do not replace physical iOS/Android install, camera, and
+VoiceOver/TalkBack checks. Local Linux WebKit runs also require Playwright's
+WebKit operating-system libraries; the CI workflow installs them on its runner.

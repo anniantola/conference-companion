@@ -297,7 +297,7 @@
     </nav>
   </div>
 
-  <dialog id="detailModal" class="detail-modal">
+  <dialog id="detailModal" class="detail-modal" aria-label="Programme item details">
     <div class="modal-sheet">
       <div class="modal-top">
         <button id="modalClose" class="icon-btn ghost" type="button" aria-label="Close">×</button>
@@ -312,11 +312,11 @@
   <input id="photoInput" type="file" accept="image/*" multiple hidden>
   <input id="smartPhotoInput" type="file" accept="image/*" multiple hidden>
 
-  <dialog id="photoImportDialog" class="detail-modal">
+  <dialog id="photoImportDialog" class="detail-modal" aria-labelledby="photoImportTitle">
     <div class="modal-sheet photo-import-sheet">
       <div class="modal-top">
         <button id="photoImportClose" class="icon-btn ghost" type="button" aria-label="Close">×</button>
-        <strong>Match photos by time</strong>
+        <strong id="photoImportTitle">Match photos by time</strong>
         <span class="modal-spacer" aria-hidden="true"></span>
       </div>
       <p class="photo-import-intro">Suggestions use camera capture time when available, otherwise the file date. You can always keep a photo Unclassified, even when its timestamp matches a programme item.</p>
@@ -328,14 +328,14 @@
     </div>
   </dialog>
 
-  <div id="shareQrViewer" class="share-qr-viewer" role="dialog" aria-modal="true" aria-label="Share QR code" hidden>
+  <dialog id="shareQrViewer" class="share-qr-viewer" aria-label="Share QR code" hidden>
     <button id="shareQrClose" class="share-qr-close" type="button" aria-label="Close QR code">×</button>
     <div class="share-qr-full-card"><strong id="shareQrName">My conference card</strong><canvas id="shareQrCanvas" aria-label="QR code"></canvas><p id="shareQrHint">Scan to save this vCard.</p></div>
-  </div>
+  </dialog>
 
-  <dialog id="qrScanDialog" class="qr-scan-dialog">
+  <dialog id="qrScanDialog" class="qr-scan-dialog" aria-labelledby="qrScanTitle">
     <div class="qr-scan-shell">
-      <div class="qr-scan-head"><strong>Scan conference contact</strong><button id="qrScanClose" class="icon-btn ghost" type="button" aria-label="Close QR scanner">×</button></div>
+      <div class="qr-scan-head"><strong id="qrScanTitle">Scan conference contact</strong><button id="qrScanClose" class="icon-btn ghost" type="button" aria-label="Close QR scanner">×</button></div>
       <div class="qr-camera-frame"><video id="qrScanVideo" playsinline muted aria-label="Live camera preview"></video><div class="qr-scan-guide" aria-hidden="true"></div></div>
       <p id="qrScanStatus" class="qr-scan-status" role="status" aria-live="polite">Point the rear camera at a Conference Companion contact QR code.</p>
       <button id="qrScanCancel" class="secondary-btn" type="button">Cancel</button>
@@ -343,15 +343,15 @@
     </div>
   </dialog>
 
-  <dialog id="installDialog" class="install-dialog">
+  <dialog id="installDialog" class="install-dialog" aria-labelledby="installDialogTitle">
     <div class="install-dialog-card">
-      <div class="modal-top"><strong>Install Conference Companion</strong><button id="installDialogClose" class="icon-btn ghost" type="button" aria-label="Close installation instructions">×</button></div>
+      <div class="modal-top"><strong id="installDialogTitle">Install Conference Companion</strong><button id="installDialogClose" class="icon-btn ghost" type="button" aria-label="Close installation instructions">×</button></div>
       <p id="installInstructions"></p>
       <button id="installDialogDone" class="primary-btn" type="button">Done</button>
     </div>
   </dialog>
 
-  <div id="photoViewer" class="photo-viewer" role="dialog" aria-modal="true" aria-label="Photo viewer" hidden>
+  <dialog id="photoViewer" class="photo-viewer" aria-label="Photo viewer" hidden>
     <div class="photo-viewer-shell">
       <button id="photoViewerClose" class="photo-viewer-close" type="button" aria-label="Close photo">×</button>
       <div id="photoViewerStage" class="photo-viewer-stage">
@@ -382,7 +382,7 @@
         <div id="photoViewerSaveStatus" class="photo-viewer-save-status">Saved automatically</div>
       </div>
     </div>
-  </div>
+  </dialog>
   <script type="module" src="./bootstrap.js"></script>
 </body>
 </html>

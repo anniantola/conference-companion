@@ -1,4 +1,4 @@
-const CACHE = "conference-companion-engine-1.1.5";
+const CACHE = "conference-companion-engine-1.2.0";
 const ENGINE_ASSETS = [
   "./",
   "./index.html",
@@ -13,6 +13,7 @@ const ENGINE_ASSETS = [
   "./src/model.js",
   "./src/user-store.js",
   "./src/validation.js",
+  "./src/safe-url.js",
   "./src/json-schema.js",
   "./src/migrations.js",
   "./src/calendar.js",

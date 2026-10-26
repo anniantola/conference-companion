@@ -1,6 +1,6 @@
 import {test,expect} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
-import {readStoredZip,textEntry} from '../../src/zip.js';
+import {createStoredZip,readStoredZip,textEntry} from '../../src/zip.js';
 
 const fixture='/?conference=./fixtures/multiple-poster-sessions';
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=','base64');
@@ -110,8 +110,8 @@ test('personal backup restores notes, photos, favorites, profile and private con
   await page.locator('[data-target="friends"]').click();await page.locator('#editProfileBtn').click();await page.locator('#profileName').fill('Changed');await page.locator('#saveProfileBtn').click();
   await page.locator('[data-target="program"]').click();await page.locator(`[data-star-event="${eventId}"]`).first().click();
   await page.locator(`#programList [data-event="${eventId}"]`).click();await page.locator('.presentation-note').fill('Changed note');await expect(page.locator('#noteSaveStatus')).toHaveText('Saved');await page.locator('#modalClose').click();
-  await page.locator('[data-target="settings"]').click();await page.locator('#importInput').setInputFiles(backupPath);
-  await expect(page.locator('#toast')).toContainText('Backup imported');
+  await page.locator('[data-target="settings"]').click();const restoreDialog=page.waitForEvent('dialog');await page.locator('#importInput').setInputFiles(backupPath);await (await restoreDialog).accept();
+  await expect(page.locator('#toast')).toContainText('Backup restored');
 
   await page.locator('[data-target="program"]').click();
   await expect(page.locator(`[data-star-event="${eventId}"]`).first()).toHaveClass(/on/);
@@ -122,6 +122,35 @@ test('personal backup restores notes, photos, favorites, profile and private con
   await page.locator('#modalClose').click();
   await page.locator('[data-target="friends"]').click();await page.locator('#editProfileBtn').click();await expect(page.locator('#profileName')).toHaveValue('Casey Example');
   await page.locator('#cancelProfileBtn').click();await page.locator('[data-friend-toggle]').click();await expect(page.locator('[data-friend-note]')).toHaveValue('Private follow-up');await expect(page.locator('[data-friend-tags]')).toHaveValue('poster, collaborator');
+});
+
+test('invalid backup and failed database restore leave all saved personal data intact',async({page})=>{
+  await ready(page);
+  const event=page.locator('#programList [data-event]').first(),eventId=await event.getAttribute('data-event');
+  await event.locator('[data-star-event]').click();await event.click();await page.locator('.presentation-note').fill('Existing note stays');await expect(page.locator('#noteSaveStatus')).toHaveText('Saved');
+  await page.locator('#photoInput').setInputFiles({name:'existing.png',mimeType:'image/png',buffer:png});await expect(page.locator('#modalPhotos [data-photo-id]')).toHaveCount(1);await page.locator('#modalClose').click();
+  await page.locator('[data-target="friends"]').click();await page.locator('#editProfileBtn').click();await page.locator('#profileName').fill('Existing profile');await page.locator('#profileEmail').fill('existing@example.test');await page.locator('#saveProfileBtn').click();
+  await page.locator('#friendVcardInput').setInputFiles({name:'existing.vcf',mimeType:'text/vcard',buffer:Buffer.from('BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Existing contact\r\nEMAIL:contact@example.test\r\nEND:VCARD\r\n')});
+  await expect(page.locator('.friend-card')).toHaveCount(1);
+  const snapshot=()=>page.evaluate(async()=>{
+    const store=window.CONFERENCE_SERVICES.userStore,id=window.CONFERENCE_PACKAGE.conference.id;
+    const db=await new Promise((resolve,reject)=>{const r=indexedDB.open(`conferenceCompanion:${id}:photos`,1);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
+    const photos=await new Promise((resolve,reject)=>{const tx=db.transaction('photos','readonly'),r=tx.objectStore('photos').getAll();r.onsuccess=()=>resolve(r.result.map(p=>({id:p.id,name:p.name,title:p.customTitle||'',size:p.blob?.size||0})));r.onerror=()=>reject(r.error);tx.oncomplete=()=>db.close();});
+    return {state:await store.getState(),profile:await store.getProfile(),friends:await store.listFriends(),photos,prefs:localStorage.getItem(`conferenceCompanion:${id}:preferences:v1`)};
+  });
+  await page.locator('[data-target="settings"]').click();
+  const before=await snapshot();expect(before.profile.name).toBe('Existing profile');expect(before.photos).toHaveLength(1);
+  const payload={format:'conference-companion-backup',version:3,conferenceId:await page.evaluate(()=>window.CONFERENCE_PACKAGE.conference.id),state:{favorites:[],posterFavorites:[],notes:{}},profile:{name:'Should not restore'},friends:[],photos:[{id:99,file:'photos/00000099.png',type:'image/png',ownerType:'event',ownerId:eventId}]};
+  const missing=createStoredZip([{name:'backup.json',data:JSON.stringify(payload)}]);
+  await page.locator('#importInput').setInputFiles({name:'missing-photo.zip',mimeType:'application/zip',buffer:Buffer.from(await missing.arrayBuffer())});
+  await expect(page.locator('#toast')).toContainText('Existing personal data was preserved');expect(await snapshot()).toEqual(before);
+
+  const valid=createStoredZip([{name:'backup.json',data:JSON.stringify(payload)},{name:'photos/00000099.png',data:png}]);
+  await page.evaluate(()=>{const store=window.CONFERENCE_SERVICES.userStore,original=store.replacePersonalData.bind(store);let fail=true;store.replacePersonalData=async data=>{if(fail){fail=false;throw new Error('simulated IndexedDB failure');}return original(data);};});
+  let confirmation='';page.once('dialog',async dialog=>{confirmation=dialog.message();await dialog.accept();});await page.locator('#importInput').setInputFiles({name:'valid-restore.zip',mimeType:'application/zip',buffer:Buffer.from(await valid.arrayBuffer())});
+  await expect.poll(()=>confirmation).toContain('replacing all saved personal data');
+  await expect(page.locator('#toast')).toContainText('Existing personal data was preserved');expect(await snapshot()).toEqual(before);
+  await page.reload();await expect(page.locator('#programList')).not.toBeEmpty();expect(await snapshot()).toEqual(before);await page.locator('[data-target="program"]').click();await page.locator(`#programList [data-event="${eventId}"]`).click();await expect(page.locator('.presentation-note')).toHaveValue('Existing note stays');await page.locator('#modalClose').click();
 });
 
 for(const width of [320,375,768,1280]){

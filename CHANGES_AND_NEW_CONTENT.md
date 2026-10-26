@@ -147,3 +147,20 @@ acceptance coverage.
   Cancel restores the saved values and discards uncommitted photo changes.
 - Added browser regressions for cancellation, saving every profile field/photo,
   reload persistence, backup export/restore and mobile Friend Book layout.
+
+## 2026-10-26 — Production pilot hardening (v1.2.0)
+
+- Validated personal backup payloads, ZIP CRCs, referenced image files, image
+  signatures, contact fields and URLs before storage changes.
+- Made restore a confirmed replacement. Attendee state/profile/contacts commit
+  atomically; photos use a snapshot-backed rollback across their separate
+  IndexedDB database. Failed restore preserves current data.
+- Added a shared URL policy for vCards, QR cards, personal backups, conference
+  packages and attendee rendering. Unsafe schemes and path traversal are
+  rejected while HTTPS, email, ORCID and DOI references remain supported.
+- Converted QR and photo overlays to named native dialogs with managed focus,
+  Escape dismissal and focus restoration.
+- Added Chromium, Firefox and WebKit Playwright projects and CI dependencies,
+  plus malformed-backup, rollback, unsafe-link and dialog keyboard regressions.
+- Documented restore semantics, URL policy, update lifecycle and device-test
+  limitations.

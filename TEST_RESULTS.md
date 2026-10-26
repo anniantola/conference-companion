@@ -1,3 +1,29 @@
+# Production pilot hardening verification — 2026-10-26, engine v1.2.0
+
+All Node.js 22.23.4 unit, schema, conference validation, static/accessibility,
+release, importer, Builder regression, conference-independent validation, and
+generated deployment ZIP checks passed. The complete browser command ran all
+three configured projects: Chromium and Firefox passed **48/48** tests. The
+five-run Firefox backup-failure recovery regression also passed **5/5**.
+
+WebKit's 24 tests could not launch in this local environment because the host is
+missing WebKit runtime libraries. The GitHub Actions deployment workflow installs
+Chromium, Firefox, WebKit, and their system dependencies; its full result is
+recorded after the push. No local WebKit pass is claimed.
+
+Coverage includes strict external URL validation in conference packages and
+vCards/QR contact import, malformed and missing-photo backup rejection, rollback
+and post-reload personal-data preservation, accessible named dialogs and keyboard
+focus handling, offline navigation and persistence in Chromium/Firefox, and
+waiting service-worker engine activation without interrupting active clients.
+Backup imports replace all personal data for the target conference after
+validation and confirmation; failed imports preserve current data.
+
+`git diff --check` passed. Physical camera selection/permissions, platform PWA
+installation, mobile screen readers, and real iOS Safari remain device checks.
+
+---
+
 # Friend Book My Card verification — 2026-10-23, engine v1.1.5
 
 The complete `npm test` gate passed with Node.js 22.23.4 and Playwright Chromium.

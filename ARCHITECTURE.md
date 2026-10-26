@@ -217,3 +217,32 @@ object and `userStore.getProfile`/`saveProfile` contract. A temporary in-memory
 draft holds form edits and selected profile photos until Save. Cancel reloads the
 persisted profile into the editor and revokes the draft preview URL. QR generation,
 vCard export and backup/restore continue to use the one saved profile object.
+
+## 15. Pilot hardening (v1.2.0)
+
+Backup import is explicitly replace-only for the selected conference's
+attendee-owned record set. `src/backup.js` validates the envelope, version,
+record shapes, contact URLs, image references and ZIP entry checksums before the
+application begins a restore. Every referenced image must be present and have
+recognized image data; invalid or incomplete archives are rejected without
+mutating application stores. The app waits for outstanding attendee writes,
+captures a rollback snapshot, replaces the conference photo database, then
+replaces state/profile/contacts atomically in the shared user database. If the
+second database commit or preference write fails, the first commit is rolled
+back. Visible application state changes only after storage commits succeed.
+Conference packages remain in their independent package store.
+
+`src/safe-url.js` defines the shared external-link policy. User and package URLs
+are restricted to HTTPS (plus `mailto:` for validated email links); ORCID IDs
+and DOI references have dedicated parsing and normalization. Relative package
+asset paths are accepted only in asset fields and cannot traverse directories.
+Package validation is used by attendee package loading and Builder output;
+vCard parsing applies the same checks before contact persistence. Renderers also
+normalize links before assigning them to `href` attributes.
+
+QR and photo viewers are native modal `<dialog>` elements. Browser modal focus
+containment and Escape behavior are retained, opening focus is deliberate, and
+closing returns focus to the initiating control. CI runs Playwright projects for
+Chromium, Firefox and WebKit and installs each engine's runner dependencies.
+Engine updates still avoid `skipWaiting`; a waiting worker activates only after
+the previous in-scope clients close and does not clear attendee data stores.

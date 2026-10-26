@@ -26,7 +26,7 @@ test('PWA assets, Pages scope, native prompt and offline QR fallback are operati
   expect(result.manifest).toMatchObject({id:'./',start_url:'./',scope:'./',display:'standalone'});
   expect(result.scope).toBe('http://127.0.0.1:8080/');
   expect(result.dimensions).toEqual([[192,192],[512,512]]);
-  expect(result.caches).toContain('conference-companion-engine-1.1.5');
+  expect(result.caches).toContain('conference-companion-engine-1.2.0');
 
   await context.setOffline(true);
   const decoded=await page.evaluate(async()=>{
@@ -93,6 +93,8 @@ test('live QR scanner imports once and releases the camera on success, cancel an
   await expect.poll(()=>page.evaluate(()=>window.__qrStarts||0)).toBe(1);
   expect(await page.evaluate(()=>window.__qrOptions.preferredCamera)).toBe('environment');
   const card='BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Camera Contact\r\nTITLE:Researcher\r\nORG:Offline Lab\r\nEMAIL:camera@example.test\r\nEND:VCARD\r\n';
+  await page.evaluate(()=>window.__qrCallback({data:'BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Unsafe Camera Card\r\nURL:javascript:alert(1)\r\nEND:VCARD\r\n'}));
+  await expect(page.locator('#qrScanStatus')).toContainText('not a valid conference contact card');await expect(page.locator('.friend-card')).toHaveCount(0);await expect(page.locator('#qrScanDialog')).toBeVisible();
   await page.evaluate(async card=>window.__qrCallback({data:card}),card);
   await expect(page.locator('#qrScanDialog')).not.toBeVisible();await expect(page.locator('.friend-card')).toHaveCount(1);await expect.poll(()=>page.evaluate(()=>window.__qrStops||0)).toBe(1);
 
@@ -122,6 +124,15 @@ test('Friend Book is an alphabetical, keyboard-accessible expandable list',async
   await amy.click();await expect(page.locator('.friend-card-details:visible')).toHaveCount(0);
 });
 
+test('QR and scanner dialogs expose names, contain focus and restore focus on close',async({page})=>{
+  await ready(page);await page.locator('[data-target="friends"]').click();await page.locator('#editProfileBtn').click();await page.locator('#profileName').fill('Accessible Attendee');await page.locator('#saveProfileBtn').click();
+  await page.locator('#friendShareBtn').click();const share=page.getByRole('dialog',{name:'Share QR code'});await expect(share).toBeVisible();await expect(page.locator('#shareQrClose')).toBeFocused();
+  await page.keyboard.press('Tab');await expect(page.locator('#shareQrClose')).toBeFocused();await page.keyboard.press('Escape');await expect(share).toBeHidden();await expect(page.locator('#friendShareBtn')).toBeFocused();
+  await page.evaluate(()=>{window.CONFERENCE_QR_SCANNER_CLASS=class {constructor(){}async start(){}async stop(){}destroy(){}};});
+  await page.locator('#scanFriendBtn').click();const scanner=page.getByRole('dialog',{name:'Scan conference contact'});await expect(scanner).toBeVisible();await expect(page.locator('#qrScanClose')).toBeFocused();
+  await page.keyboard.press('Escape');await expect(scanner).toBeHidden();await expect(page.locator('#scanFriendBtn')).toBeFocused();
+});
+
 test('My Card editor saves, cancels, reloads and restores every profile field from backup',async({page})=>{
   await ready(page);await page.locator('[data-target="settings"]').click();
   await expect(page.locator('#settingsView #profileName')).toHaveCount(0);
@@ -148,7 +159,7 @@ test('My Card editor saves, cancels, reloads and restores every profile field fr
   expect(payload.profile.name).toBe(values.profileName);expect(payload.profilePhoto.file).toMatch(/^profile\//);expect(payload.profile.papers).toEqual(values.profilePapers.split('\n'));
 
   await page.locator('[data-target="friends"]').click();await page.locator('#editProfileBtn').click();await page.locator('#profileName').fill('Temporary Change');await page.locator('#profilePapers').fill('changed');await page.locator('#saveProfileBtn').click();
-  await page.locator('[data-target="settings"]').click();await page.locator('#importInput').setInputFiles(backupPath);await expect(page.locator('#toast')).toContainText('Backup imported');
+  await page.locator('[data-target="settings"]').click();const restoreDialog=page.waitForEvent('dialog');await page.locator('#importInput').setInputFiles(backupPath);await (await restoreDialog).accept();await expect(page.locator('#toast')).toContainText('Backup restored');
   await page.locator('[data-target="friends"]').click();await expect(page.locator('#myCardSummary')).toContainText('Riley Researcher');await page.locator('#editProfileBtn').click();
   for(const [id,value] of Object.entries(values))await expect(page.locator(`#${id}`)).toHaveValue(value);
   await expect(page.locator('#profilePhotoPreview')).toBeVisible();await page.locator('#cancelProfileBtn').click();

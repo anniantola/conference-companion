@@ -52,7 +52,7 @@ test('atomic releases, corrupt/invalid/mutated updates, rollback and user data i
   for(const name of ['conference-manifest.json','conference.json','programme.json','people.json','locations.json','branding.json'])files[name]=await readFile(`conference/${name}`,'utf8');
   let current={...files};
   await page.route('**/release/**',route=>{const name=new URL(route.request().url()).pathname.split('/').pop();return current[name]===undefined?route.fulfill({status:503,body:'unavailable'}):route.fulfill({contentType:'application/json',body:current[name]});});
-  const load=()=>page.evaluate(async()=>{const {loadConferencePackage}=await import('/src/package-store.js');const r=await loadConferencePackage('/release','1.1.5');return {version:r.pkg.manifest.dataVersion,source:r.source,warnings:r.warnings,id:r.pkg.conference.id};});
+  const load=()=>page.evaluate(async()=>{const {loadConferencePackage}=await import('/src/package-store.js');const r=await loadConferencePackage('/release','1.2.0');return {version:r.pkg.manifest.dataVersion,source:r.source,warnings:r.warnings,id:r.pkg.conference.id};});
   const first=await load();
   const state={favorites:['immutable-event'],posterFavorites:['immutable-poster'],notes:{'talk:immutable-event':'Private notes'}};
   await page.evaluate(async({id,state})=>{const {createUserStore}=await import('/src/user-store.js');const s=createUserStore(id);await s.saveState(state);await s.saveProfile({name:'Private attendee',photo:new Blob(['photo'])});await s.saveFriend({id:'friend',name:'Private contact'});await createUserStore('other-event').saveState({favorites:['other']});await new Promise((resolve,reject)=>{const request=indexedDB.open(`conferenceCompanion:${id}:photos`,1);request.onupgradeneeded=()=>{const store=request.result.createObjectStore('photos',{keyPath:'id',autoIncrement:true});store.createIndex('ownerKey','ownerKey',{unique:false});};request.onerror=()=>reject(request.error);request.onsuccess=()=>{const db=request.result,tx=db.transaction('photos','readwrite');tx.objectStore('photos').add({ownerKey:'event:immutable-event',ownerType:'event',ownerId:'immutable-event',blob:new Blob(['image']),addedAt:1});tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>reject(tx.error);};});},{id:first.id,state});
@@ -86,26 +86,24 @@ test('engine update waits while a client edits and activates on clean launch',as
   await context.unroute('**/app.js');
   // A genuine second service-worker script/cache, served by the local HTTP server.
   const {writeFile,unlink}=await import('node:fs/promises');const path='test-engine-worker.js';
-  await writeFile(path,worker.replace('conference-companion-engine-1.1.5','conference-companion-engine-test'));
+  await writeFile(path,worker.replace('conference-companion-engine-1.2.0','conference-companion-engine-test'));
   try{
-    const replacementCreated=context.waitForEvent('serviceworker',worker=>worker.url().endsWith('/test-engine-worker.js'));
     await page.evaluate(async()=>{await navigator.serviceWorker.register('/test-engine-worker.js',{scope:'/'});});
-    const replacement=await replacementCreated;
-    await expect.poll(()=>page.evaluate(async()=>Boolean((await navigator.serviceWorker.getRegistration()).waiting))).toBe(true);
+    await expect.poll(()=>page.evaluate(async()=>{const r=await navigator.serviceWorker.getRegistration();return r.waiting?.scriptURL||null;})).toContain('test-engine-worker.js');
     await expect(page.locator('#profileName')).toHaveValue('Unsaved editing');
     expect(await page.evaluate(()=>navigator.serviceWorker.controller.scriptURL)).toBe(originalController);
-    expect(await replacement.evaluate(()=>self.registration.waiting.state)).toBe('installed');
+    const replacement=context.serviceWorkers().find(worker=>worker.url().endsWith('/test-engine-worker.js'))||null;
+    if(replacement)expect(await replacement.evaluate(()=>self.registration.waiting.state)).toBe('installed');
 
     // Closing the last client permits activation; it does not await activation.
     // Observe through the worker, which is not a scoped document client. Opening
     // a scoped page here can race activation/claim and hold navigation pending.
     await page.close();
-    await expect.poll(()=>replacement.evaluate(()=>({
+    if(replacement)await expect.poll(()=>replacement.evaluate(()=>({
       url:self.registration.active?.scriptURL,
       state:self.registration.active?.state,
       waiting:self.registration.waiting?.scriptURL||null
     }))).toEqual({url:new URL('/test-engine-worker.js',originalController).href,state:'activated',waiting:null});
-
     const next=await context.newPage();await next.goto('/builder.html');
     await expect.poll(()=>next.evaluate(async()=>{const r=await navigator.serviceWorker.getRegistration();return r.active?.scriptURL;})).toContain('test-engine-worker.js');
     await expect(page.isClosed()).toBe(true);

@@ -8,6 +8,9 @@ for(const base of ['conference','fixtures/multi-track-no-posters','fixtures/mult
  assert.ok(validatePackage(bad).errors.some(x=>x.includes('missing from parent')));
  bad=structuredClone(pkg);const loc=bad.locations.locations[0];loc.parentLocationId=loc.id;
  assert.ok(validatePackage(bad).errors.some(x=>x.includes('cyclic parent')));
+ bad=structuredClone(pkg);bad.conference.officialWebsite='javascript:alert(1)';assert.ok(validatePackage(bad).errors.some(x=>x.includes('officialWebsite')));
+ bad=structuredClone(pkg);bad.locations.locations[0].mapUrl='data:text/html,unsafe';assert.ok(validatePackage(bad).errors.some(x=>x.includes('mapUrl')));
+ bad=structuredClone(pkg);const person=bad.people.people[0];person.links=[{label:'Unsafe',url:'javascript:alert(1)'}];assert.ok(validatePackage(bad).errors.some(x=>x.includes('safe HTTPS')));
  bad=structuredClone(pkg);bad.programme.posters.push({id:'test-poster',title:'Test',posterSessionId:s.id,authorIds:[]});
  assert.ok(validatePackage(bad).errors.some(x=>x.includes('parent must be a poster-session')));
  if(pkg.programme.posters.length){bad=structuredClone(pkg);delete bad.programme.posters[0].posterSessionId;assert.ok(validatePackage(bad).errors.some(x=>x.includes('posterSessionId required')));}
