@@ -2,6 +2,7 @@ import {validatePackage,timeToMinutes} from '../validation.js';
 import {createStoredZip} from '../zip.js';
 import {calendarUidForEntity} from '../calendar.js';
 import {CURRENT_SCHEMA_VERSION} from '../migrations.js';
+import {validatePackageSchemas} from '../json-schema.js';
 
 const ENGINE_FILES = [
   'index.html','app.js','bootstrap.js','styles.css','service-worker.js',
@@ -51,6 +52,7 @@ export function ensureProjectIdentities(project){
   project.identityRegistry.people ||= {};project.identityRegistry.locations ||= {};project.identityRegistry.tracks ||= {};
   project.sessionOverrides ||= {};
   const registry=project.identityRegistry;
+  project.identityWarnings=[];
   const rows=project.rows||[];
   // One title can represent several separate sessions in the same day.
   // Assign by location AND temporal continuity, never by title alone.
@@ -97,12 +99,13 @@ export function ensureProjectIdentities(project){
     return id;
   };
   const personId=(name,affiliation='',preferred='')=>{
-    if(preferred)return preferred;
     const n=String(name||'').trim().toLowerCase(),a=String(affiliation||'').trim().toLowerCase();if(!n)return '';
-    const exact=`${n}|${a}`,alias=`${n}|`;
-    if(registry.people[exact])return registry.people[exact];
-    if(registry.people[alias]){registry.people[exact]=registry.people[alias];return registry.people[alias];}
-    const id=`person-${crypto.randomUUID()}`;registry.people[exact]=id;if(!registry.people[alias])registry.people[alias]=id;return id;
+    if(preferred){if(a)registry.people[`${n}|${a}`]=preferred;return preferred;}
+    const exact=`${n}|${a}`;
+    if(a&&registry.people[exact])return registry.people[exact];
+    const known=[...new Set(Object.entries(registry.people).filter(([key])=>key.startsWith(`${n}|`)).map(([,id])=>id))];
+    if(!a&&known.length)project.identityWarnings.push(`Ambiguous person "${name}": choose an existing person ID or add an affiliation to resolve the identity.`);
+    const id=`person-${crypto.randomUUID()}`;registry.people[exact]=id;return id;
   };
   const locationId=(name,preferred='')=>{if(preferred)return preferred;const k=String(name||'').trim().toLowerCase();if(!k)return 'venue-main';return registry.locations[k]||(registry.locations[k]=`loc-${crypto.randomUUID()}`);};
   const trackId=(name,preferred='')=>{if(preferred)return preferred;const k=String(name||'Common').trim().toLowerCase()||'common';if(k==='common')return registry.tracks[k]||(registry.tracks[k]='common');return registry.tracks[k]||(registry.tracks[k]=`track-${crypto.randomUUID()}`);};
@@ -123,6 +126,13 @@ export function ensureProjectIdentities(project){
     const speakerNames=parseNames(row.speaker),chairNames=parseNames(row.chair);
     row.speakerEntityIds=speakerNames.map((name,i)=>personId(name,row.affiliation,(row.speakerEntityIds||[])[i]));
     row.chairEntityIds=chairNames.map((name,i)=>personId(name,'',(row.chairEntityIds||[])[i]));
+    if(!String(row.affiliation||'').trim()){
+      for(const [index,name] of speakerNames.entries()){
+        if(row.personIdentityResolved||(row.speakerEntityIds?.[index]&&row.source?.id?.includes(':package:')))continue;
+        const key=name.toLowerCase(),known=[...new Set(Object.entries(registry.people).filter(([k])=>k.startsWith(`${key}|`)).map(([,id])=>id))];
+        if(known.length>1){row.personIdentityConflict=true;row.personIdentityCandidates=[...new Set([...known,...(row.speakerEntityIds||[])])];}
+      }
+    }
 
     if(type==='poster'){
       const key=`poster|${row.date||project.conference?.startDate||''}|${String(row.session||'Poster session').trim().toLowerCase()}|${row.locationEntityId}|${row.trackEntityId}`;
@@ -145,14 +155,30 @@ export function ensureProjectIdentities(project){
     row.sessionId=assignGroup(key,row);
     if(!row.calendarUid)row.calendarUid=calendarUidForEntity(row.entityId,project.conference);
   }
+  const noAffByName=new Map();
+  for(const row of rows){
+    if(String(row.affiliation||'').trim())continue;
+    for(const [role,field] of [['speaker','speakerEntityIds'],['chair','chairEntityIds']]){
+      const names=parseNames(row[role]);for(const [index,name] of names.entries()){
+        const key=name.toLowerCase(),ids=row[field]||[];if(!noAffByName.has(key))noAffByName.set(key,[]);
+        noAffByName.get(key).push({row,name,id:ids[index]});
+      }
+    }
+  }
+  for(const [name,occurrences] of noAffByName){
+    const candidates=[...new Set([...occurrences.map(x=>x.id),...occurrences.flatMap(x=>x.row.personIdentityCandidates||[])].filter(Boolean))];
+    if(candidates.length<=1&&occurrences.every(item=>item.row.personIdentityResolved)){for(const item of occurrences){item.row.personIdentityConflict=false;delete item.row.personIdentityCandidates;}}
+    else if(candidates.length)for(const item of occurrences){if(!item.row.personIdentityResolved){item.row.personIdentityConflict=true;item.row.personIdentityCandidates=candidates;}}
+  }
   return project;
 }
 
 export async function buildPackage(project){
   ensureProjectIdentities(project);
-  const config=project.conference||{}, rows=(project.rows||[]).filter(r=>r.title||r.session);
+  const config=project.conference||{}, rows=(project.rows||[]);
   const sessionOverrides=project.sessionOverrides||{};
   const builderWarnings=[];
+  const builderErrors=[];
   const people=[],peopleKey=new Map(),peopleNameKey=new Map(),locations=[],locationKey=new Map(),tracks=[],trackKey=new Map();
   const usedPeople=new Set(),usedLocations=new Set(),usedTracks=new Set(),usedSessions=new Set(),usedPresentations=new Set(),usedPosters=new Set();
 
@@ -162,13 +188,17 @@ export async function buildPackage(project){
     const cleanAff=String(affiliation||'').trim();const nameKey=cleanName.toLowerCase();
     const key=`${nameKey}|${cleanAff.toLowerCase()}`;
     if(preferredId&&personById.has(preferredId)){
-      const existing=personById.get(preferredId);if(cleanAff&&!existing.affiliations.includes(cleanAff))existing.affiliations.push(cleanAff);peopleKey.set(key,preferredId);return preferredId;
+      const existing=personById.get(preferredId);for(const aff of cleanAff.split(';').map(x=>x.trim()).filter(Boolean))if(!existing.affiliations.includes(aff))existing.affiliations.push(aff);peopleKey.set(key,preferredId);return preferredId;
     }
     if(peopleKey.has(key))return peopleKey.get(key);
-    if(!cleanAff&&peopleNameKey.has(nameKey))return peopleNameKey.get(nameKey);
-    let id=preferredId||project.identityRegistry?.people?.[key]||project.identityRegistry?.people?.[`${nameKey}|`]||`person-${crypto.randomUUID()}`;
+    if(!cleanAff&&!preferredId&&peopleNameKey.has(nameKey)){
+      const sameName=people.filter(p=>p.name.toLowerCase()===nameKey);
+      if(sameName.length===1)return sameName[0].id;
+      if(sameName.length>1)builderWarnings.push(`Ambiguous person "${cleanName}" without an affiliation; identity kept separate for organizer review`);
+    }
+    let id=preferredId||project.identityRegistry?.people?.[key]||`person-${crypto.randomUUID()}`;
     if(usedPeople.has(id))id=ensureUnique(id,usedPeople);else usedPeople.add(id);
-    const p={id,name:cleanName,affiliations:cleanAff?[cleanAff]:[]};people.push(p);personById.set(id,p);peopleKey.set(key,id);if(!peopleNameKey.has(nameKey))peopleNameKey.set(nameKey,id);return id;
+    const p={id,name:cleanName,affiliations:cleanAff.split(';').map(x=>x.trim()).filter(Boolean)};people.push(p);personById.set(id,p);peopleKey.set(key,id);if(!peopleNameKey.has(nameKey))peopleNameKey.set(nameKey,id);return id;
   };
 
   const venueId='venue-main';
@@ -182,7 +212,7 @@ export async function buildPackage(project){
     const type=String(row.type||'talk').toLowerCase();if(type==='poster'){posterRows.push(row);continue;}
     const locationId=ensureLocation(row.location,row.locationEntityId),trackId=ensureTrack(row.track||'Common',row.trackEntityId);
     const isStandalone=['break','meal','social','registration','special'].includes(type);
-    const sessionTitle=String(row.session||(isStandalone?row.title:'Session')).trim()||'Session';
+    const sessionTitle=String(row.session||(isStandalone?row.title:'')).trim();
     const key=row.sessionId||`${row.date}|${sessionTitle.toLowerCase()}|${trackId}`;
     if(!sessionGroups.has(key))sessionGroups.set(key,{id:row.sessionId||key,title:sessionTitle,date:row.date,locationId,trackId,type:sessionType(type),rows:[]});
     const group=sessionGroups.get(key);group.rows.push(row);
@@ -203,11 +233,14 @@ export async function buildPackage(project){
     if(distinctTracks.size>1)builderWarnings.push(`session ${id}: imported rows disagree on track; review the Session-level edit`);
     if(distinctDates.size>1)builderWarnings.push(`session ${id}: imported rows disagree on date; review the Session-level edit`);
     const override=sessionOverrides[id]||{};
+    if(distinctLocations.size>1&&!override.locationId)builderErrors.push(`session ${id}: source rows disagree on location; choose one in Session-level edits`);
+    if(distinctTracks.size>1&&!override.trackId)builderErrors.push(`session ${id}: source rows disagree on track; choose one in Session-level edits`);
+    if(distinctDates.size>1&&!override.date)builderErrors.push(`session ${id}: source rows disagree on date; correct the rows or choose a Session-level date`);
     const sequenceBump=Number(override.sequenceBump||0);
     const session={
       id,type:group.type,
       title:override.title??group.title,
-      date:override.date??group.date??config.startDate,
+      date:override.date??group.date??'',
       start:override.start??start,
       end:override.end??end,
       locationId:override.locationId??group.locationId,
@@ -219,7 +252,7 @@ export async function buildPackage(project){
       for(const row of group.rows){
         let pid=stableEntityId(row,'presentation');if(usedPresentations.has(pid))pid=ensureUnique(pid,usedPresentations);else usedPresentations.add(pid);
         const speakerIds=parseNames(row.speaker).map((n,i)=>ensurePerson(n,row.affiliation,(row.speakerEntityIds||[])[i])).filter(Boolean);
-        const p={id:pid,sessionId:id,type:presentationType(row.type),start:row.start||start,end:row.end||end,title:row.title||'Untitled presentation',speakerIds,abstract:row.abstract||'',keywords:[],links:[],calendarUid:row.calendarUid,sequence:Number(row.sequence||0)+sequenceBump};
+        const p={id:pid,sessionId:id,type:presentationType(row.type),start:row.start||start,end:row.end||end,title:row.title||'',speakerIds,abstract:row.abstract||'',keywords:[],links:[],calendarUid:row.calendarUid,sequence:Number(row.sequence||0)+sequenceBump};
         if(row.doi)p.links.push({label:'DOI / link',url:row.doi});
         presentations.push(p);session.presentationIds.push(pid);
       }
@@ -230,15 +263,20 @@ export async function buildPackage(project){
   const posters=[];
   if(posterRows.length){
     const grouped=new Map();
-    for(const row of posterRows){const k=row.posterSessionId||`poster|${row.date||config.startDate}|${row.session||'Poster session'}`;if(!grouped.has(k))grouped.set(k,[]);grouped.get(k).push(row);}
+    for(const row of posterRows){const k=row.posterSessionId||`poster|${row.date||''}|${row.session||''}|${row.location||''}|${row.track||''}`;if(!grouped.has(k))grouped.set(k,[]);grouped.get(k).push(row);}
     for(const [groupKey,groupRows] of grouped){
-      const date=groupRows[0].date||config.startDate,start=minTime(groupRows.map(r=>r.start))||'17:00',end=maxTime(groupRows.map(r=>r.end))||'19:00';
+      const date=groupRows[0].date||'',start=minTime(groupRows.map(r=>r.start)),end=maxTime(groupRows.map(r=>r.end));
       const loc=ensureLocation(groupRows[0].location,groupRows[0].locationEntityId),track=ensureTrack(groupRows[0].track||'Common',groupRows[0].trackEntityId);
       let psId=String(groupRows[0].posterSessionId||groupKey);if(usedSessions.has(psId))psId=ensureUnique('poster-session',usedSessions);else usedSessions.add(psId);
       const psUid=groupRows[0].posterSessionCalendarUid||calendarUidForEntity(psId,config);groupRows.forEach(r=>{r.posterSessionCalendarUid=psUid;});
       const psOverride=sessionOverrides[psId]||{},psBump=Number(psOverride.sequenceBump||0);
-      sessions.push({id:psId,type:'poster-session',title:psOverride.title??groupRows[0].session??'Poster session',date:psOverride.date??date,start:psOverride.start??start,end:psOverride.end??end,locationId:psOverride.locationId??loc,trackId:psOverride.trackId??track,chairIds:[],presentationIds:[],calendarUid:psUid,sequence:Math.max(...groupRows.map(r=>Number(r.sequence||0)),0)+psBump});
-      groupRows.forEach((row,i)=>{const authorIds=parseNames(row.speaker).map((n,i)=>ensurePerson(n,row.affiliation,(row.speakerEntityIds||[])[i])).filter(Boolean);let posterId=stableEntityId(row,'poster');if(usedPosters.has(posterId))posterId=ensureUnique(posterId,usedPosters);else usedPosters.add(posterId);posters.push({id:posterId,posterSessionId:psId,number:row.posterNumber||String(i+1),title:row.title||`Poster ${i+1}`,authorIds,abstract:row.abstract||'',keywords:[],links:row.doi?[{label:'DOI / link',url:row.doi}]:[],calendarUid:row.calendarUid,sequence:Number(row.sequence||0)+psBump});});
+      const rowDates=new Set(groupRows.map(r=>r.date||'').filter(Boolean)),rowLocations=new Set(groupRows.map(r=>r.locationEntityId||r.location||'').filter(Boolean)),rowTracks=new Set(groupRows.map(r=>r.trackEntityId||r.track||'').filter(Boolean)),rowSessions=new Set(groupRows.map(r=>String(r.session||'').trim()).filter(Boolean));
+      if(rowDates.size>1&&!psOverride.date)builderErrors.push(`poster session ${psId}: source rows disagree on date; correct the rows or set the Session-level date`);
+      if(rowLocations.size>1&&!psOverride.locationId)builderErrors.push(`poster session ${psId}: source rows disagree on location; choose one in Session-level edits`);
+      if(rowTracks.size>1&&!psOverride.trackId)builderErrors.push(`poster session ${psId}: source rows disagree on track; choose one in Session-level edits`);
+      if(rowSessions.size>1&&!psOverride.title)builderErrors.push(`poster session ${psId}: source rows disagree on session title; choose one in Session-level edits`);
+      sessions.push({id:psId,type:'poster-session',title:psOverride.title??groupRows[0].session??'',date:psOverride.date??date,start:psOverride.start??start,end:psOverride.end??end,locationId:psOverride.locationId??loc,trackId:psOverride.trackId??track,chairIds:[],presentationIds:[],calendarUid:psUid,sequence:Math.max(...groupRows.map(r=>Number(r.sequence||0)),0)+psBump});
+      groupRows.forEach((row,i)=>{const authorIds=parseNames(row.speaker).map((n,i)=>ensurePerson(n,row.affiliation,(row.speakerEntityIds||[])[i])).filter(Boolean);let posterId=stableEntityId(row,'poster');if(usedPosters.has(posterId))posterId=ensureUnique(posterId,usedPosters);else usedPosters.add(posterId);posters.push({id:posterId,posterSessionId:psId,number:row.posterNumber||String(i+1),title:row.title||'',authorIds,abstract:row.abstract||'',keywords:[],links:row.doi?[{label:'DOI / link',url:row.doi}]:[],calendarUid:row.calendarUid,sequence:Number(row.sequence||0)+psBump});});
     }
   }
 
@@ -252,7 +290,7 @@ export async function buildPackage(project){
   for(const extra of project.extraLocations||[]){if(!extra?.name)continue;let id=extra.id||`loc-${crypto.randomUUID()}`;if(usedLocations.has(id))id=ensureUnique(id,usedLocations);else usedLocations.add(id);const lat=extra.lat==null||String(extra.lat).trim()===''?NaN:Number(extra.lat),lon=extra.lon==null||String(extra.lon).trim()===''?NaN:Number(extra.lon);locations.push({id,type:extra.type||'venue',name:extra.name,...(extra.parentLocationId?{parentLocationId:extra.parentLocationId}:{}),...(extra.address?{address:extra.address}:{}),...(extra.mapUrl?{mapUrl:extra.mapUrl}:{}),...(Number.isFinite(lat)&&lat>=-90&&lat<=90?{lat}:{}),...(Number.isFinite(lon)&&lon>=-180&&lon<=180?{lon}:{})});}
 
   const conference={
-    id:config.id,name:config.name||'Conference',shortName:config.shortName||config.name||'Conference',fullName:config.fullName||config.name||'Conference',
+    id:config.id,name:config.name||'',shortName:config.shortName||config.name||'',fullName:config.fullName||config.name||'',
     startDate:config.startDate,endDate:config.endDate,timezone:config.timezone||'Europe/Helsinki',timezoneLabel:config.timezoneLabel||'',locale:config.locale||'en-GB',language:config.language||'en',city:config.city||'',country:config.country||'',officialWebsite:config.officialWebsite||'',contactEmail:config.contactEmail||'',mainVenueId:venueId,
     features:{posters:posters.length>0,photos:project.features?.photos!==false,notes:project.features?.notes!==false,pptxExport:project.features?.pptxExport!==false,friendBook:project.features?.friendBook!==false,calendarExport:project.features?.calendarExport!==false,announcements:project.features?.announcements!==false},links:project.links||[]
   };
@@ -267,19 +305,58 @@ export async function buildPackage(project){
   };
   const now=new Date().toISOString();
   const version=Number(project.dataVersion||1);
-  const changelog=[...(project.changelog||[]).filter(x=>Number(x.version)!==version),{version,publishedAt:now,message:project.releaseMessage||'Published from Conference Builder.'}];
-  const manifest={schemaVersion:CURRENT_SCHEMA_VERSION,dataVersion:version,minimumEngineVersion:'1.2.0',publishedAt:now,files:['conference.json','programme.json','people.json','locations.json','branding.json'],checksums:{},changelog};
+  const changelog=[...(project.changelog||[])];
+  const manifest={schemaVersion:CURRENT_SCHEMA_VERSION,dataVersion:version,minimumEngineVersion:'1.2.1',publishedAt:now,files:['conference.json','programme.json','people.json','locations.json','branding.json'],checksums:{},changelog};
   const pkg={manifest,conference,programme,people:peopleJson,locations:locationsJson,branding};
   const report=validatePackage(pkg,{strictCalendarUid:true,policy:project.policy||{}});
+  report.errors.push(...builderErrors);
+  report.errors.push(...await validatePackageSchemas(pkg));
+  for(const [index,row] of rows.entries()){
+    const label=row.source?.row?`source row ${row.source.row}`:row.source?.page?`PDF page ${row.source.page}, line ${row.source.line||'?'}`:`programme row ${index+1}`;
+    const posterOverride=String(row.type||'').toLowerCase()==='poster'?(sessionOverrides[row.posterSessionId]||{}):{};
+    if(!String(row.title||'').trim())report.errors.push(`${label}: presentation/poster title is required; enter it before export`);
+    for(const field of ['date','start','end'])if(!String(row[field]||'').trim()&&!String(posterOverride[field]||'').trim())report.errors.push(`${label}: ${field} is required; enter the known programme information before export`);
+    if(!String(row.session||'').trim()&&!['break','meal','social','registration','special'].includes(String(row.type||'').toLowerCase()))report.errors.push(`${label}: session name is required; enter it before export`);
+  }
   for(const row of rows){
     for(const warning of row.importWarnings||[])report.warnings.push(`PDF page ${row.source?.page||'?'}, row ${row.source?.line||'?'}: ${warning}`);
     const confidence=Number(row.importConfidence??row.source?.confidence);
     if(row.source?.page&&Number.isFinite(confidence)&&confidence<0.7)report.warnings.push(`PDF page ${row.source.page}, row ${row.source.line||'?'}: low-confidence extraction (${Math.round(confidence*100)}%); organizer review required`);
   }
   report.warnings.push(...builderWarnings);
+  report.warnings.push(...(project.identityWarnings||[]));
+  for(const row of rows)if(row.personIdentityConflict&&!row.personIdentityResolved)report.warnings.push(`Ambiguous person identity in programme row ${row.source?.row||row.source?.line||row.id}: select a person ID or provide an affiliation`);
   const lastPublished=Number(project.lastPublishedVersion||0);
-  if(lastPublished&&version<=lastPublished)report.errors.push(`dataVersion ${version} must be greater than the last published version ${lastPublished}`);
+  const fingerprint=await packageContentFingerprint(pkg);
+  const confirmed=(project.confirmedPublications||[]).find(x=>Number(x.version)===version);
+  if(confirmed&&confirmed.fingerprint!==fingerprint)report.errors.push(`dataVersion ${version} was already confirmed for different content; increase the data version before exporting`);
+  if(lastPublished&&version<lastPublished)report.errors.push(`dataVersion ${version} cannot be lower than the last published version ${lastPublished}`);
+  if(lastPublished&&version===lastPublished&&(!confirmed||confirmed.fingerprint!==fingerprint))report.errors.push(`dataVersion ${version} must be greater than the last published version ${lastPublished}, unless its confirmed content is unchanged`);
   return {pkg,report};
+}
+
+function stableJson(value){
+  if(Array.isArray(value))return `[${value.map(stableJson).join(',')}]`;
+  if(value&&typeof value==='object')return `{${Object.keys(value).sort().map(k=>`${JSON.stringify(k)}:${stableJson(value[k])}`).join(',')}}`;
+  return JSON.stringify(value);
+}
+export async function packageContentFingerprint(pkg){
+  const content={conference:pkg.conference,programme:pkg.programme,people:pkg.people,locations:pkg.locations,branding:pkg.branding};
+  return hashBytes(stableJson(content));
+}
+export async function confirmProjectPublication(project,pkg){
+  const version=Number(pkg?.manifest?.dataVersion);if(!Number.isInteger(version)||version<1)throw new Error('A valid package dataVersion is required');
+  if(version<Number(project.lastPublishedVersion||0))throw new Error(`Cannot confirm version ${version} after version ${project.lastPublishedVersion} was published`);
+  const fingerprint=await packageContentFingerprint(pkg);
+  project.confirmedPublications=Array.isArray(project.confirmedPublications)?project.confirmedPublications:[];
+  const previous=project.confirmedPublications.find(x=>Number(x.version)===version);
+  if(previous&&previous.fingerprint!==fingerprint)throw new Error(`Version ${version} was already confirmed for different content`);
+  const publishedAt=new Date().toISOString();
+  if(!previous)project.confirmedPublications.push({version,fingerprint,publishedAt});
+  project.lastPublishedVersion=Math.max(Number(project.lastPublishedVersion||0),version);
+  project.lastPublishedAt=publishedAt;
+  project.changelog=[...(project.changelog||[]).filter(x=>Number(x.version)!==version),{version,publishedAt,message:project.releaseMessage||'Published release'}];
+  return project;
 }
 
 async function readProjectAsset(asset){
@@ -307,8 +384,8 @@ async function imageBytesToPng(asset,size){
 async function fetchBytes(path){const r=await fetch(path,{cache:'no-store'});if(!r.ok)throw new Error(`Could not include engine file ${path}`);return new Uint8Array(await r.arrayBuffer());}
 function manifestText(pkg){return JSON.stringify({name:pkg.conference.name,short_name:pkg.conference.shortName||pkg.conference.name,id:'./',start_url:'./',scope:'./',display:'standalone',background_color:'#000000',theme_color:pkg.branding.primary||'#000000',icons:[{src:'./icon-192.png',sizes:'192x192',type:'image/png',purpose:'any'},{src:'./icon-512.png',sizes:'512x512',type:'image/png',purpose:'any maskable'}]},null,2)+'\n';}
 function sharePreviewSvg(pkg){const title=String(pkg.conference.shortName||pkg.conference.name||'Conference').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630"><rect width="1200" height="630" fill="${pkg.branding.primary||'#000'}"/><rect x="60" y="60" width="1080" height="510" rx="44" fill="#fff" opacity=".96"/><text x="110" y="285" font-family="system-ui,sans-serif" font-weight="700" font-size="78" fill="#111">${title}</text><text x="110" y="370" font-family="system-ui,sans-serif" font-size="38" fill="#444">Conference Companion</text></svg>`;}
-export function workflowText(){return `name: Validate and deploy Conference Companion\n\non:\n  push:\n    branches: ["main"]\n  workflow_dispatch:\n\npermissions:\n  contents: read\n  pages: write\n  id-token: write\n\nconcurrency:\n  group: "pages"\n  cancel-in-progress: false\n\njobs:\n  deploy:\n    environment:\n      name: github-pages\n      url: \${{ steps.deployment.outputs.page_url }}\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v6\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n      - name: Validate conference package\n        run: npm test\n      - name: Stage public application files\n        run: |\n          mkdir _site\n          cp -r index.html app.js bootstrap.js styles.css service-worker.js manifest.webmanifest icon-*.png share-preview.svg src schemas conference tools _site/\n      - uses: actions/configure-pages@v5\n      - uses: actions/upload-pages-artifact@v4\n        with:\n          path: "_site"\n      - name: Deploy to GitHub Pages\n        id: deployment\n        uses: actions/deploy-pages@v4\n`;}
-function generatedPackageJson(){return JSON.stringify({name:'conference-companion-deployment',version:'1.2.0',private:true,type:'module',scripts:{schema:'node tools/schema-check.mjs conference',validate:'node tools/validate-conference.mjs conference',test:'npm run schema && npm run validate'}},null,2)+'\n';}
+export function workflowText(){return `name: Validate and deploy Conference Companion\n\non:\n  push:\n    branches: ["main"]\n  workflow_dispatch:\n\npermissions:\n  contents: read\n  pages: write\n  id-token: write\n\nconcurrency:\n  group: "pages"\n  cancel-in-progress: false\n\njobs:\n  deploy:\n    environment:\n      name: github-pages\n      url: \${{ steps.deployment.outputs.page_url }}\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@v6\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n      - name: Validate conference package\n        run: npm test\n      - name: Stage public application files\n        run: |\n          mkdir _site\n          cp -r index.html app.js bootstrap.js styles.css service-worker.js manifest.webmanifest icon-*.png share-preview.svg src schemas conference tools _site/\n      - uses: actions/configure-pages@v5\n      - uses: actions/upload-pages-artifact@v4\n        with:\n          path: "_site"\n      - name: Deploy to GitHub Pages\n        id: deployment\n        uses: actions/deploy-pages@v4\n`;}
+function generatedPackageJson(){return JSON.stringify({name:'conference-companion-deployment',version:'1.2.1',private:true,type:'module',scripts:{schema:'node tools/schema-check.mjs conference',validate:'node tools/validate-conference.mjs conference',test:'npm run schema && npm run validate'}},null,2)+'\n';}
 
 /** A repository-ready static deployment ZIP: stable engine + generated package + branded install assets. */
 export async function packageZip(project){

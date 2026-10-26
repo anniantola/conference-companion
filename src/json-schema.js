@@ -60,10 +60,15 @@ let schemaPromise = null;
 async function loadSchemas() {
   if (!schemaPromise) {
     schemaPromise = Promise.all(Object.entries(SCHEMA_FILES).map(async ([key, file]) => {
-      const response = await fetch(new URL(`../schemas/${file}`, import.meta.url), {cache:'force-cache'});
+      const url=new URL(`../schemas/${file}`, import.meta.url);
+      if(typeof process!=='undefined'&&process.versions?.node){
+        const [{readFile},{fileURLToPath}]=await Promise.all([import('node:fs/promises'),import('node:url')]);
+        return [key,JSON.parse(await readFile(fileURLToPath(url),'utf8'))];
+      }
+      const response = await fetch(url, {cache:'force-cache'});
       if (!response.ok) throw new Error(`Could not load runtime schema ${file}: HTTP ${response.status}`);
       return [key, await response.json()];
-    })).then(entries => Object.fromEntries(entries));
+    })).then(entries => Object.fromEntries(entries)).catch(error=>{schemaPromise=null;throw error;});
   }
   return schemaPromise;
 }

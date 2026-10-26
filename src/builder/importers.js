@@ -55,7 +55,8 @@ export function rowsFromMapping(raw,mapping){
     id:row.id||crypto.randomUUID(), date:val(row,'date'), start:val(row,'start'), end:val(row,'end'), type:val(row,'type')||'talk',
     session:val(row,'session'), title:val(row,'title'), speaker:val(row,'speaker'), chair:val(row,'chair'), affiliation:val(row,'affiliation'), location:val(row,'location'),
     track:val(row,'track'), abstract:val(row,'abstract'), doi:val(row,'doi'), posterNumber:val(row,'posterNumber'),
-    source:{id:`${row.__sourceFileId||'source'}:${row.__sheet||'source'}:${row.__sourceRow??i+1}`,fileId:row.__sourceFileId||'',row:row.__sourceRow??i+1,sheet:row.__sheet||'',raw:row}
+    source:{id:`${row.__sourceFileId||'source'}:${row.__sheet||'source'}:${row.__sourceRow??i+1}`,fileId:row.__sourceFileId||'',row:row.__sourceRow??i+1,sheet:row.__sheet||'',raw:row,
+      matchData:Object.fromEntries(['date','start','end','type','session','title','speaker','chair','affiliation','location','track','posterNumber'].map(k=>[k,val(row,k)]))}
   }));
 }
 
@@ -134,8 +135,8 @@ export async function importPdf(file,onProgress=()=>{}){
   return pages;
 }
 
-export function heuristicRowsFromPdf(pages,defaultDate='',sourceFileId='pdf'){
-  const rows=[];let currentDate=defaultDate;
+export function heuristicRowsFromPdf(pages,_defaultDate='',sourceFileId='pdf'){
+  const rows=[];let currentDate='';
   const dateIso=/\b(20\d{2})[-\/.](\d{1,2})[-\/.](\d{1,2})\b/;
   const euroDate=/\b(\d{1,2})[./](\d{1,2})[./](20\d{2})\b/;
   const time=/\b([01]?\d|2[0-3]):([0-5]\d)\s*(?:[-–—]|to)\s*([01]?\d|2[0-3]):([0-5]\d)\b/i;
@@ -151,6 +152,10 @@ export function heuristicRowsFromPdf(pages,defaultDate='',sourceFileId='pdf'){
       if(!tm&&!poster){
         // Wrapped text is retained, but never silently classified as an author.
         if(lastRow&&line&&!dm&&!em){lastRow.title+=' '+line;lastRow.importWarnings.push('Wrapped text appended to title; verify title and authors.');lastRow.importConfidence=Math.min(lastRow.importConfidence,0.6);}
+        else if(line&&!dm&&!em){
+          const draft={id:crypto.randomUUID(),date:currentDate,start:'',end:'',type:'talk',...context,title:line,speaker:'',chair:'',affiliation:'',abstract:'',doi:'',posterNumber:'',importConfidence:0.2,importWarnings:['Untimed PDF text retained as a draft; assign its event type, date, start, and end before publishing.'],source:{id:`${sourceFileId}:pdf:${page.page}:${page.column?`column-${page.column}:`:''}${lineIndex+1}`,fileId:sourceFileId,page:page.page,column:page.column,line:lineIndex+1,confidence:0.2,raw:line}};
+          rows.push(draft);lastRow=draft;
+        }
         continue;
       }
       const warnings=['PDF assignment is provisional; verify session, room, track and authors.'];
@@ -178,8 +183,8 @@ export function rowsFromStructuredPackage(json,sourceFileId='package'){
   const personById=new Map((people||[]).map(p=>[p.id,p]));const locationById=new Map((locations||[]).map(l=>[l.id,l]));const sessionById=new Map((programme.sessions||[]).map(s=>[s.id,s]));
   const referencedPosterSessionIds=new Set((programme.posters||[]).map(p=>p.posterSessionId).filter(Boolean));
   const rows=[];
-  for(const p of programme.presentations||[]){const s=sessionById.get(p.sessionId)||{};const speakers=(p.speakerIds||[]).map(id=>personById.get(id)).filter(Boolean);rows.push({id:crypto.randomUUID(),entityId:p.id,sessionId:s.id,locationEntityId:s.locationId,trackEntityId:s.trackId,speakerEntityIds:[...(p.speakerIds||[])],chairEntityIds:[...(s.chairIds||[])],date:s.date||'',start:p.start||s.start||'',end:p.end||s.end||'',type:p.type||'talk',session:s.title||'',title:p.title||'',speaker:speakers.map(x=>x.name).join('; '),chair:(s.chairIds||[]).map(id=>personById.get(id)?.name).filter(Boolean).join('; '),affiliation:speakers.flatMap(x=>x.affiliations||[]).filter(Boolean).join('; '),location:locationById.get(s.locationId)?.name||'',track:(programme.tracks||[]).find(t=>t.id===s.trackId)?.name||s.trackId||'',posterNumber:'',abstract:p.abstract||'',doi:(p.links||[])[0]?.url||'',calendarUid:p.calendarUid,sequence:p.sequence||0,source:{id:`${sourceFileId}:package:presentation:${p.id}`,fileId:sourceFileId,raw:p}});}
+  for(const p of programme.presentations||[]){const s=sessionById.get(p.sessionId)||{};const speakers=(p.speakerIds||[]).map(id=>personById.get(id)).filter(Boolean);rows.push({id:crypto.randomUUID(),entityId:p.id,sessionId:s.id,locationEntityId:s.locationId,trackEntityId:s.trackId,speakerEntityIds:[...(p.speakerIds||[])],chairEntityIds:[...(s.chairIds||[])],date:s.date||'',start:p.start||'',end:p.end||'',type:p.type||'talk',session:s.title||'',title:p.title||'',speaker:speakers.map(x=>x.name).join('; '),chair:(s.chairIds||[]).map(id=>personById.get(id)?.name).filter(Boolean).join('; '),affiliation:speakers.flatMap(x=>x.affiliations||[]).filter(Boolean).join('; '),location:locationById.get(s.locationId)?.name||'',track:(programme.tracks||[]).find(t=>t.id===s.trackId)?.name||s.trackId||'',posterNumber:'',abstract:p.abstract||'',doi:(p.links||[])[0]?.url||'',calendarUid:p.calendarUid,sequence:p.sequence||0,source:{id:`${sourceFileId}:package:presentation:${p.id}`,fileId:sourceFileId,raw:p}});}
   for(const s of programme.sessions||[]){if((s.presentationIds||[]).length||(s.type==='poster-session'&&referencedPosterSessionIds.has(s.id)))continue;rows.push({id:crypto.randomUUID(),sessionId:s.id,locationEntityId:s.locationId,trackEntityId:s.trackId,chairEntityIds:[...(s.chairIds||[])],date:s.date||'',start:s.start||'',end:s.end||'',type:s.type||'special',session:s.title||'',title:s.title||'',speaker:'',chair:(s.chairIds||[]).map(id=>personById.get(id)?.name).filter(Boolean).join('; '),affiliation:'',location:locationById.get(s.locationId)?.name||'',track:(programme.tracks||[]).find(t=>t.id===s.trackId)?.name||s.trackId||'',posterNumber:'',abstract:s.description||'',doi:(s.links||[])[0]?.url||'',calendarUid:s.calendarUid,sequence:s.sequence||0,source:{id:`${sourceFileId}:package:session:${s.id}`,fileId:sourceFileId,raw:s}});}
-  for(const p of programme.posters||[]){const s=sessionById.get(p.posterSessionId)||{};const authors=(p.authorIds||[]).map(id=>personById.get(id)).filter(Boolean);rows.push({id:crypto.randomUUID(),entityId:p.id,posterSessionId:s.id,posterSessionCalendarUid:s.calendarUid,locationEntityId:s.locationId,trackEntityId:s.trackId,speakerEntityIds:[...(p.authorIds||[])],date:s.date||'',start:s.start||'',end:s.end||'',type:'poster',session:s.title||'Poster session',title:p.title||'',speaker:authors.map(x=>x.name).join('; '),chair:'',affiliation:authors.flatMap(x=>x.affiliations||[]).filter(Boolean).join('; '),location:locationById.get(s.locationId)?.name||'',track:(programme.tracks||[]).find(t=>t.id===s.trackId)?.name||s.trackId||'',posterNumber:p.number||'',abstract:p.abstract||'',doi:(p.links||[])[0]?.url||'',calendarUid:p.calendarUid,sequence:p.sequence||0,source:{id:`${sourceFileId}:package:poster:${p.id}`,fileId:sourceFileId,raw:p}});}
+  for(const p of programme.posters||[]){const s=sessionById.get(p.posterSessionId)||{};const authors=(p.authorIds||[]).map(id=>personById.get(id)).filter(Boolean);rows.push({id:crypto.randomUUID(),entityId:p.id,posterSessionId:s.id,posterSessionCalendarUid:s.calendarUid,locationEntityId:s.locationId,trackEntityId:s.trackId,speakerEntityIds:[...(p.authorIds||[])],date:s.date||'',start:s.start||'',end:s.end||'',type:'poster',session:s.title||'',title:p.title||'',speaker:authors.map(x=>x.name).join('; '),chair:'',affiliation:authors.flatMap(x=>x.affiliations||[]).filter(Boolean).join('; '),location:locationById.get(s.locationId)?.name||'',track:(programme.tracks||[]).find(t=>t.id===s.trackId)?.name||s.trackId||'',posterNumber:p.number||'',abstract:p.abstract||'',doi:(p.links||[])[0]?.url||'',calendarUid:p.calendarUid,sequence:p.sequence||0,source:{id:`${sourceFileId}:package:poster:${p.id}`,fileId:sourceFileId,raw:p}});}
   return rows;
 }

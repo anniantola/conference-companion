@@ -36,6 +36,16 @@ Non-negotiable rules:
 - `schemaVersion` handles data-contract evolution;
 - `dataVersion` handles official programme releases.
 
+Builder re-imports match structured immutable entity IDs first. Spreadsheet rows
+are reconciled using a unique, content-based match across presentation title,
+time and session context; a file/worksheet/row address is provenance only and
+cannot decide identity by itself. Tied candidates stay separate and require
+organizer review, and absent source records are retained with a warning.
+Organizer corrections, entity IDs, calendar UIDs and calendar `SEQUENCE` are
+preserved only after a safe match. People identities use explicit IDs or
+name-plus-affiliation evidence; unresolved name-only cases stay distinct until
+an organizer chooses a person ID.
+
 `src/model.js` indexes canonical entities by ID and creates UI projections without rebuilding a legacy conference model. Programme items use `locationId` directly; there is no room-name compatibility field.
 
 ## 3. Package validation and migration
@@ -46,6 +56,14 @@ The browser update pipeline has two validation layers before activation:
 2. semantic/referential validation using `src/validation.js`.
 
 `src/migrations.js` is the single schema-migration boundary. The current published schema is version 1; future migrations are registered there instead of scattering schema conversion logic across the UI.
+
+The Builder runs those same JSON Schema contracts and semantic validation
+before allowing a generated ZIP. Missing titles, poster dates/times, and other
+required schedule values are not filled with plausible defaults; imported
+draft rows remain visible with source-aware errors until corrected. ZIP export
+is tracked separately from confirmed publication. Confirmed releases bind each
+data version to a content fingerprint so an already published version cannot
+be reused for different programme content.
 
 ## 4. Offline/update lifecycle
 
@@ -253,3 +271,24 @@ closing returns focus to the initiating control. CI runs Playwright projects for
 Chromium, Firefox and WebKit and installs each engine's runner dependencies.
 Engine updates still avoid `skipWaiting`; a waiting worker activates only after
 the previous in-scope clients close and does not clear attendee data stores.
+
+## 16. Builder trust and release tracking (v1.2.1)
+
+Builder exports load the shared schema files and run schema and semantic checks
+before a ZIP can be downloaded. The generated repository runs the same schema
+and semantic validator. Incomplete PDF text is kept as a draft row; titles,
+poster session dates, and poster times are never synthesized from conference
+defaults. Contradictory session grouping fields block export until corrected.
+
+Spreadsheet row addresses remain provenance, not identity. A row is reconciled
+only by a unique content match within the same source file and worksheet, or by
+an explicit structured entity ID. Ambiguous or duplicated IDs remain conflicts;
+organizer edits and calendar identity survive confirmed matches. Person identity
+uses explicit IDs or exact affiliation evidence; unresolved name-only rows stay
+distinct and can be assigned a person ID in the review table.
+
+ZIP creation updates the local export record only. Organizers confirm deployment
+separately, which records a content fingerprint for that data version and adds
+the release to the changelog. Re-exporting identical published content is
+allowed; changing it requires a higher version. The shared semantic validator
+update ships with engine v1.2.1; no conference-specific programme data changed.

@@ -1,3 +1,26 @@
+# Builder trust and v1.2.1 verification — 2026-10-26
+
+The complete Node 22 unit/schema/importer/Builder/deployment suite passed after
+the Builder trust changes. Generated deployment ZIPs for the default, no-poster,
+and multiple-poster fixtures passed both repository validators. Chromium and
+Firefox completed all 50 Playwright tests after updating the cache-name checks
+to derive the current service-worker cache key; the added Builder identity
+resolution workflow passed in both browsers.
+
+The local all-project Playwright attempt exposed the host's missing WebKit
+dependency (`libavif16`); Playwright cannot launch WebKit here. Installing the
+system dependency was unavailable because this account has no sudo password.
+This is a host limitation, not a WebKit assertion failure. The GitHub Actions
+workflow installs the browser dependencies and its full three-browser result is
+the final WebKit verification.
+
+Engine and generated package metadata are v1.2.1 because shared semantic
+validation changed. The Builder-only code does not include any conference-
+specific content. See the successful deployment Actions run after the push for
+the final 75-test Chromium/Firefox/WebKit result.
+
+---
+
 # Production pilot hardening verification — 2026-10-26, engine v1.2.0
 
 All Node.js 22.23.4 unit, schema, conference validation, static/accessibility,

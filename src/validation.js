@@ -69,6 +69,13 @@ export function validatePackage(pkg, {strictCalendarUid = true, policy = {}} = {
   const personIds = uniqueIds(persons, "people", errors);
   const locationIds = uniqueIds(locationRows, "locations", errors);
 
+  const globalIds=new Map();
+  for(const [label,rows] of [['tracks',tracks],['sessions',sessions],['presentations',presentations],['posters',posters],['announcements',announcements],['people',persons],['locations',locationRows]])for(const row of rows||[]){
+    if(!row?.id)continue;
+    const previous=globalIds.get(row.id);if(previous)errors.push(`duplicate ID ${row.id} across ${previous} and ${label}`);else globalIds.set(row.id,label);
+  }
+  if(conference.mainVenueId&&!locationIds.has(conference.mainVenueId))errors.push(`conference.mainVenueId references unknown location ${conference.mainVenueId}`);
+
   const presentationById = new Map(presentations.map(p => [p.id, p]));
   const sessionById = new Map(sessions.map(s => [s.id, s]));
   const calendarUids = new Set();
@@ -105,6 +112,7 @@ export function validatePackage(pkg, {strictCalendarUid = true, policy = {}} = {
       const p = presentationById.get(id);
       if (p && p.sessionId !== s.id) errors.push(`presentation ${id}: sessionId does not match parent session ${s.id}`);
     }
+    if(new Set(s.presentationIds||[]).size!==(s.presentationIds||[]).length)errors.push(`session ${s.id}: duplicate presentationIds`);
     if (!(s.presentationIds || []).length) registerUid(s.calendarUid, `session ${s.id}`);
   }
 

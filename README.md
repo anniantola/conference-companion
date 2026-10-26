@@ -1,6 +1,6 @@
 # Conference Companion
 
-Current engine release: **v1.2.0**.
+Current engine release: **v1.2.1**.
 
 Conference Companion is a standalone, offline-first conference PWA plus a browser-based Conference Builder. The attendee engine is stable and conference content is published as a normalized, versioned data package rather than being hard-coded into the UI.
 
@@ -48,7 +48,9 @@ Open `builder.html` in the development repository. The Builder implements:
 - editable review table with multi-row selection and bulk edits;
 - first-class session editor so location/track/session-window changes are made once per Session and cascade to child talks;
 - source provenance and re-import conflict handling;
-- preservation of organizer-edited fields on re-import;
+- re-import reconciliation that prioritizes structured entity IDs, then requires a unique match across presentation title, schedule and session context; source row position alone never transfers an identity or organizer correction;
+- preservation of organizer-edited fields, entity IDs, calendar UIDs and SEQUENCE history on correctly matched re-imports; ambiguous matches remain separate and are reported for review, while missing source rows remain visible;
+- explicit person IDs for structured data, affiliation-aware identity matching, and a Builder review selector for unresolved same-name people without enough affiliation evidence;
 - stable private identities for conference, sessions, presentations, calendar UIDs, people, locations and tracks;
 - people editing including ORCID/web links and optional uploaded speaker photos;
 - location editing including hierarchy, map URL and coordinates;
@@ -56,13 +58,16 @@ Open `builder.html` in the development repository. The Builder implements:
 - branding, app icon, conference logo and sponsor assets;
 - feature flags and review policy warnings;
 - announcements;
-- JSON Schema contract validation plus semantic/referential validation;
-- monotonically increasing release versions and changelog history;
+- JSON Schema contract validation plus semantic/referential validation before ZIP export;
+- missing PDF schedule fields and incomplete programme rows remain editable drafts and block export until corrected;
+- stable data versions and changelog history, with export tracking separated from the organizer's explicit confirmation that a release was deployed;
 - private Builder project autosave in IndexedDB;
 - Builder project ZIP export/import, including source files and assets;
 - repository-ready deployment ZIP generation with the attendee engine, conference package, install assets, validator and GitHub Pages workflow.
 
 The Builder deliberately keeps source files, mappings, provenance, manual overrides and re-import metadata private. They are not published in attendee conference JSON.
+
+Downloading a deployment ZIP records an export only. After uploading and deploying that ZIP, the organizer can confirm the published version in the Builder. A confirmed data version is bound to its content fingerprint: unchanged content can be re-exported, while changed content requires a higher version. Builder package validation runs the repository JSON Schemas and semantic checks before an export is enabled.
 
 ## Repository layout
 

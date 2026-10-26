@@ -20,6 +20,11 @@ test('Builder produces a deployable synthetic multi-track, multi-poster conferen
   await page.locator('#validateProject').click();await expect(page.locator('#validationReport .validation-error')).toHaveCount(0);
 
   const pending=page.waitForEvent('download');await page.locator('#downloadPackage').click();const download=await pending,path=await download.path();
+  await expect(page.locator('#releaseStatus')).toContainText('No release confirmed as published');
+  await expect(page.locator('#releaseStatus')).toContainText('Last exported: v1');
+  await expect(page.locator('#dataVersion')).toHaveValue('1');
+  page.once('dialog',dialog=>dialog.accept());await page.locator('#confirmPublication').click();
+  await expect(page.locator('#releaseStatus')).toContainText('Last confirmed published: v1');
   const entries=await readStoredZip(new Blob([await readFile(path)]));
   const get=name=>JSON.parse(textEntry(entries,`conference/${name}.json`));
   const conference=get('conference'),programme=get('programme');
@@ -34,4 +39,22 @@ test('Builder produces a deployable synthetic multi-track, multi-poster conferen
   await page.goto('/?conference=/generated/conference');await expect(page.locator('#programList')).not.toBeEmpty();await expect(page.locator('.conference-logo-fallback')).toHaveText('SYN 2028');await expect(page.locator('#programList')).toContainText('Corrected opening title');
   await page.locator('#dayTabs .day-tab').nth(1).click();await expect(page.locator('#programList')).toContainText('Conference social');
   await page.locator('[data-target="posters"]').click();await expect(page.locator('.poster-session-group')).toHaveCount(2);await expect(page.locator('#posterList')).toContainText('Poster Alpha');await expect(page.locator('#posterList')).toContainText('Poster Beta');
+});
+
+test('Builder keeps same-name people distinct until an organizer resolves the identity',async({page})=>{
+  await page.goto('/builder.html');
+  const csv=`date,start,end,type,session,title,speaker,affiliation,room,track
+2028-04-10,09:00,09:30,talk,Methods,First talk,Alex Example,,Hall A,Methods
+2028-04-10,10:00,10:30,talk,Methods,Second talk,Alex Example,,Hall A,Methods`;
+  await page.locator('#programmeFile').setInputFiles({name:'ambiguous-people.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
+  await page.locator('#importProgramme').click();await page.locator('#applyMapping').click();
+  const identities=page.locator('#reviewTable select[data-person-identity]');await expect(identities).toHaveCount(2);
+  const firstChoices=identities.nth(0).locator('option').evaluateAll(options=>options.map(o=>o.value).filter(Boolean));
+  const secondChoices=identities.nth(1).locator('option').evaluateAll(options=>options.map(o=>o.value).filter(Boolean));
+  const [first,second]=await Promise.all([firstChoices,secondChoices]);expect(first).toHaveLength(2);expect(second).toEqual(first);
+  await identities.nth(0).selectOption(first[1]);
+  await expect(page.locator('#reviewTable select[data-person-identity]')).toHaveCount(1);
+  await page.locator('#reviewTable select[data-person-identity]').selectOption(first[1]);
+  await expect(page.locator('#reviewTable select[data-person-identity]')).toHaveCount(0);
+  await expect(page.locator('#validationReport')).not.toContainText('Ambiguous person identity');
 });

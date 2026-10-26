@@ -39,6 +39,7 @@ assert(workflow.includes('path: "_site"'),'CI must not upload dependencies or br
 const {workflowText}=await import('../src/builder/package.js');
 assert(workflowText().includes('path: "_site"'),'Generated deployments must stage public assets');
 assert(workflowText().includes('run: npm test'),'Generated deployments must validate before publishing');
+assert(workflowText().includes('runs-on: ubuntu-24.04'),'Generated deployments must use the tested runner image');
 const {execFileSync}=await import('node:child_process');
 execFileSync(process.execPath,['tools/stage-site.mjs']);
 for(const path of ['index.html','builder.html','src/builder/main.js','src/vendor/qr-scanner/qr-scanner.min.js','src/vendor/qr-scanner/qr-scanner-worker.min.js','schemas/programme.schema.json','conference/conference-manifest.json','tools/validate-conference.mjs'])assert(fs.existsSync(`_site/${path}`),`Missing staged public file ${path}`);

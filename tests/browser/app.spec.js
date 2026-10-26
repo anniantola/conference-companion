@@ -86,7 +86,7 @@ test('engine update waits while a client edits and activates on clean launch',as
   await context.unroute('**/app.js');
   // A genuine second service-worker script/cache, served by the local HTTP server.
   const {writeFile,unlink}=await import('node:fs/promises');const path='test-engine-worker.js';
-  await writeFile(path,worker.replace('conference-companion-engine-1.2.0','conference-companion-engine-test'));
+  await writeFile(path,worker.replace(/conference-companion-engine-[0-9.]+/, 'conference-companion-engine-test'));
   try{
     await page.evaluate(async()=>{await navigator.serviceWorker.register('/test-engine-worker.js',{scope:'/'});});
     await expect.poll(()=>page.evaluate(async()=>{const r=await navigator.serviceWorker.getRegistration();return r.waiting?.scriptURL||null;})).toContain('test-engine-worker.js');

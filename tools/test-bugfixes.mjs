@@ -19,7 +19,7 @@ function sourceRow(id,fileId,title,other={}){
 // 1. Importing new sources must not erase previously imported rows or manual additions.
 const original=[
   sourceRow('file-a:source:2','file-a','Existing A',{id:'permanent-a',calendarUid:'urn:uuid:old',entityId:'presentation-permanent',sequence:2,manualFields:{speaker:true},speaker:'Manually corrected speaker'}),
-  sourceRow('file-b:source:2','file-b','Existing B'),
+  sourceRow('file-b:source:2','file-b','Existing B',{start:'11:00',end:'11:20'}),
   {id:'hand-entered',title:'Manual session',date:'2027-11-08',start:'13:00',end:'14:00',type:'special'}
 ];
 const newRows=[sourceRow('file-c:source:2','file-c','New C')];
@@ -43,10 +43,10 @@ assert.ok(!deleted.rows.some(r=>r.source?.id==='file-a:source:2'));
 assert.throws(()=>mergeImportedRows([],[sourceRow('x','f','A'),sourceRow('x','f','B')]),/duplicate source ID/);
 const sheets=[sourceRow('file-x:Sheet1:2','file-x','Sheet 1',{source:{sheet:'Sheet1'}}),
   sourceRow('file-x:Sheet2:2','file-x','Sheet 2',{source:{sheet:'Sheet2'}})];
-const sheetImport=mergeImportedRows(sheets,[sourceRow('file-x:Sheet1:3','file-x','New sheet 1 row',{source:{sheet:'Sheet1'}})]);
+const sheetImport=mergeImportedRows(sheets,[sourceRow('file-x:Sheet1:3','file-x','New sheet 1 row',{start:'12:00',end:'12:20',source:{sheet:'Sheet1'}})]);
 assert.equal(sheetImport.rows.length,3,'Importing one worksheet must not remove a different worksheet');
 assert.ok(!sheetImport.conflicts.some(x=>x.includes('Sheet2')),'Other worksheets must not be flagged as missing');
-const missing=mergeImportedRows(original,[sourceRow('file-a:source:3','file-a','Shifted row')]);
+const missing=mergeImportedRows(original,[sourceRow('file-a:source:3','file-a','Shifted row',{start:'12:00',end:'12:20'})]);
 assert.ok(missing.rows.some(x=>x.id==='permanent-a'),'Missing source rows must be retained for review');
 assert.ok(missing.conflicts.some(x=>x.includes('retained for manual review')),'Stale import rows should be visible as warnings');
 

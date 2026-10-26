@@ -23,10 +23,11 @@ test('PWA assets, Pages scope, native prompt and offline QR fallback are operati
     for(const icon of manifest.icons){const bitmap=await createImageBitmap(await fetch(icon.src).then(r=>r.blob()));dimensions.push([bitmap.width,bitmap.height]);bitmap.close();}
     return {manifest,scope:registration.scope,dimensions,caches:await window.caches.keys()};
   });
+  const cacheName=(await readFile('service-worker.js','utf8')).match(/const CACHE\s*=\s*"([^"]+)"/)[1];
   expect(result.manifest).toMatchObject({id:'./',start_url:'./',scope:'./',display:'standalone'});
   expect(result.scope).toBe('http://127.0.0.1:8080/');
   expect(result.dimensions).toEqual([[192,192],[512,512]]);
-  expect(result.caches).toContain('conference-companion-engine-1.2.0');
+  expect(result.caches).toContain(cacheName);
 
   await context.setOffline(true);
   const decoded=await page.evaluate(async()=>{

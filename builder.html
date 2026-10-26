@@ -113,8 +113,9 @@
             <label>Data version<input id="dataVersion" type="number" min="1" value="1"></label>
             <label>Release note<input id="releaseMessage" value="Initial Builder release"></label>
           </div>
+          <p id="releaseStatus" class="muted" aria-live="polite"></p>
           <div id="validationReport" class="validation-report"></div>
-          <div class="publish-actions"><button id="validateProject" class="secondary-btn">Validate</button><button id="downloadPackage" class="primary-btn">Download repository-ready deployment ZIP</button></div>
+          <div class="publish-actions"><button id="validateProject" class="secondary-btn">Validate</button><button id="downloadPackage" class="primary-btn">Download repository-ready deployment ZIP</button><button id="confirmPublication" class="secondary-btn" type="button">Confirm deployed publication</button></div>
           <p class="muted">The ZIP contains the validated conference package, stable attendee engine, branded PWA assets, validator and GitHub Pages workflow. Upload it to a conference deployment repository. GitHub credentials are never embedded in the attendee app.</p>
         </div>
       </div>
