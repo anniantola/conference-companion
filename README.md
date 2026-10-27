@@ -1,6 +1,6 @@
 # Conference Companion
 
-Current engine release: **v1.2.1**.
+Current engine release: **v1.2.2**.
 
 Conference Companion is a standalone, offline-first conference PWA plus a browser-based Conference Builder. The attendee engine is stable and conference content is published as a normalized, versioned data package rather than being hard-coded into the UI.
 
@@ -45,21 +45,21 @@ Open `builder.html` in the development repository. The Builder implements:
 - PDF import through PDF.js with OCR fallback for image-only pages and low-confidence review warnings;
 - XLS/XLSX import through SheetJS with explicit worksheet selection;
 - CSV and structured JSON import;
-- deterministic column mapping;
+- deterministic column mapping, including optional speaker/author and chair IDs in CSV/XLSX imports;
 - editable review table with multi-row selection and bulk edits;
 - first-class session editor so location/track/session-window changes are made once per Session and cascade to child talks;
 - source provenance and re-import conflict handling;
 - re-import reconciliation that prioritizes structured entity IDs and matches spreadsheets only against pre-import records from the same source sheet; presentation matches use title/presenter and schedule context, while posters require a poster number in matching session context; source row position alone never transfers an identity or organizer correction;
 - preservation of organizer-edited fields, entity IDs, calendar UIDs and SEQUENCE history on correctly matched re-imports; ambiguous matches remain separate and are reported for review, while missing source rows remain visible;
-- explicit person IDs for structured data, affiliation-aware identity matching, reuse of unambiguous affiliated speaker identities for recurring chairs, and a Builder review selector for unresolved same-name people;
+- a persistent ID-centered person registry (with migration of older name/affiliation indexes), explicit person IDs for structured and spreadsheet data, affiliation-aware matching, reuse of unambiguous affiliated speaker identities for recurring chairs, and a Builder review selector for unresolved same-name people;
 - stable private identities for conference, sessions, presentations, calendar UIDs, people, locations and tracks;
-- an alphabetic People directory with search, role filters, one Save/Cancel editor, ORCID/web links and optional uploaded photographs; possible duplicates can be compared and merged explicitly, with a chosen surviving ID and field values;
+- an alphabetic People directory with search, role filters, one Save/Cancel editor, ORCID/web links and optional uploaded photographs; possible duplicates can be compared and merged individually or as checked pairs, with a chosen surviving ID and field values;
 - location editing including hierarchy, map URL and coordinates;
-- track editing and per-location/per-track color palettes;
-- branding, app icon, conference logo and sponsor assets;
+- track editing and per-location/per-track color palettes, reflected in programme review;
+- branding, app icon, conference logo and sponsor assets, with immediate color previews and a live attendee-runtime preview for date, room and screen size;
 - feature flags and review policy warnings;
 - announcements;
-- JSON Schema contract validation plus semantic/referential validation before ZIP export;
+- JSON Schema contract validation plus semantic/referential validation before ZIP export; contextual messages name the affected programme item, date/time and room/track and link to its editor;
 - missing PDF schedule fields and incomplete programme rows remain editable drafts and block export until corrected;
 - stable data versions and changelog history, with export tracking separated from the organizer's explicit confirmation that a release was deployed;
 - private Builder project autosave in IndexedDB with visible save failures;
@@ -67,6 +67,8 @@ Open `builder.html` in the development repository. The Builder implements:
 - repository-ready deployment ZIP generation with the attendee engine, conference package, install assets, validator and GitHub Pages workflow.
 
 The Builder deliberately keeps source files, mappings, provenance, manual overrides and re-import metadata private. They are not published in attendee conference JSON.
+
+The live attendee preview uses the same generated package model and runtime as the deployment ZIP. It substitutes a temporary Builder-only conference ID for personal storage, so preview interactions cannot overwrite attendee-owned data for the actual conference. Installation and service-worker registration are disabled in the preview. Uploaded logo, sponsor and profile images are shown from local object URLs; published URLs still use the ZIP assets. Review the deployed site on physical devices for PWA installation, camera, and platform-specific appearance.
 
 The synthetic 91-row regression contains 23 distinct person names and 18 posters. Before the chair identity fix it generated 45 profiles, including 22 accidental duplicate chair profiles; fresh imports now generate 23. Previously saved projects keep their existing person IDs until an organizer confirms a merge. A confirmed merge updates programme references and preserves the selected profile details, affiliations, papers and chosen photograph. Project ZIPs from earlier Builder versions remain importable.
 

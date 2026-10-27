@@ -4,17 +4,20 @@ import {buildPackage,packageZip,packageContentFingerprint,confirmProjectPublicat
 import {createBuilderProjectFile,readBuilderProjectFile} from './project-file.js';
 import {mergeImportedRows as mergeProgrammeRows} from './merge.js';
 import {possiblePersonDuplicates,mergePersonProfiles} from './people.js';
+import {describeValidationMessage} from './validation-ui.js';
 
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const FIELDS=['date','start','end','type','session','title','speaker','chair','affiliation','location','track','posterNumber','abstract','doi'];
-const LABELS={date:'Date',start:'Start',end:'End',type:'Type',session:'Session',title:'Title',speaker:'Speaker / author',chair:'Chair',affiliation:'Affiliation',location:'Location',track:'Track',posterNumber:'Poster #',abstract:'Abstract',doi:'DOI / link'};
+const MAPPING_FIELDS=[...FIELDS,'speakerId','chairId'];
+const LABELS={date:'Date',start:'Start',end:'End',type:'Type',session:'Session',title:'Title',speaker:'Speaker / author',chair:'Chair',affiliation:'Affiliation',location:'Location',track:'Track',posterNumber:'Poster #',abstract:'Abstract',doi:'DOI / link',speakerId:'Speaker / author ID (optional)',chairId:'Chair ID (optional)'};
 const defaults={
   conference:{name:'',shortName:'',startDate:'',endDate:'',timezone:'Europe/Helsinki',city:'',country:'',officialWebsite:'',contactEmail:'',venueName:'',venueAddress:''},
   rows:[],features:{photos:true,notes:true,pptxExport:true,friendBook:true,calendarExport:true,announcements:true},policy:{requireAffiliation:false,requireAbstract:false,requireChair:false},branding:{primary:'#5b4b9a',secondary:'#2f7d68',accent:'#5b4b9a',trackColors:{},locationColors:{},headerStyle:'text',darkMode:true},peopleOverrides:{},locationOverrides:{},sessionOverrides:{},peoplePhotos:{},extraPeople:[],extraLocations:[],announcements:[],deletedSourceIds:[],sourceFiles:[],dataVersion:1,lastPublishedVersion:0,lastExportedVersion:0,confirmedPublications:[],changelog:[],releaseMessage:'Initial Builder release',sourceState:[],mapping:{},identityRegistry:{people:{},locations:{},tracks:{}},logo:null,appIcon:null,sponsorFiles:[]
 };
 let project=structuredClone(defaults),rawRows=[],rawHeaders=[],saveTimer=null,pdfPages=[],pendingXlsxFile=null,pendingXlsxSourceId='',selectedRows=new Set();
 const STEP_NAMES=['Conference details','Programme import','Review & fix','People','Locations & tracks','Branding','Features & announcements','Preview, validate & publish'];
-let activeStep=1,latestPackage=null,pendingSave=Promise.resolve(),saveRevision=0,openPersonId='',peopleListSignature='';
+let activeStep=1,latestPackage=null,pendingSave=Promise.resolve(),saveRevision=0,openPersonId='',peopleListSignature='',previewTimer=null,previewAssets=[];
+const previewIdentity=`builder-preview-${crypto.randomUUID()}`;
 
 function toast(msg){const el=$('#toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),1800);}
 function setSaveStatus(message,error=false){const el=$('#builderSaveStatus');if(!el)return;el.textContent=message;el.classList.toggle('error',error);}
@@ -26,7 +29,7 @@ function setStep(step,{focus=false}={}){
   const progress=`Step ${activeStep} of 8 · ${STEP_NAMES[activeStep-1]}`;
   $('#wizardProgress').textContent=progress;$('#wizardFooterProgress').textContent=progress;
   $('#previousStep').disabled=activeStep===1;$('#nextStep').disabled=activeStep===8;
-  if(latestPackage){if(activeStep===4)renderPeopleDirectory(latestPackage);if(activeStep===5)renderLocationEditor(latestPackage.locations.locations||[],latestPackage.programme.tracks||[]);if(activeStep===3)renderSessionEditor(latestPackage.programme.sessions||[],latestPackage.locations.locations||[],latestPackage.programme.tracks||[]);}
+  if(latestPackage){if(activeStep===4)renderPeopleDirectory(latestPackage);if(activeStep===5)renderLocationEditor(latestPackage.locations.locations||[],latestPackage.programme.tracks||[]);if(activeStep===3){renderRows();renderSessionEditor(latestPackage.programme.sessions||[],latestPackage.locations.locations||[],latestPackage.programme.tracks||[]);}if(activeStep===8)queuePreview();}
   if(focus){const title=$(`[data-step="${activeStep}"] h2`);title.setAttribute('tabindex','-1');title.focus();window.scrollTo({top:0,behavior:'instant'});}
   scheduleSave();
 }
@@ -43,9 +46,9 @@ function bindConfig(){
   $('#primaryColor').value=project.branding.primary;$('#secondaryColor').value=project.branding.secondary;$('#accentColor').value=project.branding.accent;
   ['primaryColor','secondaryColor','accentColor'].forEach(id=>$('#'+id).addEventListener('input',e=>{project.branding[id.replace('Color','')]=e.target.value;scheduleSave();renderDerived();}));
   $('#headerStyle').value=project.branding.headerStyle||'text';$('#typography').value=project.branding.typography||'system';$('#brandingDarkMode').checked=project.branding.darkMode!==false;
-  $('#headerStyle').addEventListener('change',e=>{project.branding.headerStyle=e.target.value;scheduleSave();});
-  $('#typography').addEventListener('change',e=>{project.branding.typography=e.target.value;scheduleSave();});
-  $('#brandingDarkMode').addEventListener('change',e=>{project.branding.darkMode=e.target.checked;scheduleSave();});
+  $('#headerStyle').addEventListener('change',e=>{project.branding.headerStyle=e.target.value;scheduleSave();renderDerived();});
+  $('#typography').addEventListener('change',e=>{project.branding.typography=e.target.value;scheduleSave();renderDerived();});
+  $('#brandingDarkMode').addEventListener('change',e=>{project.branding.darkMode=e.target.checked;scheduleSave();renderDerived();});
   $('#dataVersion').value=project.dataVersion||1;$('#releaseMessage').value=project.releaseMessage||'';
   updateReleaseStatus();
   $('#dataVersion').addEventListener('input',e=>{project.dataVersion=Number(e.target.value)||1;scheduleSave();});
@@ -62,7 +65,7 @@ function initBulkEditor(){const field=$('#bulkField');if(!field)return;field.inn
 function sessionFieldInput(session,field,locations,tracks){const value=session[field]??'';if(field==='locationId')return `<select data-session-field="locationId"><option value="">— none —</option>${locations.map(l=>`<option value="${escapeHtml(l.id)}" ${l.id===value?'selected':''}>${escapeHtml(l.name)}</option>`).join('')}</select>`;if(field==='trackId')return `<select data-session-field="trackId"><option value="">— none —</option>${tracks.map(t=>`<option value="${escapeHtml(t.id)}" ${t.id===value?'selected':''}>${escapeHtml(t.name)}</option>`).join('')}</select>`;const type=field==='date'?'date':(['start','end'].includes(field)?'time':'text');return `<input type="${type}" data-session-field="${field}" value="${escapeHtml(value)}">`;}
 function renderSessionEditor(sessions,locations,tracks){const root=$('#sessionPreview');if(!root)return;const bySessionId=new Map((sessions||[]).map(s=>[s.id,s]));root.innerHTML=(sessions||[]).map(s=>`<div class="session-card" data-session-id="${escapeHtml(s.id)}"><div class="session-card-head"><strong>${escapeHtml(s.title||'Session')}</strong><code>${escapeHtml(s.id)}</code></div><div class="session-card-grid"><label>Title${sessionFieldInput(s,'title',locations,tracks)}</label><label>Date${sessionFieldInput(s,'date',locations,tracks)}</label><label>Start${sessionFieldInput(s,'start',locations,tracks)}</label><label>End${sessionFieldInput(s,'end',locations,tracks)}</label><label>Location${sessionFieldInput(s,'locationId',locations,tracks)}</label><label>Track${sessionFieldInput(s,'trackId',locations,tracks)}</label></div></div>`).join('')||'<span class="muted">No sessions yet.</span>';root.querySelectorAll('[data-session-field]').forEach(el=>el.addEventListener('change',()=>{const card=el.closest('[data-session-id]'),id=card.dataset.sessionId,field=el.dataset.sessionField;const current=project.sessionOverrides?.[id]||{};const before=String(bySessionId.get(id)?.[field]??'');const value=el.value;project.sessionOverrides={...(project.sessionOverrides||{}),[id]:{...current,[field]:value,sequenceBump:Number(current.sequenceBump||0)+(before!==String(value)?1:0)}};scheduleSave();renderDerivedDebounced();}));}
 
-function showMapping(mapping){project.mapping=mapping;const grid=$('#mappingGrid');grid.innerHTML=FIELDS.map(f=>`<label>${LABELS[f]}<select data-map="${f}">${mappingOptions(mapping[f])}</select></label>`).join('');$('#mappingCard').hidden=false;}
+function showMapping(mapping){project.mapping=mapping;const grid=$('#mappingGrid');grid.innerHTML=MAPPING_FIELDS.map(f=>`<label>${LABELS[f]}<select data-map="${f}">${mappingOptions(mapping[f])}</select></label>`).join('');$('#mappingCard').hidden=false;}
 function mergeImportedRows(nextRows){
   const {rows,conflicts}=mergeProgrammeRows(project.rows,nextRows,project.deletedSourceIds);
   project.reimportConflicts=conflicts;
@@ -75,7 +78,8 @@ function rowInput(row,index,field){
   if(field==='type')return `<select data-row="${index}" data-field="type">${['talk','plenary','keynote','special','break','meal','social','registration','poster'].map(type=>`<option ${value===type?'selected':''}>${type}</option>`).join('')}</select>`;
   if(field==='abstract')return `<textarea data-row="${index}" data-field="${field}" rows="2">${escapeHtml(value)}</textarea>`;
   const type=field==='date'?'date':(field==='start'||field==='end')?'time':'text';
-  const input=`<input type="${type}" data-row="${index}" data-field="${field}" value="${escapeHtml(value)}">`;
+  const color=field==='location'?project.branding.locationColors?.[row.locationEntityId]:field==='track'?project.branding.trackColors?.[row.trackEntityId]:'';
+  const input=`<input type="${type}" data-row="${index}" data-field="${field}" value="${escapeHtml(value)}" ${color?`style="border-left:4px solid ${escapeHtml(color)}"`:''}>`;
   if(!['speaker','chair'].includes(field)||!row.personIdentityConflict||row.personIdentityResolved)return input;
   const names=String(value).split(/\s*(?:;|\band\b)\s*/i).filter(Boolean),idField=field==='speaker'?'speakerEntityIds':'chairEntityIds';
   const selectors=names.map((name,i)=>{
@@ -98,6 +102,53 @@ function renderRows(){
 }
 
 let deriveTimer=null;function renderDerivedDebounced(){clearTimeout(deriveTimer);deriveTimer=setTimeout(renderDerived,150);}
+let previewPayload=null;
+function previewAsset(asset){if(!asset?.bytes)return '';const url=URL.createObjectURL(new Blob([asset.bytes],{type:asset.type||'image/png'}));previewAssets.push(url);return url;}
+function queuePreview(){
+  clearTimeout(previewTimer);
+  if(activeStep!==8||!latestPackage)return;
+  previewTimer=setTimeout(()=>{
+    for(const url of previewAssets)URL.revokeObjectURL(url);previewAssets=[];
+    const pkg=structuredClone(latestPackage);
+    // The real attendee runtime is used, but all its personal storage keys
+    // belong to this disposable Builder preview identity.
+    pkg.conference.id=previewIdentity;
+    if(project.logo?.bytes)pkg.branding.logo=previewAsset(project.logo);
+    pkg.branding.sponsorAssets=(project.sponsorFiles||[]).map(previewAsset).filter(Boolean);
+    for(const person of pkg.people.people||[])if(project.peoplePhotos?.[person.id])person.photoUrl=previewAsset(project.peoplePhotos[person.id]);
+    previewPayload=pkg;
+    const frame=$('#attendeePreview');frame.src=`./index.html?builderPreview=1&revision=${Date.now()}`;
+  },120);
+}
+function applyPreviewNavigation(){
+  const doc=$('#attendeePreview').contentDocument;if(!doc)return;
+  const date=$('#previewDate').value,room=$('#previewRoom').value;
+  if(date){const dates=[...new Set((latestPackage?.programme.sessions||[]).map(s=>s.date).filter(Boolean))].sort();const day=dates.indexOf(date)+1;doc.querySelector(`.day-tab[data-day="${day}"]`)?.click();}
+  doc.querySelector(`[data-view="program"]`)?.click();
+  if(room)doc.querySelector(`#roomFilters [data-room="${CSS.escape(room)}"]`)?.click();
+}
+function setupPreview(){
+  $('#previewSize').addEventListener('change',event=>{$('#attendeePreview').style.width=`${event.target.value}px`;});
+  for(const id of ['previewDate','previewRoom'])$('#'+id).addEventListener('change',applyPreviewNavigation);
+  window.addEventListener('message',event=>{
+    if(event.source!==$('#attendeePreview').contentWindow||event.origin!==location.origin||event.data?.type!=='conference-builder-preview-ready'||!previewPayload)return;
+    event.source.postMessage({type:'conference-builder-preview',pkg:previewPayload},location.origin);
+    const check=()=>{if(!$('#attendeePreview').contentDocument?.querySelector('.day-tab'))return setTimeout(check,80);applyPreviewNavigation();};check();
+  });
+}
+function updatePreviewControls(pkg){
+  const dates=[...new Set((pkg.programme.sessions||[]).map(s=>s.date).filter(Boolean))].sort(),rooms=pkg.locations.locations.filter(l=>l.type==='room');
+  const date=$('#previewDate'),room=$('#previewRoom'),selectedDate=date.value,selectedRoom=room.value;
+  date.innerHTML=dates.map(d=>`<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('');if(dates.includes(selectedDate))date.value=selectedDate;
+  room.innerHTML='<option value="">All rooms</option>'+rooms.map(l=>`<option value="${escapeHtml(l.id)}">${escapeHtml(l.name)}</option>`).join('');if(rooms.some(l=>l.id===selectedRoom))room.value=selectedRoom;
+}
+function renderBrandingSample(pkg){
+  const el=$('#brandingSample');if(!el)return;
+  const b=pkg.branding||{},dark=b.darkMode!==false;
+  el.style.background=dark?'#101011':'#fff';el.style.color=dark?'#fff':'#111';
+  el.style.fontFamily=b.typography==='serif'?'Georgia,serif':b.typography==='condensed'?'Arial Narrow,Arial,sans-serif':'system-ui,sans-serif';
+  el.innerHTML=`<div class="branding-sample-header" style="border-color:${escapeHtml(b.primary||'#5b4b9a')}"><strong>${escapeHtml(pkg.conference.shortName||pkg.conference.name||'Conference')}</strong><span style="color:${escapeHtml(b.secondary||'#2f7d68')}">${escapeHtml(pkg.conference.city||'Programme preview')}</span></div><div class="branding-sample-body"><span>Programme</span><span>Posters</span><span>Friend Book</span><button type="button" style="background:${escapeHtml(b.accent||b.primary||'#5b4b9a')}">Accent action</button></div>`;
+}
 
 function renderAnnouncementsBuilder(){
   const root=$('#announcementRows');if(!root)return;
@@ -116,6 +167,7 @@ function personRoles(pkg){
 }
 function renderPeopleDirectory(pkg){
   if(activeStep!==4)return;
+  const stats=project.identityStats||{};$('#identityStats').textContent=`${stats.automaticallyConsolidated||0} identities automatically consolidated · ${stats.requiresReview||0} ambiguous programme appearances need review.`;
   const people=pkg.people.people||[],duplicates=possiblePersonDuplicates(people),duplicateIds=new Set(duplicates.flatMap(group=>group.map(p=>p.id)));
   const {roles,entries}=personRoles(pkg),search=$('#peopleSearch').value.trim().toLocaleLowerCase(),role=$('#peopleRole').value;
   const visible=people.filter(p=>`${p.name} ${(p.affiliations||[]).join(' ')}`.toLocaleLowerCase().includes(search)&&
@@ -143,16 +195,16 @@ function renderDuplicateReview(groups){
     const options=group.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.id)} · ${escapeHtml((p.affiliations||[]).join('; '))}</option>`).join('');
     const removeOptions=group.map((p,i)=>`<option value="${escapeHtml(p.id)}" ${i===1?'selected':''}>${escapeHtml(p.id)} · ${escapeHtml((p.affiliations||[]).join('; '))}</option>`).join('');
     const choices=fields.map(field=>{const chooseRemove=!value(group[0],field)&&value(group[1],field);return `<label>${escapeHtml(field)} from<select data-merge-choice="${field}"><option value="keep">Kept profile</option><option value="remove" ${chooseRemove?'selected':''}>Merged profile</option></select></label>`;}).join('');
-    return `<div class="duplicate-group" data-duplicate-group="${index}"><strong>${escapeHtml(group[0].name)}</strong><div class="merge-grid">${group.map(profile).join('')}</div><div class="merge-grid"><label>Keep profile ID<select data-merge-keep>${options}</select></label><label>Merge profile ID<select data-merge-remove>${removeOptions}</select></label>${choices}</div><p class="muted">Affiliations and papers from both profiles are retained.</p><button class="secondary-btn" type="button" data-confirm-merge>Merge selected profiles</button></div>`;
+    return `<div class="duplicate-group" data-duplicate-group="${index}"><label><input type="checkbox" data-bulk-merge> Confirm this pair for bulk merge</label><strong>${escapeHtml(group[0].name)}</strong><div class="merge-grid">${group.map(profile).join('')}</div><div class="merge-grid"><label>Keep profile ID<select data-merge-keep>${options}</select></label><label>Merge profile ID<select data-merge-remove>${removeOptions}</select></label>${choices}</div><p class="muted">Affiliations and papers from both profiles are retained.</p><button class="secondary-btn" type="button" data-confirm-merge>Merge selected profiles</button></div>`;
   }).join('');
-  $('#duplicateReview').innerHTML=`<h3>Review possible duplicates</h3><p class="muted">Matching names can belong to different people. Compare both profiles before confirming a merge. The selected profile ID is kept.</p>${groupHtml||'<p class="muted">No same-name profiles need review.</p>'}`;
+  $('#duplicateReview').innerHTML=`<h3>Review possible duplicates</h3><p class="muted">Matching names can belong to different people. Compare both profiles before confirming a merge. The selected profile ID is kept.</p>${groups.length?'<button class="secondary-btn" type="button" data-confirm-bulk-merge>Merge checked pairs</button>':''}${groupHtml||'<p class="muted">No same-name profiles need review.</p>'}`;
 }
 function initPeopleUi(){
   $('#peopleSearch').addEventListener('input',()=>{peopleListSignature='';if(latestPackage)renderPeopleDirectory(latestPackage);});
   $('#peopleRole').addEventListener('change',()=>{peopleListSignature='';if(latestPackage)renderPeopleDirectory(latestPackage);});
   $('#peoplePreview').addEventListener('click',event=>{const button=event.target.closest('[data-open-person]');if(button)openPersonEditor(button.dataset.openPerson);});
   $('#reviewDuplicates').addEventListener('click',()=>{const panel=$('#duplicateReview');panel.hidden=!panel.hidden;if(!panel.hidden&&latestPackage)renderDuplicateReview(possiblePersonDuplicates(latestPackage.people.people));});
-  $('#duplicateReview').addEventListener('click',async event=>{const button=event.target.closest('[data-confirm-merge]');if(!button)return;const group=button.closest('[data-duplicate-group]'),keep=group.querySelector('[data-merge-keep]').value,remove=group.querySelector('[data-merge-remove]').value;if(keep===remove)return toast('Choose two different profiles');if(!confirm(`Merge ${remove} into ${keep} and update all programme references?`))return;const choices=Object.fromEntries([...group.querySelectorAll('[data-merge-choice]')].map(x=>[x.dataset.mergeChoice,x.value]));try{mergePersonProfiles(project,latestPackage.people.people,keep,remove,choices);openPersonId='';$('#personEditor').hidden=true;peopleListSignature='';scheduleSave();await renderDerived();toast('Profiles merged and references updated');}catch(error){toast(error.message);}});
+  $('#duplicateReview').addEventListener('click',async event=>{const single=event.target.closest('[data-confirm-merge]'),bulk=event.target.closest('[data-confirm-bulk-merge]');if(!single&&!bulk)return;const groups=bulk?$$('#duplicateReview [data-duplicate-group]').filter(x=>x.querySelector('[data-bulk-merge]').checked):[single.closest('[data-duplicate-group]')];if(!groups.length)return toast('Check at least one pair to merge');const merges=groups.map(group=>({keep:group.querySelector('[data-merge-keep]').value,remove:group.querySelector('[data-merge-remove]').value,choices:Object.fromEntries([...group.querySelectorAll('[data-merge-choice]')].map(x=>[x.dataset.mergeChoice,x.value]))}));if(merges.some(x=>x.keep===x.remove)||new Set(merges.flatMap(x=>[x.keep,x.remove])).size!==merges.length*2)return toast('Choose separate profiles for each pair');if(!confirm(`Merge ${merges.length} confirmed profile pair${merges.length===1?'':'s'} and update all programme references?`))return;try{for(const merge of merges)mergePersonProfiles(project,latestPackage.people.people,merge.keep,merge.remove,merge.choices);openPersonId='';$('#personEditor').hidden=true;peopleListSignature='';scheduleSave();await renderDerived();toast(`${merges.length} profile pair${merges.length===1?'':'s'} merged`);}catch(error){toast(error.message);}});
   $('#personEditor').addEventListener('click',event=>{if(event.target.id==='cancelPersonEdit'){$('#personEditor').hidden=true;openPersonId='';}if(event.target.id==='removeExtraPerson'&&openPersonId){project.extraPeople=project.extraPeople.filter(x=>x.id!==openPersonId);if(project.peoplePhotos)delete project.peoplePhotos[openPersonId];$('#personEditor').hidden=true;openPersonId='';peopleListSignature='';scheduleSave();renderDerived();}});
   $('#personEditor').addEventListener('submit',async event=>{event.preventDefault();const id=openPersonId;if(!id)return;const fields=Object.fromEntries([...event.target.querySelectorAll('[data-edit-field]')].map(el=>[el.dataset.editField,el.value]));const extra=(project.extraPeople||[]).find(p=>p.id===id);if(extra)Object.assign(extra,fields);else project.peopleOverrides[id]={...(project.peopleOverrides[id]||{}),...fields};const photo=$('#personPhotoDraft').files?.[0];if(photo)project.peoplePhotos={...(project.peoplePhotos||{}),[id]:await assetFromFile(photo)};$('#personEditor').hidden=true;openPersonId='';peopleListSignature='';scheduleSave();await renderDerived();toast('Person saved');});
 }
@@ -165,8 +217,8 @@ function renderLocationEditor(locations,tracks){
   const trackHtml=(tracks||[]).map(t=>`<div class="entity-editor"><div class="entity-editor-head"><strong>${escapeHtml(t.name)}</strong><code>track · ${escapeHtml(t.id)}</code></div><div class="entity-editor-grid"><label>Track color<div class="color-row"><span>${escapeHtml(project.branding.trackColors?.[t.id]||'default')}</span><input type="color" data-track-color="${escapeHtml(t.id)}" value="${escapeHtml(project.branding.trackColors?.[t.id]||project.branding.primary||'#5b4b9a')}"></div></label></div></div>`).join('');
   root.innerHTML=locationHtml+trackHtml||'<span class="muted">No locations/tracks yet</span>';
   root.querySelectorAll('[data-location-field]').forEach(el=>el.addEventListener('change',()=>{const card=el.closest('[data-location-editor]'),id=card.dataset.locationEditor,field=el.dataset.locationField;let value=el.value;if(['lat','lon'].includes(field))value=value===''?undefined:Number(value);const extra=(project.extraLocations||[]).find(x=>x.id===id);if(extra)extra[field]=value;else project.locationOverrides[id]={...(project.locationOverrides[id]||{}),[field]:value||value===0?value:undefined};scheduleSave();renderDerivedDebounced();}));
-  root.querySelectorAll('[data-location-color]').forEach(el=>el.addEventListener('input',()=>{project.branding.locationColors={...(project.branding.locationColors||{}),[el.dataset.locationColor]:el.value};scheduleSave();}));
-  root.querySelectorAll('[data-track-color]').forEach(el=>el.addEventListener('input',()=>{project.branding.trackColors={...(project.branding.trackColors||{}),[el.dataset.trackColor]:el.value};scheduleSave();}));
+  root.querySelectorAll('[data-location-color]').forEach(el=>el.addEventListener('input',()=>{project.branding.locationColors={...(project.branding.locationColors||{}),[el.dataset.locationColor]:el.value};scheduleSave();renderDerivedDebounced();}));
+  root.querySelectorAll('[data-track-color]').forEach(el=>el.addEventListener('input',()=>{project.branding.trackColors={...(project.branding.trackColors||{}),[el.dataset.trackColor]:el.value};scheduleSave();renderDerivedDebounced();}));
   root.querySelectorAll('[data-remove-location]').forEach(btn=>btn.addEventListener('click',()=>{project.extraLocations=(project.extraLocations||[]).filter(x=>x.id!==btn.dataset.removeLocation);scheduleSave();renderDerived();}));
 }
 
@@ -174,18 +226,15 @@ async function renderDerived(){
   const result=await buildPackage(project);scheduleSave();const {pkg,report}=result;if(project.reimportConflicts?.length)report.warnings.push(...project.reimportConflicts);if(project.rows.some(r=>r.personIdentityConflict&&!r.personIdentityResolved)&&!$('#reviewTable tbody [data-person-identity]'))renderRows();
   const conflictPanel=$('#conflictPanel'),conflictList=$('#conflictList'),conflicts=project.reimportConflicts||[];if(conflictPanel){conflictPanel.hidden=!conflicts.length;if(conflictList)conflictList.innerHTML=conflicts.map(x=>`<div class="conflict-item">${escapeHtml(x)}</div>`).join('');}
   latestPackage=pkg;
-  $('#previewBrand').textContent=pkg.conference.shortName||pkg.conference.name||'Conference';
+  updatePreviewControls(pkg);renderBrandingSample(pkg);queuePreview();
   renderPeopleDirectory(pkg);
   const trackNames=new Map((pkg.programme.tracks||[]).map(t=>[t.id,t.name]));
-  if(activeStep===5)renderLocationEditor(pkg.locations.locations||[],pkg.programme.tracks||[]);
+  if(activeStep===5&&!document.activeElement?.closest('#locationsPreview'))renderLocationEditor(pkg.locations.locations||[],pkg.programme.tracks||[]);
   if(activeStep===3)renderSessionEditor(pkg.programme.sessions||[],pkg.locations.locations||[],pkg.programme.tracks||[]);
-  const sessionById=new Map(pkg.programme.sessions.map(s=>[s.id,s]));const locById=new Map(pkg.locations.locations.map(l=>[l.id,l]));
-  const items=[];for(const s of pkg.programme.sessions){if(s.presentationIds?.length){for(const id of s.presentationIds){const p=pkg.programme.presentations.find(x=>x.id===id);if(p)items.push({date:s.date,start:p.start,end:p.end,title:p.title,loc:locById.get(s.locationId)?.name||'',track:trackNames.get(s.trackId)||''});}}else items.push({date:s.date,start:s.start,end:s.end,title:s.title,loc:locById.get(s.locationId)?.name||'',track:trackNames.get(s.trackId)||''});}
-  $('#phoneSchedule').innerHTML=items.slice(0,16).map(x=>`<div class="mini-event"><b>${escapeHtml(x.title)}</b><span>${escapeHtml(`${x.date} · ${x.start}–${x.end}${x.loc?' · '+x.loc:''}${x.track?' · '+x.track:''}`)}</span></div>`).join('')||'<span class="muted">Import programme rows to preview the app.</span>';
   renderReport(report);
 }
 function errorStep(message){if(/conference\.|conference |timezone|venue name|website|contact email/i.test(message))return 1;if(/person|people|speaker|author|chair|affiliation/i.test(message))return 4;if(/location|track|venue|room/i.test(message))return 5;if(/brand|logo|icon|color/i.test(message))return 6;if(/announcement|feature/i.test(message))return 7;if(/row|session|presentation|poster|calendar|time|date|source/i.test(message))return 3;return 8;}
-function renderReport(report){const el=$('#validationReport');if(!report.errors.length&&!report.warnings.length){el.innerHTML='<div class="validation-ok">Validation passed. Package is structurally ready to publish.</div>';return;}el.innerHTML=[...report.errors.map(x=>`<div class="validation-error">${escapeHtml(x)} <button class="secondary-btn" type="button" data-error-step="${errorStep(x)}">Go to ${escapeHtml(STEP_NAMES[errorStep(x)-1])}</button></div>`),...report.warnings.map(x=>`<div class="validation-warning">${escapeHtml(x)}</div>`)].join('');}
+function renderReport(report){const el=$('#validationReport');if(!report.errors.length&&!report.warnings.length){el.innerHTML='<div class="validation-ok">Validation passed. Package is structurally ready to publish.</div>';return;}const issue=(message,severity)=>{const described=describeValidationMessage(message,latestPackage,project),target=described.target,step=target?.type==='person'?4:target?.type==='location'?5:target?3:errorStep(message);return `<div class="validation-${severity}">${escapeHtml(described.text)} <button class="secondary-btn" type="button" data-error-step="${step}" ${target?`data-target-type="${target.type}" data-target-id="${escapeHtml(target.id)}"`:''}>Go to ${escapeHtml(target?'record':STEP_NAMES[step-1])}</button></div>`;};const unique=(messages)=>[...new Set(messages)];el.innerHTML=[...unique(report.errors).map(x=>issue(x,'error')),...unique(report.warnings).map(x=>issue(x,'warning'))].join('');}
 
 async function loadXlsxWorksheet(sheetName){
   if(!pendingXlsxFile)return;
@@ -237,19 +286,19 @@ async function doImport(){
 }
 
 async function assetFromFile(file){if(!file)return null;const bytes=new Uint8Array(await file.arrayBuffer());const ext=file.type.includes('svg')?'.svg':file.type.includes('jpeg')?'.jpg':file.type.includes('webp')?'.webp':'.png';return{name:file.name,type:file.type,extension:ext,bytes};}
-async function chooseLogo(file){project.logo=await assetFromFile(file);scheduleSave();toast(project.logo?'Logo stored in Builder project':'Logo cleared');}
+async function chooseLogo(file){project.logo=await assetFromFile(file);scheduleSave();renderDerived();toast(project.logo?'Logo stored in Builder project':'Logo cleared');}
 async function chooseAppIcon(file){project.appIcon=await assetFromFile(file);scheduleSave();toast(project.appIcon?'App icon artwork stored':'App icon cleared');}
-async function chooseSponsors(files){project.sponsorFiles=[];for(const file of files||[])project.sponsorFiles.push(await assetFromFile(file));scheduleSave();toast(`${project.sponsorFiles.length} sponsor asset${project.sponsorFiles.length===1?'':'s'} stored`);}
+async function chooseSponsors(files){project.sponsorFiles=[];for(const file of files||[])project.sponsorFiles.push(await assetFromFile(file));scheduleSave();renderDerived();toast(`${project.sponsorFiles.length} sponsor asset${project.sponsorFiles.length===1?'':'s'} stored`);}
 async function exportBuilderProject(){try{const blob=await createBuilderProjectFile(project),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`${(project.conference?.shortName||project.conference?.name||'conference').replace(/[^a-z0-9]+/gi,'-').toLowerCase()}-builder-project.zip`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);toast('Builder project exported');}catch(err){console.error(err);toast('Could not export Builder project');}}
 async function importBuilderProject(file){try{const incoming=await readBuilderProjectFile(file);clearTimeout(saveTimer);saveRevision++;await pendingSave.catch(()=>{});project={...structuredClone(defaults),...incoming,conference:{...defaults.conference,...incoming.conference},features:{...defaults.features,...incoming.features},policy:{...defaults.policy,...incoming.policy},branding:{...defaults.branding,...incoming.branding,trackColors:{...(incoming.branding?.trackColors||{})},locationColors:{...(incoming.branding?.locationColors||{})}}};await saveProject(project);location.reload();}catch(err){console.error(err);toast(err?.message||'Could not import Builder project');}}
 
 async function download(){try{const {blob,report,pkg}=await packageZip(project);renderReport(report);const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`${pkg.conference.id||'conference'}-data-package-v${pkg.manifest.dataVersion}.zip`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);project.lastExportedVersion=Number(pkg.manifest.dataVersion||project.dataVersion||1);project.lastExportedAt=new Date().toISOString();project.lastExportedFingerprint=await packageContentFingerprint(pkg);scheduleSave();updateReleaseStatus();toast('Validated deployment ZIP downloaded; confirm publication after deploying it');}catch(err){console.error(err);toast(err?.message||'Fix validation errors before exporting');const result=await buildPackage(project);renderReport(result.report);}}
 async function confirmPublication(){const {pkg,report}=await buildPackage(project);renderReport(report);if(report.errors.length){toast('Resolve validation errors before confirming publication');return;}if(!confirm(`Confirm that data version ${pkg.manifest.dataVersion} has been deployed to the conference website?`))return;try{await confirmProjectPublication(project,pkg);scheduleSave();updateReleaseStatus();renderDerived();toast(`Version ${pkg.manifest.dataVersion} confirmed as published`);}catch(error){toast(error.message||'Could not confirm publication');}}
 
-async function init(){const saved=await loadProject();if(saved)project={...structuredClone(defaults),...saved,conference:{...defaults.conference,...saved.conference},features:{...defaults.features,...saved.features},policy:{...defaults.policy,...saved.policy},branding:{...defaults.branding,...saved.branding,trackColors:{...defaults.branding.trackColors,...saved.branding?.trackColors},locationColors:{...defaults.branding.locationColors,...saved.branding?.locationColors}},peopleOverrides:{...(saved.peopleOverrides||{})},locationOverrides:{...(saved.locationOverrides||{})},sessionOverrides:{...(saved.sessionOverrides||{})},peoplePhotos:{...(saved.peoplePhotos||{})},extraPeople:Array.isArray(saved.extraPeople)?saved.extraPeople:[],extraLocations:Array.isArray(saved.extraLocations)?saved.extraLocations:[],announcements:Array.isArray(saved.announcements)?saved.announcements:[],deletedSourceIds:Array.isArray(saved.deletedSourceIds)?saved.deletedSourceIds:[],changelog:Array.isArray(saved.changelog)?saved.changelog:[],lastPublishedVersion:Number(saved.lastPublishedVersion||0),lastExportedVersion:Number(saved.lastExportedVersion||0),confirmedPublications:Array.isArray(saved.confirmedPublications)?saved.confirmedPublications:[],identityRegistry:{people:{...(saved.identityRegistry?.people||{})},locations:{...(saved.identityRegistry?.locations||{})},tracks:{...(saved.identityRegistry?.tracks||{})}},logo:saved.logo||null,appIcon:saved.appIcon||null,sponsorFiles:Array.isArray(saved.sponsorFiles)?saved.sponsorFiles:[],sourceFiles:Array.isArray(saved.sourceFiles)?saved.sourceFiles:[]};bindConfig();initBulkEditor();renderRows();renderAnnouncementsBuilder();renderDerived();
+async function init(){const saved=await loadProject();if(saved)project={...structuredClone(defaults),...saved,conference:{...defaults.conference,...saved.conference},features:{...defaults.features,...saved.features},policy:{...defaults.policy,...saved.policy},branding:{...defaults.branding,...saved.branding,trackColors:{...defaults.branding.trackColors,...saved.branding?.trackColors},locationColors:{...defaults.branding.locationColors,...saved.branding?.locationColors}},peopleOverrides:{...(saved.peopleOverrides||{})},locationOverrides:{...(saved.locationOverrides||{})},sessionOverrides:{...(saved.sessionOverrides||{})},peoplePhotos:{...(saved.peoplePhotos||{})},extraPeople:Array.isArray(saved.extraPeople)?saved.extraPeople:[],extraLocations:Array.isArray(saved.extraLocations)?saved.extraLocations:[],announcements:Array.isArray(saved.announcements)?saved.announcements:[],deletedSourceIds:Array.isArray(saved.deletedSourceIds)?saved.deletedSourceIds:[],changelog:Array.isArray(saved.changelog)?saved.changelog:[],lastPublishedVersion:Number(saved.lastPublishedVersion||0),lastExportedVersion:Number(saved.lastExportedVersion||0),confirmedPublications:Array.isArray(saved.confirmedPublications)?saved.confirmedPublications:[],identityRegistry:{people:{...(saved.identityRegistry?.people||{})},personRecords:{...(saved.identityRegistry?.personRecords||{})},autoConsolidatedIds:[...(saved.identityRegistry?.autoConsolidatedIds||[])],locations:{...(saved.identityRegistry?.locations||{})},tracks:{...(saved.identityRegistry?.tracks||{})}},logo:saved.logo||null,appIcon:saved.appIcon||null,sponsorFiles:Array.isArray(saved.sponsorFiles)?saved.sponsorFiles:[],sourceFiles:Array.isArray(saved.sourceFiles)?saved.sourceFiles:[]};bindConfig();initBulkEditor();renderRows();renderAnnouncementsBuilder();renderDerived();
   $('#importProgramme').addEventListener('click',doImport);$('#xlsxSheet').addEventListener('change',e=>loadXlsxWorksheet(e.target.value).catch(err=>{console.error(err);toast(err.message||'Could not load worksheet');}));$('#applyMapping').addEventListener('click',applyMapping);$('#addRow').addEventListener('click',()=>{project.rows.push({id:crypto.randomUUID(),date:'',start:'',end:'',type:'talk',session:'',title:'',speaker:'',chair:'',affiliation:'',location:'',track:'',posterNumber:'',abstract:'',doi:'',manualEdited:true});scheduleSave();renderRows();renderDerived();});$('#logoFile').addEventListener('change',e=>chooseLogo(e.target.files[0]));$('#appIconFile').addEventListener('change',e=>chooseAppIcon(e.target.files[0]));$('#sponsorFiles').addEventListener('change',e=>chooseSponsors([...e.target.files]));$('#exportBuilderProject').addEventListener('click',exportBuilderProject);$('#importBuilderProject').addEventListener('click',()=>$('#builderProjectInput').click());$('#builderProjectInput').addEventListener('change',e=>{if(e.target.files[0])importBuilderProject(e.target.files[0]);e.target.value='';});$('#addPerson').addEventListener('click',async()=>{const id=`person-extra-${crypto.randomUUID()}`;project.extraPeople=[...(project.extraPeople||[]),{id,name:'New person',position:'',affiliation:'',publicEmail:'',orcid:'',website:'',photoUrl:''}];scheduleSave();await renderDerived();openPersonEditor(id);});$('#addLocation').addEventListener('click',()=>{project.extraLocations=[...(project.extraLocations||[]),{id:`loc-extra-${crypto.randomUUID()}`,type:'venue',name:'New location',parentLocationId:'',address:'',mapUrl:'',lat:'',lon:''}];scheduleSave();renderDerived();});$('#addAnnouncement').addEventListener('click',()=>{project.announcements.push({id:crypto.randomUUID(),timestamp:new Date().toISOString(),message:'',affectedIds:[]});scheduleSave();renderAnnouncementsBuilder();});$('#validateProject').addEventListener('click',renderDerived);$('#downloadPackage').addEventListener('click',download);$('#confirmPublication').addEventListener('click',confirmPublication);$('#resetProject').addEventListener('click',async()=>{if(!confirm('Reset the entire Builder project?'))return;clearTimeout(saveTimer);saveRevision++;await pendingSave.catch(()=>{});await clearProject();location.reload();});
 }
 init().then(()=>{
-  initWizard();initPeopleUi();
-  $('#validationReport').addEventListener('click',event=>{const button=event.target.closest('[data-error-step]');if(button)setStep(button.dataset.errorStep,{focus:true});});
+  initWizard();initPeopleUi();setupPreview();
+  $('#validationReport').addEventListener('click',event=>{const button=event.target.closest('[data-error-step]');if(!button)return;setStep(button.dataset.errorStep,{focus:true});const id=button.dataset.targetId,type=button.dataset.targetType;if(!id)return;if(type==='person'){openPersonEditor(id);return;}const row=project.rows.find(x=>x.entityId===id||x.id===id);const target=type==='session'?$$('#sessionPreview [data-session-id]').find(el=>el.dataset.sessionId===id):row?$$('#reviewTable tbody tr')[project.rows.indexOf(row)]:null;if(target){target.scrollIntoView({block:'center'});target.querySelector('input,select,textarea')?.focus();}});
 }).catch(error=>{console.error(error);setSaveStatus(`Builder could not load: ${error.message}`,true);});

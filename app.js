@@ -3154,6 +3154,7 @@ import {encodeStoredValue,decodeStoredValue} from './src/user-store.js';
   }
 
   async function registerServiceWorker() {
+    if (new URLSearchParams(location.search).get('builderPreview')==='1') return;
     if (!("serviceWorker" in navigator)) return;
     try {
       const reg=await navigator.serviceWorker.register("./service-worker.js", {scope:"./",updateViaCache:"none"});

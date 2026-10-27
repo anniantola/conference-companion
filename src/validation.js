@@ -177,7 +177,11 @@ export function validatePackage(pkg, {strictCalendarUid = true, policy = {}} = {
       if (a.date !== b.date) continue;
       const bs = minutes(b.start), be = minutes(b.end);
       if (!Number.isFinite(bs) || !Number.isFinite(be) || !overlaps(as, ae, bs, be)) continue;
-      if (a.locationId && a.locationId === b.locationId) warnings.push(`Location overlap: ${a.id} and ${b.id} at ${a.locationId}`);
+      // A venue groups its rooms; concurrent events in the same venue are
+      // expected. Only an explicitly assigned room is an exclusive resource.
+      const room=locationRows.find(loc=>loc.id===a.locationId);
+      const sharedPosterWindow=a.type==='poster-session'&&b.type==='poster-session'&&a.start===b.start&&a.end===b.end;
+      if (a.id!==b.id && room?.type==='room' && a.locationId === b.locationId && !sharedPosterWindow) warnings.push(`Location overlap: ${a.id} and ${b.id} at ${a.locationId}`);
       const sharedChair = (a.chairIds || []).find(id => (b.chairIds || []).includes(id));
       if (sharedChair) warnings.push(`Chair overlap: ${sharedChair} in ${a.id} and ${b.id}`);
     }

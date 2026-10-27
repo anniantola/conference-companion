@@ -7,8 +7,9 @@ import * as qr from './src/qrcode.js';
 import * as backup from './src/backup.js';
 import {normalizeWebUrl} from './src/safe-url.js';
 
-const ENGINE_VERSION='1.2.1';
+const ENGINE_VERSION='1.2.2';
 const qs=new URLSearchParams(location.search);
+const builderPreview=qs.get('builderPreview')==='1'&&window.parent!==window;
 const base=(qs.get('conference')||'./conference').replace(/\/$/,'');
 const $=s=>document.querySelector(s);
 
@@ -21,14 +22,14 @@ window.addEventListener('beforeinstallprompt',event=>{
 });
 
 function fail(message){document.body.innerHTML=`<main style="font-family:system-ui;padding:24px;max-width:760px;margin:auto"><h1>Conference app could not start</h1><p>${String(message||'Unknown error')}</p><p><code>${base}</code></p></main>`;}
-function resolvePackageUrl(value){if(!value)return value;const safe=normalizeWebUrl(value,{allowRelative:true});if(!safe)return '';if(/^https:/i.test(safe))return safe;return `${base}/${safe}`;}
+function resolvePackageUrl(value){if(!value)return value;if(builderPreview&&String(value).startsWith('blob:'))return value;const safe=normalizeWebUrl(value,{allowRelative:true});if(!safe)return '';if(/^https:/i.test(safe))return safe;return `${base}/${safe}`;}
 function dateMeta(date,locale){const d=new Date(`${date}T12:00:00Z`);return{weekday:new Intl.DateTimeFormat(locale||'en-GB',{weekday:'long',timeZone:'UTC'}).format(d),dateLabel:new Intl.DateTimeFormat(locale||'en-GB',{day:'numeric',month:'long',timeZone:'UTC'}).format(d)};}
 
 function applyDocument(pkg,model,loadInfo){
   const {conference,branding,locations,manifest}=pkg;document.title=conference.name;document.documentElement.lang=conference.language||'en';
   const desc=document.querySelector('meta[name="description"]');if(desc)desc.content=`Conference companion for ${conference.fullName||conference.name}.`;
   const apple=document.querySelector('meta[name="apple-mobile-web-app-title"]');if(apple)apple.content=conference.shortName||conference.name;
-  const root=document.documentElement;if(branding.primary)root.style.setProperty('--accent',branding.primary);if(branding.secondary)root.style.setProperty('--secondary',branding.secondary);root.dataset.headerStyle=branding.headerStyle||'text';root.dataset.typography=branding.typography||'system';
+  const root=document.documentElement;if(branding.primary)root.style.setProperty('--brand-primary',branding.primary);if(branding.secondary)root.style.setProperty('--brand-secondary',branding.secondary);if(branding.accent||branding.primary)root.style.setProperty('--accent',branding.accent||branding.primary);root.dataset.headerStyle=branding.headerStyle||'text';root.dataset.typography=branding.typography||'system';
   const brand=$('.brand-lockup');if(brand)brand.href=normalizeWebUrl(conference.officialWebsite)||'#';
   const fallback=$('.conference-logo-fallback');if(fallback){fallback.hidden=false;fallback.textContent=conference.shortName||conference.name;}
   const logo=$('.conference-logo');if(logo&&branding.logo){logo.src=resolvePackageUrl(branding.logo);logo.alt=conference.name;logo.hidden=false;}else if(logo)logo.hidden=true;
@@ -45,7 +46,12 @@ function applyDocument(pkg,model,loadInfo){
 
 (async()=>{
   try{
-    const loadInfo=await loadConferencePackage(base,ENGINE_VERSION);const pkg=loadInfo.pkg;
+    const previewData=builderPreview?await new Promise((resolve,reject)=>{
+      const timer=setTimeout(()=>reject(new Error('Builder preview did not receive conference data')),12000);
+      window.addEventListener('message',event=>{if(event.source!==window.parent||event.origin!==location.origin||event.data?.type!=='conference-builder-preview')return;clearTimeout(timer);resolve(event.data.pkg);},{once:true});
+      window.parent.postMessage({type:'conference-builder-preview-ready'},location.origin);
+    }):null;
+    const loadInfo=builderPreview?{pkg:previewData,source:'Builder preview',warnings:[],updated:false}:await loadConferencePackage(base,ENGINE_VERSION);const pkg=loadInfo.pkg;
     if(pkg.conference.programmePdf)pkg.conference.programmePdf=resolvePackageUrl(pkg.conference.programmePdf);
     const model=createConferenceModel(pkg),userStore=createUserStore(pkg.conference.id);
     await userStore.ensureReady();

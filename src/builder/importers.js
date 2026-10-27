@@ -40,12 +40,13 @@ export function parseCSV(text){
 
 export function guessMapping(headers){
   const lower=headers.map(h=>[h,String(h).trim().toLowerCase().replace(/[^a-z0-9]+/g,'')]);
-  const pick=(...terms)=>lower.find(([,h])=>terms.some(t=>h===t||h.includes(t)))?.[0]||'';
+  const pick=(...terms)=>lower.find(([,h])=>terms.some(t=>h===t))?.[0]||lower.find(([,h])=>terms.some(t=>h.includes(t))&&!h.endsWith('id'))?.[0]||'';
   return {
     date:pick('date','day'),start:pick('start','starttime','timefrom'),end:pick('end','endtime','timeto'),type:pick('type','kind'),
     session:pick('session','sessiontitle','topic'),title:pick('title','talk','presentation','name'),speaker:pick('speaker','presenter','author'),chair:pick('chair','sessionchair'),
     affiliation:pick('affiliation','organization','organisation','institution'),location:pick('room','location','venue'),track:pick('track','stream'),
-    abstract:pick('abstract','description'),doi:pick('doi','url','link'),posterNumber:pick('posternumber','poster','number')
+    abstract:pick('abstract','description'),doi:pick('doi','url','link'),posterNumber:pick('posternumber','poster','number'),
+    speakerId:pick('speakerid','presenterid','authorid','personid'),chairId:pick('chairid','sessionchairid')
   };
 }
 
@@ -55,6 +56,7 @@ export function rowsFromMapping(raw,mapping){
     id:row.id||crypto.randomUUID(), date:val(row,'date'), start:val(row,'start'), end:val(row,'end'), type:val(row,'type')||'talk',
     session:val(row,'session'), title:val(row,'title'), speaker:val(row,'speaker'), chair:val(row,'chair'), affiliation:val(row,'affiliation'), location:val(row,'location'),
     track:val(row,'track'), abstract:val(row,'abstract'), doi:val(row,'doi'), posterNumber:val(row,'posterNumber'),
+    speakerEntityIds:val(row,'speakerId').split(';').map(x=>x.trim()).filter(Boolean),chairEntityIds:val(row,'chairId').split(';').map(x=>x.trim()).filter(Boolean),
     source:{id:`${row.__sourceFileId||'source'}:${row.__sheet||'source'}:${row.__sourceRow??i+1}`,fileId:row.__sourceFileId||'',row:row.__sourceRow??i+1,sheet:row.__sheet||'',raw:row,
       matchData:Object.fromEntries(['date','start','end','type','session','title','speaker','chair','affiliation','location','track','posterNumber'].map(k=>[k,val(row,k)]))}
   }));

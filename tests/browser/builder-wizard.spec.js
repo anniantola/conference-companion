@@ -97,6 +97,21 @@ test('organizer merge updates chair references and keeps chosen profile details'
   expect(result.position).toBe('Chair profile');
 });
 
+test('bulk duplicate review merges only organizer-checked profile pairs',async({page})=>{
+  await page.goto('/builder.html');await importSynthetic(page);
+  await expect(page.locator('#builderSaveStatus')).toHaveText('Project saved locally');
+  const kept=await page.evaluate(async()=>{const {loadProject,saveProject}=await import('/src/builder/project-store.js');const p=await loadProject(),ids={};for(const number of ['08','09']){ids[number]=p.rows.find(row=>row.speaker===`Researcher ${number}`).speakerEntityIds[0];p.rows.find(row=>row.chair===`Researcher ${number}`).chairEntityIds=[`person-legacy-${number}`];}p.activeStep=4;await saveProject(p);return ids;});
+  await page.reload();await expect(page.locator('#duplicateCount')).toHaveText('(2)');
+  await page.locator('#reviewDuplicates').click();
+  const groups=page.locator('[data-duplicate-group]');await expect(groups).toHaveCount(2);
+  for(const number of ['08','09']){const group=groups.filter({hasText:`Researcher ${number}`});await group.locator('[data-merge-keep]').selectOption(kept[number]);await group.locator('[data-merge-remove]').selectOption(`person-legacy-${number}`);await group.locator('[data-bulk-merge]').check();}
+  page.once('dialog',dialog=>dialog.accept());await page.locator('[data-confirm-bulk-merge]').click();
+  await expect(page.locator('#peoplePreview .person-row')).toHaveCount(23);
+  await expect(page.locator('#builderSaveStatus')).toHaveText('Project saved locally');
+  const aliases=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return (await loadProject()).personIdAliases;});
+  expect(aliases['person-legacy-08']).toBe(kept['08']);expect(aliases['person-legacy-09']).toBe(kept['09']);
+});
+
 test('hundreds of people and mobile step controls stay usable',async({page})=>{
   await page.goto('/builder.html');
   await page.evaluate(async()=>{const {saveProject}=await import('/src/builder/project-store.js');await saveProject({conference:{name:'Large Synthetic Conference',startDate:'2031-06-10',endDate:'2031-06-11',timezone:'Europe/Helsinki'},rows:[],extraPeople:Array.from({length:320},(_,i)=>({id:`extra-${i}`,name:`Person ${String(i).padStart(3,'0')}`,affiliation:`Institute ${i%10}`})),activeStep:4});});

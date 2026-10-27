@@ -60,6 +60,7 @@
 
     <section class="panel" data-step="4" hidden>
         <div class="step-title"><span>4</span><div><h2>People</h2><p>Generated from reviewed programme rows.</p></div></div>
+        <p id="identityStats" class="muted" aria-live="polite"></p>
         <div class="people-tools"><label>Search people<input id="peopleSearch" type="search" placeholder="Name or affiliation"></label><label>Role<select id="peopleRole"><option value="all">All roles</option><option value="speaker">Speaker</option><option value="chair">Chair</option><option value="author">Author</option></select></label><button id="reviewDuplicates" class="secondary-btn" type="button">Review possible duplicates <span id="duplicateCount"></span></button><button id="addPerson" class="secondary-btn" type="button">+ Add person</button></div>
         <div id="duplicateReview" class="duplicate-review" hidden></div>
         <div id="peoplePreview" class="people-directory"></div>
@@ -83,6 +84,7 @@
         <label>App icon artwork<input id="appIconFile" type="file" accept="image/png,image/jpeg,image/svg+xml"></label>
         <label class="wide">Sponsor / partner logos<input id="sponsorFiles" type="file" accept="image/png,image/jpeg,image/svg+xml" multiple></label>
       </div>
+      <div id="brandingSample" class="branding-sample" aria-label="Live branding colors and typography"></div>
     </section>
 
     <section class="panel" data-step="7" hidden>
@@ -110,7 +112,7 @@
     <section class="panel publish-panel" data-step="8" hidden>
       <div class="step-title"><span>8</span><div><h2>Preview, validate & publish</h2><p>Publishing is blocked by structural errors. Warnings remain reviewable.</p></div></div>
       <div class="publish-grid">
-        <div class="phone-preview"><div class="phone-head" id="previewBrand">Conference</div><div id="phoneSchedule" class="phone-body"></div></div>
+        <div class="attendee-preview"><div class="preview-controls"><label>Screen size<select id="previewSize"><option value="375">Phone · 375 px</option><option value="320">Small phone · 320 px</option><option value="768">Tablet · 768 px</option><option value="1100">Desktop · 1100 px</option></select></label><label>Date<select id="previewDate"></select></label><label>Room<select id="previewRoom"></select></label></div><div class="preview-frame-wrap"><iframe id="attendeePreview" title="Live attendee application preview" loading="lazy"></iframe></div><p class="muted">Live preview uses the attendee application and a separate preview data identity. Date and room controls navigate its Program view.</p></div>
         <div>
           <div class="release-grid">
             <label>Data version<input id="dataVersion" type="number" min="1" value="1"></label>

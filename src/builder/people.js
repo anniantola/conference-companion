@@ -36,6 +36,12 @@ export function mergePersonProfiles(project,people,keepId,removeId,choices={}){
     if(row.personIdentityConflict&&row.personIdentityCandidates?.length===1){row.personIdentityConflict=false;row.personIdentityResolved=true;}
   }
   for(const [identity,id] of Object.entries(project.identityRegistry?.people||{}))if(id===removeId)project.identityRegistry.people[identity]=keepId;
+  const records=project.identityRegistry?.personRecords;
+  if(records?.[removeId]){
+    const kept=records[keepId]||{names:[],affiliations:[],explicitIds:[]},removed=records[removeId];
+    for(const field of ['names','affiliations','explicitIds'])kept[field]=[...new Set([...(kept[field]||[]),...(removed[field]||[])])];
+    records[keepId]=kept;delete records[removeId];
+  }
   project.personMergeHistory=[...(project.personMergeHistory||[]),{keptId:keepId,removedId:removeId,at:new Date().toISOString()}];
   return result;
 }

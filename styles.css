@@ -77,6 +77,8 @@ html[data-theme="dark"] .toast{
 .conference-logo{display:block;width:auto;height:30px;max-width:100%;object-fit:contain;object-position:left center}
 .conference-logo-fallback{display:block;color:#fff;font-size:20px;line-height:1;font-weight:900;letter-spacing:.055em}
 .brand-subtitle{font-size:10px;font-weight:750;letter-spacing:.055em;text-transform:uppercase;color:var(--muted);padding-left:2px}
+.brand-logo-wrap{background:var(--brand-primary,#111)}
+.brand-subtitle{color:var(--brand-secondary,var(--muted))}
 h1,h2,h3,p{margin:0}
 h1{font-size:26px;letter-spacing:-.04em;line-height:1}
 h2{font-size:28px;letter-spacing:-.035em}

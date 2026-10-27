@@ -302,3 +302,11 @@ separately, which records a content fingerprint for that data version and adds
 the release to the changelog. Re-exporting identical published content is
 allowed; changing it requires a higher version. The shared semantic validator
 update ships with engine v1.2.1; no conference-specific programme data changed.
+
+## 17. Builder identity, diagnostics, and live preview (v1.2.2)
+
+The Builder persists `identityRegistry.personRecords` by immutable person ID. Each record tracks known normalized names and affiliations; the older `identityRegistry.people` lookup remains readable for existing projects. Explicit spreadsheet person IDs take priority. Exact name plus affiliation matches are reused only when unique. A name-only appearance may reuse one reliably identified profile, while unresolved same-name appearances remain separate until organizer review. Confirmed profile merges move the registry record and all programme references to the surviving ID.
+
+Semantic validation remains in `src/validation.js`. The Builder's diagnostic presenter adds session or presentation titles, date/time, room and track, and a link to the appropriate review editor. A parent venue is a grouping location, not an exclusive room; concurrent events in different rooms of the same venue do not produce room-conflict warnings. Distinct poster themes sharing the exact same exhibition window can coexist in one hall. Other same-room overlaps, including partially overlapping poster sessions, remain warnings.
+
+Step 8 loads `index.html` in a same-origin iframe with the current Builder package sent through a checked `postMessage` handshake. This uses the attendee runtime and styles instead of a copied schedule renderer. The preview gets a random, separate personal-storage conference ID and does not register a service worker. Local image assets are exposed through temporary object URLs. The generated ZIP retains the real conference ID and packaged asset paths. Changing Builder colors, logo or sponsor assets refreshes the preview; date, room and viewport controls operate the attendee Program view. Step 6 also shows a small immediate color and typography sample.

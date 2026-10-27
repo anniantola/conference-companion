@@ -17,6 +17,7 @@ assert.equal(initial.rows.length,91);
 assert.equal(first.pkg.programme.posters.length,18);
 assert.equal(new Set(first.pkg.people.people.map(p=>p.name)).size,23);
 assert.equal(first.pkg.people.people.length,23,'Repeated affiliated speakers and unaffiliated chairs share the 23 reliable identities');
+assert.ok(initial.identityStats.automaticallyConsolidated>0,'Identity consolidation count is visible to organizers');
 assert.deepEqual(possiblePersonDuplicates(first.pkg.people.people),[]);
 const speaker=first.pkg.people.people.find(p=>p.name==='Researcher 08');
 assert.ok(first.pkg.programme.presentations.some(p=>p.speakerIds.includes(speaker.id)));
@@ -87,9 +88,10 @@ await buildPackage(ambiguousChair);
 assert.equal(ambiguousChair.rows[2].personIdentityConflict,true,'An unaffiliated chair is not assigned to either same-name researcher automatically');
 
 // Old project ZIPs contain none of the new wizard or merge fields.
-const oldProject=structuredClone(initial);delete oldProject.activeStep;delete oldProject.personIdAliases;delete oldProject.personMergeHistory;
+const oldProject=structuredClone(initial);delete oldProject.activeStep;delete oldProject.personIdAliases;delete oldProject.personMergeHistory;delete oldProject.identityRegistry.personRecords;delete oldProject.identityRegistry.autoConsolidatedIds;
 const restored=await readBuilderProjectFile(await createBuilderProjectFile(oldProject));
 assert.equal(restored.rows.length,91);
 assert.equal((await buildPackage(restored)).pkg.people.people.length,23);
+assert.ok(Object.keys(restored.identityRegistry.personRecords).length>=23,'Legacy name index migrates to ID-centered registry');
 
 console.log('Builder people regressions passed: 91 entries, 18 posters, 23 people, explicit review/merge, re-import and legacy ZIP');

@@ -50,9 +50,21 @@ export function ensureProjectIdentities(project){
   if(!project.conference.id) project.conference.id=`conference-${crypto.randomUUID()}`;
   project.identityRegistry ||= {people:{},locations:{},tracks:{}};
   project.identityRegistry.people ||= {};project.identityRegistry.locations ||= {};project.identityRegistry.tracks ||= {};
+  project.identityRegistry.personRecords ||= {};
   project.sessionOverrides ||= {};
   const registry=project.identityRegistry;
   const canonicalPersonId=id=>{const seen=new Set();while(project.personIdAliases?.[id]&&!seen.has(id)){seen.add(id);id=project.personIdAliases[id];}return id;};
+  const norm=value=>String(value||'').trim().toLocaleLowerCase();
+  // Migrate the legacy name|affiliation index without changing any existing ID.
+  for(const [key,id] of Object.entries(registry.people)){
+    const canonical=canonicalPersonId(id),separator=key.indexOf('|');
+    if(separator<0)continue;
+    const record=registry.personRecords[canonical] ||= {names:[],affiliations:[],explicitIds:[]};
+    const name=key.slice(0,separator),affiliation=key.slice(separator+1);
+    if(name&&!record.names.includes(name))record.names.push(name);
+    if(affiliation&&!record.affiliations.includes(affiliation))record.affiliations.push(affiliation);
+  }
+  const stats={automaticallyConsolidated:0,linkedAppearances:0,requiresReview:0},autoLinkedIds=new Set((registry.autoConsolidatedIds||[]).map(canonicalPersonId));
   project.identityWarnings=[];
   const rows=project.rows||[];
   // One title can represent several separate sessions in the same day.
@@ -100,18 +112,26 @@ export function ensureProjectIdentities(project){
     return id;
   };
   const personId=(name,affiliation='',preferred='',role='speaker')=>{
-    const n=String(name||'').trim().toLowerCase(),a=String(affiliation||'').trim().toLowerCase();if(!n)return '';
-    if(preferred){preferred=canonicalPersonId(preferred);if(a)registry.people[`${n}|${a}`]=preferred;return preferred;}
-    const exact=`${n}|${a}`;
-    if(a&&registry.people[exact])return canonicalPersonId(registry.people[exact]);
-    const known=[...new Set(Object.entries(registry.people).filter(([key])=>key.startsWith(`${n}|`)&&key!==exact).map(([,id])=>canonicalPersonId(id)))];
-    if(!a){
-      if(known.length===1)return known[0];
-      if(known.length>1)project.identityWarnings.push(`Ambiguous person "${name}": choose an existing person ID or add an affiliation to resolve the identity.`);
-      if(role==='chair'&&registry.people[exact])return canonicalPersonId(registry.people[exact]);
-      if(role==='speaker')return `person-${crypto.randomUUID()}`;
+    const n=norm(name),a=norm(affiliation);if(!n)return '';
+    const records=registry.personRecords;
+    const candidates=[...new Set(Object.entries(records).filter(([,r])=>r.names.includes(n)).map(([id])=>canonicalPersonId(id)))];
+    const exact=a?candidates.filter(id=>(records[id]?.affiliations||[]).includes(a)):[];
+    let id=preferred?canonicalPersonId(preferred):'';
+    if(!id&&exact.length===1){id=exact[0];autoLinkedIds.add(id);stats.linkedAppearances++;}
+    if(!id&&!a&&candidates.length===1&&(records[candidates[0]]?.affiliations?.length||records[candidates[0]]?.explicitIds?.length||role==='chair')){id=candidates[0];autoLinkedIds.add(id);stats.linkedAppearances++;}
+    // A name alone cannot choose between two confirmed people, and a new
+    // affiliation cannot prove that two same-name records are the same person.
+    if(!id&&((a&&exact.length>1)||(!a&&candidates.length>1))){
+      stats.requiresReview++;
+      project.identityWarnings.push(`Ambiguous person "${name}"${a?` at ${affiliation}`:''}: choose an existing profile in Review & fix.`);
     }
-    const id=`person-${crypto.randomUUID()}`;registry.people[exact]=id;return id;
+    if(!id)id=`person-${crypto.randomUUID()}`;
+    const record=records[id] ||= {names:[],affiliations:[],explicitIds:[]};
+    if(!record.names.includes(n))record.names.push(n);
+    if(a&&!record.affiliations.includes(a))record.affiliations.push(a);
+    const key=`${n}|${a}`;
+    if(!registry.people[key]||canonicalPersonId(registry.people[key])===id)registry.people[key]=id;
+    return id;
   };
   const locationId=(name,preferred='')=>{if(preferred)return preferred;const k=String(name||'').trim().toLowerCase();if(!k)return 'venue-main';return registry.locations[k]||(registry.locations[k]=`loc-${crypto.randomUUID()}`);};
   const trackId=(name,preferred='')=>{if(preferred)return preferred;const k=String(name||'Common').trim().toLowerCase()||'common';if(k==='common')return registry.tracks[k]||(registry.tracks[k]='common');return registry.tracks[k]||(registry.tracks[k]=`track-${crypto.randomUUID()}`);};
@@ -188,6 +208,10 @@ export function ensureProjectIdentities(project){
       item.row.personIdentityCandidatesByName={...(item.row.personIdentityCandidatesByName||{}),[name]:candidates};
     }
   }
+  stats.requiresReview=rows.filter(row=>row.personIdentityConflict&&!row.personIdentityResolved).length;
+  registry.autoConsolidatedIds=[...autoLinkedIds];
+  stats.automaticallyConsolidated=autoLinkedIds.size;
+  project.identityStats=stats;
   return project;
 }
 
@@ -326,7 +350,7 @@ export async function buildPackage(project){
   const now=new Date().toISOString();
   const version=Number(project.dataVersion||1);
   const changelog=[...(project.changelog||[])];
-  const manifest={schemaVersion:CURRENT_SCHEMA_VERSION,dataVersion:version,minimumEngineVersion:'1.2.1',publishedAt:now,files:['conference.json','programme.json','people.json','locations.json','branding.json'],checksums:{},changelog};
+  const manifest={schemaVersion:CURRENT_SCHEMA_VERSION,dataVersion:version,minimumEngineVersion:'1.2.2',publishedAt:now,files:['conference.json','programme.json','people.json','locations.json','branding.json'],checksums:{},changelog};
   const pkg={manifest,conference,programme,people:peopleJson,locations:locationsJson,branding};
   const report=validatePackage(pkg,{strictCalendarUid:true,policy:project.policy||{}});
   report.errors.push(...builderErrors);
@@ -405,7 +429,7 @@ async function fetchBytes(path){const r=await fetch(path,{cache:'no-store'});if(
 function manifestText(pkg){return JSON.stringify({name:pkg.conference.name,short_name:pkg.conference.shortName||pkg.conference.name,id:'./',start_url:'./',scope:'./',display:'standalone',background_color:'#000000',theme_color:pkg.branding.primary||'#000000',icons:[{src:'./icon-192.png',sizes:'192x192',type:'image/png',purpose:'any'},{src:'./icon-512.png',sizes:'512x512',type:'image/png',purpose:'any maskable'}]},null,2)+'\n';}
 function sharePreviewSvg(pkg){const title=String(pkg.conference.shortName||pkg.conference.name||'Conference').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630"><rect width="1200" height="630" fill="${pkg.branding.primary||'#000'}"/><rect x="60" y="60" width="1080" height="510" rx="44" fill="#fff" opacity=".96"/><text x="110" y="285" font-family="system-ui,sans-serif" font-weight="700" font-size="78" fill="#111">${title}</text><text x="110" y="370" font-family="system-ui,sans-serif" font-size="38" fill="#444">Conference Companion</text></svg>`;}
 export function workflowText(){return `name: Validate and deploy Conference Companion\n\non:\n  push:\n    branches: ["main"]\n  workflow_dispatch:\n\npermissions:\n  contents: read\n  pages: write\n  id-token: write\n\nconcurrency:\n  group: "pages"\n  cancel-in-progress: false\n\njobs:\n  deploy:\n    environment:\n      name: github-pages\n      url: \${{ steps.deployment.outputs.page_url }}\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@v6\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n      - name: Validate conference package\n        run: npm test\n      - name: Stage public application files\n        run: |\n          mkdir _site\n          cp -r index.html app.js bootstrap.js styles.css service-worker.js manifest.webmanifest icon-*.png share-preview.svg src schemas conference tools _site/\n      - uses: actions/configure-pages@v5\n      - uses: actions/upload-pages-artifact@v4\n        with:\n          path: "_site"\n      - name: Deploy to GitHub Pages\n        id: deployment\n        uses: actions/deploy-pages@v4\n`;}
-function generatedPackageJson(){return JSON.stringify({name:'conference-companion-deployment',version:'1.2.1',private:true,type:'module',scripts:{schema:'node tools/schema-check.mjs conference',validate:'node tools/validate-conference.mjs conference',test:'npm run schema && npm run validate'}},null,2)+'\n';}
+function generatedPackageJson(){return JSON.stringify({name:'conference-companion-deployment',version:'1.2.2',private:true,type:'module',scripts:{schema:'node tools/schema-check.mjs conference',validate:'node tools/validate-conference.mjs conference',test:'npm run schema && npm run validate'}},null,2)+'\n';}
 
 /** A repository-ready static deployment ZIP: stable engine + generated package + branded install assets. */
 export async function packageZip(project){
