@@ -82,6 +82,7 @@ test('personal backup restores notes, photos, favorites, profile and private con
   await page.locator('#profileAffiliation').fill('Synthetic Institute');
   await page.locator('#profileEmail').fill('casey@example.test');
   await page.locator('#saveProfileBtn').click();
+  await expect(page.locator('#toast')).toContainText('Conference card saved');
   const vcard=await downloadText(page,()=>page.locator('#downloadVcardBtn').click());
   expect(vcard.text).toContain('FN:Casey Example');
   expect(vcard.text).toContain('casey@example.test');
