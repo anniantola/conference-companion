@@ -94,8 +94,8 @@ h3{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute
 .day-tab{border:1px solid var(--line);background:var(--surface);border-radius:14px;padding:10px 6px;text-align:center;box-shadow:var(--shadow)}
 .day-tab strong{display:block;font-size:14px}
 .day-tab span{display:block;font-size:11px;color:var(--muted);margin-top:3px}
-.day-tab.active{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
-.day-tab.active span{color:var(--accent)}
+.day-tab.active{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-text,var(--accent))}
+.day-tab.active span{color:var(--accent-text,var(--accent))}
 .hero-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:10px;box-shadow:var(--shadow)}
 .status-line{display:flex;gap:10px;align-items:flex-start}
 .status-dot{width:10px;height:10px;border-radius:50%;background:var(--accent);margin-top:5px;box-shadow:0 0 0 5px var(--accent-soft)}
@@ -279,7 +279,7 @@ html.photo-viewer-open,body.photo-viewer-open{overflow:hidden!important;overscro
 .photo-import-copy label>span{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:800}
 .photo-assignment-select{width:100%;min-width:0}
 .photo-import-actions{position:sticky;bottom:calc(-22px - env(safe-area-inset-bottom));display:grid;grid-template-columns:1fr 1.4fr;gap:8px;margin:16px -18px calc(-22px - env(safe-area-inset-bottom));padding:12px 18px calc(12px + env(safe-area-inset-bottom));background:color-mix(in srgb,var(--surface) 95%,transparent);border-top:1px solid var(--line);backdrop-filter:blur(14px)}
-.primary-btn{border:0;background:var(--accent);color:white;border-radius:11px;padding:11px 14px;font-weight:800;cursor:pointer}
+.primary-btn{border:0;background:var(--accent);color:var(--on-accent,#fff);border-radius:11px;padding:11px 14px;font-weight:800;cursor:pointer}
 .primary-btn:disabled{opacity:.55;cursor:default}
 @media (max-width:520px){
   .gallery-import-card{align-items:stretch;flex-direction:column}
@@ -848,3 +848,35 @@ html.compact .my-day-head{margin-bottom:5px;font-size:12px}
   .qr-camera-frame{max-height:60dvh}
   .friend-card-footer{align-items:flex-start;flex-direction:column}
 }
+
+/* Offline conference typography and theme-aware brand presentation. */
+:root{--font-body:Inter,system-ui,sans-serif;--font-heading:Inter,system-ui,sans-serif;--header-background:#fff;--header-text:#111}
+:root[data-body-font="inter"]{--font-body:Inter,system-ui,sans-serif}
+:root[data-body-font="source-sans-3"]{--font-body:"Source Sans 3",Arial,sans-serif}
+:root[data-body-font="space-grotesk"]{--font-body:"Space Grotesk",Arial,sans-serif}
+:root[data-body-font="ibm-plex-sans"]{--font-body:"IBM Plex Sans",Arial,sans-serif}
+:root[data-body-font="ibm-plex-sans-condensed"]{--font-body:"IBM Plex Sans Condensed",Arial,sans-serif}
+:root[data-body-font="noto-serif"]{--font-body:"Noto Serif",Georgia,serif}
+:root[data-heading-font="inter"]{--font-heading:Inter,system-ui,sans-serif}
+:root[data-heading-font="source-sans-3"]{--font-heading:"Source Sans 3",Arial,sans-serif}
+:root[data-heading-font="space-grotesk"]{--font-heading:"Space Grotesk",Arial,sans-serif}
+:root[data-heading-font="ibm-plex-sans"]{--font-heading:"IBM Plex Sans",Arial,sans-serif}
+:root[data-heading-font="ibm-plex-sans-condensed"]{--font-heading:"IBM Plex Sans Condensed",Arial,sans-serif}
+:root[data-heading-font="noto-serif"]{--font-heading:"Noto Serif",Georgia,serif}
+:root[data-theme="dark"]{--header-background:var(--header-bg-dark,#191a1d)}
+:root[data-theme="light"]{--header-background:var(--header-bg-light,#fff)}
+body{font-family:var(--font-body)}
+h1,h2,h3,.event-title,.brand-lockup{font-family:var(--font-heading)}
+.topbar{background:color-mix(in srgb,var(--header-background) 92%,transparent);color:var(--header-text)}
+.brand-logo-wrap{background:var(--header-background);justify-content:var(--logo-justify,flex-start);max-width:min(74vw,520px)}
+.conference-logo{height:var(--conference-logo-size,36px);max-height:72px;object-position:center}
+:root[data-logo-alignment="center"]{--logo-justify:center}
+:root[data-logo-alignment="right"]{--logo-justify:flex-end}
+:root[data-logo-alignment="left"]{--logo-justify:flex-start}
+:root[data-header-style="text"] .conference-logo{display:none}
+:root[data-header-style="logo"] .conference-logo-fallback{display:none}
+:root[data-header-style="logo"] .brand-subtitle{display:none}
+:root[data-header-style="logo"] .brand-lockup{flex-direction:row;align-items:center}
+.brand-lockup{color:var(--header-text)}
+.sponsor-grid img{max-width:180px;object-fit:contain}
+@media(max-width:520px){.brand-logo-wrap{max-width:70vw}.conference-logo{max-width:70vw}}

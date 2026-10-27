@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#000000">
   <title>Conference Builder</title>
+  <link rel="stylesheet" href="./assets/fonts/fonts.css">
   <link rel="stylesheet" href="./builder.css">
 </head>
 <body>
@@ -74,17 +75,28 @@
     <section class="panel" data-step="6" hidden>
       <div class="step-title"><span>6</span><div><h2>Branding</h2><p>Visual identity lives in <code>branding.json</code>; install assets remain deployment assets.</p></div></div>
       <div class="form-grid">
-        <label>Primary color<input id="primaryColor" type="color" value="#5b4b9a"></label>
-        <label>Secondary color<input id="secondaryColor" type="color" value="#2f7d68"></label>
-        <label>Accent color<input id="accentColor" type="color" value="#5b4b9a"></label>
-        <label>Header style<select id="headerStyle"><option value="text">Text + optional logo</option><option value="logo">Logo-first</option></select></label>
-        <label>Typography<select id="typography"><option value="system">System sans</option><option value="serif">Editorial serif</option><option value="condensed">Compact sans</option></select></label>
-        <label><span>Default dark appearance</span><input id="brandingDarkMode" type="checkbox" checked></label>
-        <label>Conference logo<input id="logoFile" type="file" accept="image/png,image/jpeg,image/svg+xml"></label>
-        <label>App icon artwork<input id="appIconFile" type="file" accept="image/png,image/jpeg,image/svg+xml"></label>
-        <label class="wide">Sponsor / partner logos<input id="sponsorFiles" type="file" accept="image/png,image/jpeg,image/svg+xml" multiple></label>
+        <label>Attendee default appearance<select id="defaultAppearance"><option value="light">Light</option><option value="dark">Dark</option><option value="system">Follow device</option></select><small>Attendees can choose their own appearance in Settings.</small></label>
+        <label>Preview appearance<select id="brandingPreviewAppearance"><option value="light">Preview light</option><option value="dark">Preview dark</option></select><small>Controls the Step 8 application preview only.</small></label>
+        <label>Primary color<input id="primaryColor" type="color" value="#5b4b9a"><small>Main brand color for highlights and identity.</small></label>
+        <label>Secondary color<input id="secondaryColor" type="color" value="#2f7d68"><small>Supporting labels, tracks, and secondary emphasis.</small></label>
+        <label>Accent color<input id="accentColor" type="color" value="#5b4b9a"><small>Interactive highlights and selected controls.</small></label>
+        <label>Branding preset<select id="brandingPreset"><option value="custom">Custom</option><option value="indigo">Indigo & jade</option><option value="ocean">Ocean & coral</option><option value="forest">Forest & amber</option><option value="mono">Monochrome</option></select></label>
+        <label>Header branding<select id="headerStyle"><option value="combined">Text and logo</option><option value="text">Text only</option><option value="logo">Logo only</option></select></label>
+        <label>Logo alignment<select id="logoAlignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
+        <label>Logo display height<input id="logoSize" type="range" min="24" max="72" value="36"><output id="logoSizeValue">36 px</output></label>
+        <label>Light header background<input id="headerBackgroundLight" type="color" value="#ffffff"></label>
+        <label>Dark header background<input id="headerBackgroundDark" type="color" value="#191a1d"></label>
+        <label>Heading font<select id="headingFont"></select></label>
+        <label>Body font<select id="bodyFont"></select></label>
+        <label>Logo for light backgrounds<input id="logoLightFile" type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp"><span id="logoLightStatus" class="asset-status">No light logo uploaded</span><button id="removeLightLogo" class="secondary-btn" type="button">Remove light logo</button></label>
+        <label>Logo for dark backgrounds<input id="logoDarkFile" type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp"><span id="logoDarkStatus" class="asset-status">No dark logo uploaded</span><button id="removeDarkLogo" class="secondary-btn" type="button">Remove dark logo</button></label>
+        <label>App icon artwork<input id="appIconFile" type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp"><button id="removeAppIcon" class="secondary-btn" type="button">Remove app icon</button><span id="appIconStatus" class="asset-status">No custom app icon</span><img id="appIconPreview" class="app-icon-preview" alt="App icon preview" hidden></label>
       </div>
-      <div id="brandingSample" class="branding-sample" aria-label="Live branding colors and typography"></div>
+      <div id="contrastWarnings" class="contrast-warnings" role="status" aria-live="polite"></div>
+      <div class="branding-actions"><button id="resetBranding" class="secondary-btn" type="button">Reset branding</button><span class="muted">Room and track colors stay in Locations & tracks.</span></div>
+      <section class="brand-assets-panel" aria-labelledby="sponsorHeading"><div class="brand-assets-heading"><div><h3 id="sponsorHeading">Sponsor logos</h3><p class="muted">Drag the arrows to set display order. Light and dark files can differ.</p></div><button id="addSponsor" class="secondary-btn" type="button">+ Add sponsor</button></div><div id="sponsorAssetList" class="sponsor-editor-list"></div></section>
+      <section class="branding-preview-section" aria-labelledby="brandingPreviewHeading"><h3 id="brandingPreviewHeading">Live theme previews</h3><p class="muted">Both cards update as you edit. Preview text includes international and scientific characters.</p><div id="brandingPreviews" class="branding-previews"></div></section>
+      <div hidden aria-hidden="true"><input id="logoFile" type="file" accept="image/png,image/jpeg,image/svg+xml"><input id="sponsorFiles" type="file" accept="image/png,image/jpeg,image/svg+xml" multiple></div>
     </section>
 
     <section class="panel" data-step="7" hidden>
@@ -112,7 +124,7 @@
     <section class="panel publish-panel" data-step="8" hidden>
       <div class="step-title"><span>8</span><div><h2>Preview, validate & publish</h2><p>Publishing is blocked by structural errors. Warnings remain reviewable.</p></div></div>
       <div class="publish-grid">
-        <div class="attendee-preview"><div class="preview-controls"><label>Screen size<select id="previewSize"><option value="375">Phone · 375 px</option><option value="320">Small phone · 320 px</option><option value="768">Tablet · 768 px</option><option value="1100">Desktop · 1100 px</option></select></label><label>Date<select id="previewDate"></select></label><label>Room<select id="previewRoom"></select></label><button id="refreshPreview" class="primary-btn" type="button">↻ Refresh preview</button></div><p id="previewStatus" class="preview-status" role="status" aria-live="polite" data-state="loading">Loading preview…</p><div class="preview-frame-wrap"><iframe id="attendeePreview" title="Live attendee application preview"></iframe></div><p class="muted">Live preview uses the attendee application and a separate preview data identity. Date and room controls navigate its Program view.</p></div>
+        <div class="attendee-preview"><div class="preview-controls"><label>Screen size<select id="previewSize"><option value="375">Phone · 375 px</option><option value="320">Small phone · 320 px</option><option value="768">Tablet · 768 px</option><option value="1100">Desktop · 1100 px</option></select></label><label>Date<select id="previewDate"></select></label><label>Room<select id="previewRoom"></select></label><label>Preview appearance<select id="previewAppearance"><option value="light">Light</option><option value="dark">Dark</option></select></label><button id="refreshPreview" class="primary-btn" type="button">↻ Refresh preview</button></div><p id="previewStatus" class="preview-status" role="status" aria-live="polite" data-state="loading">Loading preview…</p><div class="preview-frame-wrap"><iframe id="attendeePreview" title="Live attendee application preview"></iframe></div><p class="muted">Live preview uses the attendee application and a separate preview data identity. Date, room, theme, and viewport controls operate the app.</p></div>
         <div>
           <div class="release-grid">
             <label>Data version<input id="dataVersion" type="number" min="1" value="1"></label>

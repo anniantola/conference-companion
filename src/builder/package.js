@@ -6,6 +6,7 @@ import {validatePackageSchemas} from '../json-schema.js';
 
 const ENGINE_FILES = [
   'index.html','app.js','bootstrap.js','styles.css','service-worker.js',
+  'assets/fonts/manifest.json',
   'src/validation.js','src/safe-url.js','src/json-schema.js','src/migrations.js','src/package-store.js','src/model.js','src/user-store.js',
   'src/calendar.js','src/vcard.js','src/qrcode.js','src/backup.js','src/zip.js',
   'src/vendor/qr-scanner/qr-scanner.min.js','src/vendor/qr-scanner/qr-scanner-worker.min.js','src/vendor/qr-scanner/LICENSE'
@@ -31,6 +32,7 @@ function fileExt(file){
   const type=String(file?.type||'').toLowerCase();
   if(type.includes('svg'))return '.svg';if(type.includes('jpeg')||type.includes('jpg'))return '.jpg';if(type.includes('webp'))return '.webp';return '.png';
 }
+function legacyFont(value){return value==='serif'?'noto-serif':value==='condensed'?'ibm-plex-sans-condensed':'inter';}
 function personPhotoPath(id,asset){const safe=String(id||'person').replace(/[^a-zA-Z0-9_-]+/g,'-');return `assets/person-${safe}${asset?.extension||fileExt(asset)}`;}
 function stableEntityId(row,prefix){
   if(row.entityId)return row.entityId;
@@ -340,17 +342,33 @@ export async function buildPackage(project){
   };
   const programme={tracks,sessions,presentations,posters,announcements:(project.announcements||[]).filter(a=>String(a.message||'').trim()).map(a=>({id:a.id||crypto.randomUUID(),timestamp:a.timestamp||new Date().toISOString(),message:String(a.message||'').trim(),affectedIds:a.affectedIds||[]}))};
   const peopleJson={people};const locationsJson={locations};
-  const sponsorAssets=(project.sponsorFiles||[]).map((f,i)=>`assets/sponsor-${i+1}${f.extension||fileExt(f)}`);
+  const logoLightAsset=project.logoLight?.bytes?project.logoLight:project.logo;
+  const logoDarkAsset=project.logoDark?.bytes?project.logoDark:null;
+  const logoLight=logoLightAsset?.bytes?'assets/logo-light'+(logoLightAsset.extension||fileExt(logoLightAsset)):null;
+  const logoDark=logoDarkAsset?.bytes?'assets/logo-dark'+(logoDarkAsset.extension||fileExt(logoDarkAsset)):null;
+  const sponsorLogos=(project.sponsorFiles||[]).map((entry,i)=>{
+    const legacy=entry?.bytes?{name:entry.name,light:entry,dark:null,height:48}:entry||{};
+    const light=legacy.light?.bytes?`assets/sponsor-${i+1}-light${legacy.light.extension||fileExt(legacy.light)}`:null;
+    const dark=legacy.dark?.bytes?`assets/sponsor-${i+1}-dark${legacy.dark.extension||fileExt(legacy.dark)}`:null;
+    return{name:String(legacy.name||`Sponsor ${i+1}`),light,dark,height:Math.max(20,Math.min(120,Number(legacy.height)||48))};
+  });
+  const sponsorAssets=sponsorLogos.map(x=>x.light||x.dark).filter(Boolean);
+  const appearance=project.branding?.defaultAppearance|| (project.branding?.darkMode===true?'dark':project.branding?.darkMode===false?'system':'light');
+  const brandMode=project.branding?.brandMode||(project.branding?.headerStyle==='logo'?'logo':project.branding?.headerStyle==='text'?'combined':project.branding?.headerStyle||'combined');
+  const headingFont=project.branding?.headingFont||legacyFont(project.branding?.typography);
+  const bodyFont=project.branding?.bodyFont||legacyFont(project.branding?.typography);
   const branding={
-    logo:project.logo?.bytes?`assets/logo${project.logo.extension||'.png'}`:null,
-    headerStyle:project.branding?.headerStyle||'text',typography:project.branding?.typography||'system',
+    logo:logoLight,logoLight,logoDark,
+    headerStyle:brandMode,brandMode,logoAlignment:project.branding?.logoAlignment||'left',logoSize:Math.max(24,Math.min(96,Number(project.branding?.logoSize)||36)),
+    headerBackgroundLight:project.branding?.headerBackgroundLight||'#ffffff',headerBackgroundDark:project.branding?.headerBackgroundDark||'#191a1d',
+    typography:project.branding?.typography||'system',headingFont,bodyFont,defaultAppearance:appearance,
     primary:project.branding?.primary||'#5b4b9a',secondary:project.branding?.secondary||'#2f7d68',accent:project.branding?.accent||project.branding?.primary||'#5b4b9a',
-    darkMode:project.branding?.darkMode!==false,trackColors:project.branding?.trackColors||{},locationColors:project.branding?.locationColors||{},sponsorAssets
+    darkMode:appearance==='dark',trackColors:project.branding?.trackColors||{},locationColors:project.branding?.locationColors||{},sponsorAssets,sponsorLogos
   };
   const now=new Date().toISOString();
   const version=Number(project.dataVersion||1);
   const changelog=[...(project.changelog||[])];
-  const manifest={schemaVersion:CURRENT_SCHEMA_VERSION,dataVersion:version,minimumEngineVersion:'1.2.2',publishedAt:now,files:['conference.json','programme.json','people.json','locations.json','branding.json'],checksums:{},changelog};
+  const manifest={schemaVersion:CURRENT_SCHEMA_VERSION,dataVersion:version,minimumEngineVersion:'1.2.3',publishedAt:now,files:['conference.json','programme.json','people.json','locations.json','branding.json'],checksums:{},changelog};
   const pkg={manifest,conference,programme,people:peopleJson,locations:locationsJson,branding};
   const report=validatePackage(pkg,{strictCalendarUid:true,policy:project.policy||{}});
   report.errors.push(...builderErrors);
@@ -428,8 +446,8 @@ async function imageBytesToPng(asset,size){
 async function fetchBytes(path){const r=await fetch(path,{cache:'no-store'});if(!r.ok)throw new Error(`Could not include engine file ${path}`);return new Uint8Array(await r.arrayBuffer());}
 function manifestText(pkg){return JSON.stringify({name:pkg.conference.name,short_name:pkg.conference.shortName||pkg.conference.name,id:'./',start_url:'./',scope:'./',display:'standalone',background_color:'#000000',theme_color:pkg.branding.primary||'#000000',icons:[{src:'./icon-192.png',sizes:'192x192',type:'image/png',purpose:'any'},{src:'./icon-512.png',sizes:'512x512',type:'image/png',purpose:'any maskable'}]},null,2)+'\n';}
 function sharePreviewSvg(pkg){const title=String(pkg.conference.shortName||pkg.conference.name||'Conference').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630"><rect width="1200" height="630" fill="${pkg.branding.primary||'#000'}"/><rect x="60" y="60" width="1080" height="510" rx="44" fill="#fff" opacity=".96"/><text x="110" y="285" font-family="system-ui,sans-serif" font-weight="700" font-size="78" fill="#111">${title}</text><text x="110" y="370" font-family="system-ui,sans-serif" font-size="38" fill="#444">Conference Companion</text></svg>`;}
-export function workflowText(){return `name: Validate and deploy Conference Companion\n\non:\n  push:\n    branches: ["main"]\n  workflow_dispatch:\n\npermissions:\n  contents: read\n  pages: write\n  id-token: write\n\nconcurrency:\n  group: "pages"\n  cancel-in-progress: false\n\njobs:\n  deploy:\n    environment:\n      name: github-pages\n      url: \${{ steps.deployment.outputs.page_url }}\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@v6\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n      - name: Validate conference package\n        run: npm test\n      - name: Stage public application files\n        run: |\n          mkdir _site\n          cp -r index.html app.js bootstrap.js styles.css service-worker.js manifest.webmanifest icon-*.png share-preview.svg src schemas conference tools _site/\n      - uses: actions/configure-pages@v5\n      - uses: actions/upload-pages-artifact@v4\n        with:\n          path: "_site"\n      - name: Deploy to GitHub Pages\n        id: deployment\n        uses: actions/deploy-pages@v4\n`;}
-function generatedPackageJson(){return JSON.stringify({name:'conference-companion-deployment',version:'1.2.2',private:true,type:'module',scripts:{schema:'node tools/schema-check.mjs conference',validate:'node tools/validate-conference.mjs conference',test:'npm run schema && npm run validate'}},null,2)+'\n';}
+export function workflowText(){return `name: Validate and deploy Conference Companion\n\non:\n  push:\n    branches: ["main"]\n  workflow_dispatch:\n\npermissions:\n  contents: read\n  pages: write\n  id-token: write\n\nconcurrency:\n  group: "pages"\n  cancel-in-progress: false\n\njobs:\n  deploy:\n    environment:\n      name: github-pages\n      url: \${{ steps.deployment.outputs.page_url }}\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@v6\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n      - name: Validate conference package\n        run: npm test\n      - name: Stage public application files\n        run: |\n          mkdir _site\n          cp -r index.html app.js bootstrap.js styles.css service-worker.js manifest.webmanifest icon-*.png share-preview.svg assets src schemas conference tools _site/\n      - uses: actions/configure-pages@v5\n      - uses: actions/upload-pages-artifact@v4\n        with:\n          path: "_site"\n      - name: Deploy to GitHub Pages\n        id: deployment\n        uses: actions/deploy-pages@v4\n`;}
+function generatedPackageJson(){return JSON.stringify({name:'conference-companion-deployment',version:'1.2.3',private:true,type:'module',scripts:{schema:'node tools/schema-check.mjs conference',validate:'node tools/validate-conference.mjs conference',test:'npm run schema && npm run validate'}},null,2)+'\n';}
 
 /** A repository-ready static deployment ZIP: stable engine + generated package + branded install assets. */
 export async function packageZip(project){
@@ -438,8 +456,13 @@ export async function packageZip(project){
   for(const [name,text] of Object.entries(jsons))pkg.manifest.checksums[name]=await hashBytes(text);
   const entries=[{name:'conference/conference-manifest.json',data:JSON.stringify(pkg.manifest,null,2)+'\n'},...Object.entries(jsons).map(([name,data])=>({name:`conference/${name}`,data}))];
 
-  const logo=await readProjectAsset(project.logo);if(logo&&pkg.branding.logo)entries.push({name:`conference/${pkg.branding.logo}`,data:logo});
-  for(let i=0;i<(project.sponsorFiles||[]).length;i++){const bytes=await readProjectAsset(project.sponsorFiles[i]);if(bytes)entries.push({name:`conference/${pkg.branding.sponsorAssets[i]}`,data:bytes});}
+  for(const [asset,source] of [[pkg.branding.logoLight,project.logoLight?.bytes?project.logoLight:project.logo],[pkg.branding.logoDark,project.logoDark]]){
+    if(asset&&source?.bytes){const bytes=await readProjectAsset(source);if(bytes)entries.push({name:`conference/${asset}`,data:bytes});}
+  }
+  for(let i=0;i<(project.sponsorFiles||[]).length;i++){
+    const item=project.sponsorFiles[i]?.bytes?{light:project.sponsorFiles[i],dark:null}:project.sponsorFiles[i];
+    for(const theme of ['light','dark']){const asset=pkg.branding.sponsorLogos[i]?.[theme],source=item?.[theme];if(!asset||!source?.bytes)continue;const bytes=await readProjectAsset(source);if(bytes)entries.push({name:`conference/${asset}`,data:bytes});}
+  }
   for(const person of pkg.people.people||[]){const asset=project.peoplePhotos?.[person.id];if(!asset||!person.photoUrl)continue;const bytes=await readProjectAsset(asset);if(bytes)entries.push({name:`conference/${person.photoUrl}`,data:bytes});}
 
   // Include the stable attendee engine exactly as deployed with the Builder.
@@ -453,6 +476,8 @@ export async function packageZip(project){
       entries.push({name:path,data:html});
     } else entries.push({name:path,data:await fetchBytes(`./${path}`)});
   }
+  const fontManifest=JSON.parse(new TextDecoder().decode(await fetchBytes('./assets/fonts/manifest.json')));
+  for(const path of fontManifest.assets||[])entries.push({name:`assets/fonts/${path}`,data:await fetchBytes(`./assets/fonts/${path}`)});
   entries.push({name:'tools/validate-conference.mjs',data:await fetchBytes('./tools/validate-conference.mjs')},{name:'tools/schema-check.mjs',data:await fetchBytes('./tools/schema-check.mjs')});
   for(const file of SCHEMA_FILES)entries.push({name:`schemas/${file}`,data:await fetchBytes(`./schemas/${file}`)});
   entries.push({name:'.nojekyll',data:''},{name:'package.json',data:generatedPackageJson()},{name:'.github/workflows/deploy.yml',data:workflowText()},{name:'manifest.webmanifest',data:manifestText(pkg)},{name:'share-preview.svg',data:sharePreviewSvg(pkg)});

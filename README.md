@@ -1,6 +1,6 @@
 # Conference Companion
 
-Current engine release: **v1.2.2**.
+Current engine release: **v1.2.3**.
 
 Conference Companion is a standalone, offline-first conference PWA plus a browser-based Conference Builder. The attendee engine is stable and conference content is published as a normalized, versioned data package rather than being hard-coded into the UI.
 
@@ -69,6 +69,10 @@ Open `builder.html` in the development repository. The Builder implements:
 The Builder deliberately keeps source files, mappings, provenance, manual overrides and re-import metadata private. They are not published in attendee conference JSON.
 
 The live attendee preview uses the same generated package model and runtime as the deployment ZIP. Opening Step 8 builds it from the current project, and changes to settings, programme, features, and branding update it automatically. **Refresh preview** always rebuilds the iframe, even when the package fingerprint is unchanged; **Validate** also refreshes it. The status shows Loading, Up to date, or Failed independently of validation errors, so an incomplete project can still be inspected. Refresh keeps the selected date, room, and screen size. Each iframe load gets a temporary Builder-only conference ID for personal storage, so preview interactions cannot overwrite attendee-owned data for the actual conference. Refresh does not export a ZIP or change publication versions. Installation and service-worker registration are disabled in the preview. Uploaded logo, sponsor and profile images are shown from local object URLs; published URLs still use the ZIP assets. Review the deployed site on physical devices for PWA installation, camera, and platform-specific appearance.
+
+Step 6 configures the attendee default appearance (Light, Dark, or Follow device), separate light/dark preview appearance, theme-specific logos, header colors and layout, heading and body fonts, color presets, and sponsor order and variants. Existing darkMode projects migrate as true → Dark and false → Follow device; a legacy single logo remains the fallback for both themes. Six curated font families use local WOFF2 subsets cached by the service worker for offline use. Their Open Font License notices are included under assets/fonts/. Generated conference packages carry the branding fields and asset variants shown in Step 8. Preview appearance remains private Builder state and is not exported as the conference default.
+
+Step 6 configures the attendee default appearance (Light, Dark, or Follow device), separate light/dark preview appearance, theme-specific logos, header colors and layout, heading and body fonts, color presets, and sponsor order and variants. Existing darkMode projects migrate as true → Dark and false → Follow device; a legacy single logo remains the fallback for both themes. Six curated font families use local WOFF2 subsets cached by the service worker for offline use. Their Open Font License notices are included under assets/fonts/. Generated conference packages carry the branding fields and asset variants shown in Step 8. Preview appearance remains private Builder state and is not exported as the conference default.
 
 The synthetic 91-row regression contains 23 distinct person names and 18 posters. Before the chair identity fix it generated 45 profiles, including 22 accidental duplicate chair profiles; fresh imports now generate 23. Previously saved projects keep their existing person IDs until an organizer confirms a merge. A confirmed merge updates programme references and preserves the selected profile details, affiliations, papers and chosen photograph. Project ZIPs from earlier Builder versions remain importable.
 

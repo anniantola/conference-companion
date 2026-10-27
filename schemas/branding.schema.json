@@ -4,5 +4,28 @@
   "title": "Conference branding",
   "type": "object",
   "required": ["primary", "secondary", "accent", "trackColors", "locationColors"],
-  "properties": {"logo": {"type": ["string", "null"]}, "headerStyle": {"type": "string"}, "typography": {"type": "string"}, "primary": {"type": "string"}, "secondary": {"type": "string"}, "accent": {"type": "string"}, "darkMode": {"type": "boolean"}, "trackColors": {"type": "object"}, "locationColors": {"type": "object"}, "sponsorAssets": {"type": "array", "items": {"type": "string"}}}
+  "properties": {
+    "logo": {"type": ["string", "null"]},
+    "logoLight": {"type": ["string", "null"]},
+    "logoDark": {"type": ["string", "null"]},
+    "headerStyle": {"type": "string", "enum": ["text", "logo", "combined"]},
+    "headerBackgroundLight": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+    "headerBackgroundDark": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+    "logoAlignment": {"type": "string", "enum": ["left", "center", "right"]},
+    "logoSize": {"type": "integer", "minimum": 24, "maximum": 96},
+    "typography": {"type": "string"},
+    "headingFont": {"type": "string", "enum": ["inter", "source-sans-3", "space-grotesk", "ibm-plex-sans", "ibm-plex-sans-condensed", "noto-serif"]},
+    "bodyFont": {"type": "string", "enum": ["inter", "source-sans-3", "space-grotesk", "ibm-plex-sans", "ibm-plex-sans-condensed", "noto-serif"]},
+    "defaultAppearance": {"type": "string", "enum": ["light", "dark", "system"]},
+    "previewAppearance": {"type": "string", "enum": ["light", "dark"]},
+    "brandMode": {"type": "string", "enum": ["text", "logo", "combined"]},
+    "primary": {"type": "string"},
+    "secondary": {"type": "string"},
+    "accent": {"type": "string"},
+    "darkMode": {"type": "boolean"},
+    "trackColors": {"type": "object"},
+    "locationColors": {"type": "object"},
+    "sponsorAssets": {"type": "array", "items": {"type": "string"}},
+    "sponsorLogos": {"type": "array", "items": {"type": "object", "required": ["height"], "properties": {"name": {"type": "string"}, "light": {"type": ["string", "null"]}, "dark": {"type": ["string", "null"]}, "height": {"type": "integer", "minimum": 20, "maximum": 120}}, "additionalProperties": true}}
+  }
 }

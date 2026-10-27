@@ -1,5 +1,7 @@
 import {test,expect} from '@playwright/test';
 import {synthetic91Csv} from '../../tools/synthetic-91-csv.js';
+import {readFile} from 'node:fs/promises';
+import {readStoredZip,textEntry} from '../../src/zip.js';
 
 const pilotCsv=`date,start,end,type,session,title,speaker,affiliation,room,track
 2032-03-01,09:00,09:30,talk,Science,Alpha Talk,Ada North,North Institute,Room A,Track A
@@ -93,18 +95,21 @@ test('Refresh preview rebuilds branding and keeps navigation, storage isolation 
   await page.locator('#secondaryColor').fill('#22764f');
   await page.locator('#accentColor').fill('#d02763');
   await page.locator('#headerStyle').selectOption('logo');
-  await page.locator('#typography').selectOption('serif');
-  await page.locator('#brandingDarkMode').uncheck();
-  await page.locator('#logoFile').setInputFiles({name:'logo.svg',mimeType:'image/svg+xml',buffer:Buffer.from(svg('#165a70'))});
-  await page.locator('#sponsorFiles').setInputFiles({name:'sponsor.svg',mimeType:'image/svg+xml',buffer:Buffer.from(svg('#22764f'))});
+  await page.locator('#headingFont').selectOption('noto-serif');
+  await page.locator('#bodyFont').selectOption('ibm-plex-sans-condensed');
+  await page.locator('#defaultAppearance').selectOption('system');
+  await page.locator('#logoLightFile').setInputFiles({name:'logo-light.svg',mimeType:'image/svg+xml',buffer:Buffer.from(svg('#165a70'))});
+  await page.locator('#logoDarkFile').setInputFiles({name:'logo-dark.svg',mimeType:'image/svg+xml',buffer:Buffer.from(svg('#22764f'))});
+  await page.locator('#addSponsor').click();
+  await page.locator('.sponsor-editor [data-sponsor-file="light"]').setInputFiles({name:'sponsor.svg',mimeType:'image/svg+xml',buffer:Buffer.from(svg('#22764f'))});
   await page.locator('[data-goto-step="8"]').click();
   await expect(page.locator('#previewStatus')).toHaveText('Up to date');
   const firstRevision=await page.locator('#attendeePreview').getAttribute('src');
   await page.locator('#refreshPreview').click();
   await expect.poll(()=>page.locator('#attendeePreview').getAttribute('src')).not.toBe(firstRevision);
   await expect(page.locator('#previewStatus')).toHaveText('Up to date');
-  const branded=await previewValue(page,()=>{const f=document.querySelector('#attendeePreview'),w=f.contentWindow,p=w.CONFERENCE_PACKAGE,r=f.contentDocument.documentElement,room=p.locations.locations.find(x=>x.name==='Room B'),track=p.programme.tracks.find(x=>x.name==='Track A');return {id:p.conference.id,primary:r.style.getPropertyValue('--brand-primary'),secondary:r.style.getPropertyValue('--brand-secondary'),accent:r.style.getPropertyValue('--accent'),header:r.dataset.headerStyle,typography:r.dataset.typography,dark:r.dataset.theme,roomColor:p.branding.locationColors[room.id],trackColor:p.branding.trackColors[track.id],logo:f.contentDocument.querySelector('.conference-logo')?.getAttribute('src'),sponsors:p.branding.sponsorAssets};});
-  expect(branded).toMatchObject({primary:'#165a70',secondary:'#22764f',accent:'#d02763',header:'logo',typography:'serif',roomColor:'#216789',trackColor:'#a35219'});
+  const branded=await previewValue(page,()=>{const f=document.querySelector('#attendeePreview'),w=f.contentWindow,p=w.CONFERENCE_PACKAGE,r=f.contentDocument.documentElement,room=p.locations.locations.find(x=>x.name==='Room B'),track=p.programme.tracks.find(x=>x.name==='Track A');return {id:p.conference.id,primary:r.style.getPropertyValue('--brand-primary'),secondary:r.style.getPropertyValue('--brand-secondary'),accent:r.style.getPropertyValue('--accent'),header:r.dataset.headerStyle,headingFont:r.dataset.headingFont,bodyFont:r.dataset.bodyFont,appearance:p.branding.defaultAppearance,dark:r.dataset.theme,roomColor:p.branding.locationColors[room.id],trackColor:p.branding.trackColors[track.id],logo:f.contentDocument.querySelector('.conference-logo')?.getAttribute('src'),sponsors:p.branding.sponsorAssets};});
+  expect(branded).toMatchObject({primary:'#165a70',secondary:'#22764f',accent:'#d02763',header:'logo',headingFont:'noto-serif',bodyFont:'ibm-plex-sans-condensed',appearance:'system',roomColor:'#216789',trackColor:'#a35219'});
   expect(branded.dark).not.toBe('dark');expect(branded.logo).toMatch(/^blob:/);expect(branded.sponsors[0]).toMatch(/^blob:/);
   expect(branded.id).not.toBe(before.conferenceId);
   await expect(page.locator('#previewSize')).toHaveValue('768');
@@ -193,3 +198,82 @@ test('preview reports load failure and recovers on Refresh preview',async({page}
   await page.locator('#refreshPreview').click();
   await expect(page.locator('#previewStatus')).toHaveText('Up to date');
 });
+
+test('complete Step 6 branding stays in sync with both themes and the exported deployment',async({page})=>{
+  await openPilotPreview(page);
+  await page.locator('[data-goto-step="6"]').click();
+  await page.locator('#defaultAppearance').selectOption('system');
+  await page.locator('#brandingPreviewAppearance').selectOption('dark');
+  await page.locator('#primaryColor').fill('#aabbee');
+  await expect(page.locator('#primaryColor')).toBeFocused();
+  await page.locator('#secondaryColor').fill('#256b50');
+  await page.locator('#accentColor').fill('#c93463');
+  await page.locator('#headerBackgroundLight').fill('#fefefe');
+  await page.locator('#headerBackgroundDark').fill('#17191f');
+  await page.locator('#headerStyle').selectOption('combined');
+  await page.locator('#logoAlignment').selectOption('center');
+  await page.locator('#logoSize').fill('52');
+  await page.locator('#headingFont').selectOption('space-grotesk');
+  await page.locator('#bodyFont').selectOption('noto-serif');
+  const lightLogoSvg=svg('#123456'),darkLogoSvg=svg('#abcdef');
+  await page.locator('#logoLightFile').setInputFiles({name:'logo-light.svg',mimeType:'image/svg+xml',buffer:Buffer.from(lightLogoSvg)});
+  await page.locator('#logoDarkFile').setInputFiles({name:'logo-dark.svg',mimeType:'image/svg+xml',buffer:Buffer.from(darkLogoSvg)});
+  await page.locator('#appIconFile').setInputFiles({name:'app-icon.svg',mimeType:'image/svg+xml',buffer:Buffer.from(svg('#2468ac'))});
+  await expect(page.locator('#appIconPreview')).toBeVisible();
+  await page.locator('#addSponsor').click();
+  await page.locator('.sponsor-editor').nth(0).locator('[data-sponsor-name]').fill('First sponsor');
+  await page.locator('.sponsor-editor').nth(0).locator('[data-sponsor-height]').fill('62');
+  await page.locator('.sponsor-editor').nth(0).locator('[data-sponsor-file="light"]').setInputFiles({name:'first-light.svg',mimeType:'image/svg+xml',buffer:Buffer.from(svg('#336699'))});
+  await page.locator('.sponsor-editor').nth(0).locator('[data-sponsor-file="dark"]').setInputFiles({name:'first-dark.svg',mimeType:'image/svg+xml',buffer:Buffer.from(svg('#996633'))});
+  await page.locator('#addSponsor').click();
+  await page.locator('.sponsor-editor').nth(1).locator('[data-sponsor-name]').fill('Second sponsor');
+  await page.locator('.sponsor-editor').nth(1).locator('[data-sponsor-file="light"]').setInputFiles({name:'second.svg',mimeType:'image/svg+xml',buffer:Buffer.from(svg('#663399'))});
+  await expect(page.locator('#contrastWarnings')).toContainText('contrast');
+  await expect(page.locator('#brandingPreviews [data-theme="light"] .brand-theme-header')).toHaveCSS('background-color','rgb(254, 254, 254)');
+  await expect(page.locator('#brandingPreviews [data-theme="dark"] .brand-theme-header')).toHaveCSS('background-color','rgb(23, 25, 31)');
+  await expect(page.locator('#brandingPreviews [data-theme="light"] .brand-theme-name')).toHaveCSS('font-family',/Space Grotesk/);
+  await expect.poll(()=>page.evaluate(()=>document.fonts.check('700 16px "Space Grotesk"'))).toBe(true);
+  expect(Buffer.byteLength(lightLogoSvg)).toBe(Buffer.byteLength(darkLogoSvg));
+
+  await page.locator('[data-goto-step="8"]').click();
+  await expect(page.locator('#previewStatus')).toHaveText('Up to date');
+  await page.locator('#previewAppearance').selectOption('dark');
+  await expect(page.locator('#previewStatus')).toHaveText('Up to date');
+  const darkState=await page.evaluate(()=>{const f=document.querySelector('#attendeePreview'),p=f.contentWindow.CONFERENCE_PACKAGE,r=f.contentDocument.documentElement;return {appearance:p.branding.defaultAppearance,theme:r.dataset.theme,logo:f.contentDocument.querySelector('.conference-logo').src,pLogo:p.branding.logoDark,body:r.dataset.bodyFont,heading:r.dataset.headingFont};});
+  expect(darkState).toMatchObject({appearance:'system',theme:'dark',body:'noto-serif',heading:'space-grotesk'});
+  expect(darkState.logo).toBe(darkState.pLogo);
+  await page.locator('#previewAppearance').selectOption('light');
+  await expect(page.locator('#previewStatus')).toHaveText('Up to date');
+  const lightState=await page.evaluate(()=>{const f=document.querySelector('#attendeePreview'),p=f.contentWindow.CONFERENCE_PACKAGE,r=f.contentDocument.documentElement;return {theme:r.dataset.theme,logo:f.contentDocument.querySelector('.conference-logo').src,pLogo:p.branding.logoLight};});
+  expect(lightState).toMatchObject({theme:'light'});expect(lightState.logo).toBe(lightState.pLogo);
+
+  await page.locator('[data-goto-step="6"]').click();
+  await page.locator('#logoLightFile').setInputFiles({name:'logo-light-replacement.svg',mimeType:'image/svg+xml',buffer:Buffer.from(svg('#654321'))});
+  await page.locator('[data-goto-step="8"]').click();
+  await expect(page.locator('#previewStatus')).toHaveText('Up to date');
+  const currentLogo=await page.evaluate(async()=>{const f=document.querySelector('#attendeePreview'),src=f.contentDocument.querySelector('.conference-logo').src;return await(await fetch(src)).text();});
+  expect(currentLogo).toContain('#654321');
+
+  const downloadPending=page.waitForEvent('download');await page.locator('#downloadPackage').click();
+  const download=await downloadPending,zip=await readStoredZip(new Blob([await readFile(await download.path())]));
+  const published=JSON.parse(textEntry(zip,'conference/branding.json'));
+  expect(published).toMatchObject({defaultAppearance:'system',headingFont:'space-grotesk',bodyFont:'noto-serif',brandMode:'combined',logoAlignment:'center',logoSize:52,headerBackgroundLight:'#fefefe',headerBackgroundDark:'#17191f'});
+  expect(published.previewAppearance).toBeUndefined();
+  expect(published.sponsorLogos.map(x=>x.name)).toEqual(['First sponsor','Second sponsor']);
+  expect(published.sponsorLogos[0].height).toBe(62);
+  expect(new TextDecoder().decode(zip.get('conference/'+published.logoLight))).toContain('#654321');
+  expect(new TextDecoder().decode(zip.get('conference/'+published.logoDark))).toContain('#abcdef');
+  expect(zip.has('assets/fonts/fonts.css')).toBe(true);
+  expect(zip.has('assets/fonts/space-grotesk/OFL.txt')).toBe(true);
+});
+
+for(const width of [320,375,768]){
+  test('Step 6 branding controls remain usable at '+width+'px',async({page})=>{
+    await page.setViewportSize({width,height:900});await page.goto('/builder.html');await page.locator('[data-goto-step="6"]').click();
+    await expect(page.locator('#brandingPreviews [data-theme="light"]')).toBeVisible();
+    await page.locator('#bodyFont').selectOption('ibm-plex-sans');
+    await expect(page.locator('#bodyFont')).toHaveValue('ibm-plex-sans');
+    const dimensions=await page.evaluate(()=>({client:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));
+    expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.client);
+  });
+}

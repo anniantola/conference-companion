@@ -1,4 +1,4 @@
-const CACHE = "conference-companion-engine-1.2.2";
+const CACHE = "conference-companion-engine-1.2.3";
 const ENGINE_ASSETS = [
   "./",
   "./index.html",
@@ -23,6 +23,7 @@ const ENGINE_ASSETS = [
   "./src/vendor/qr-scanner/qr-scanner-worker.min.js",
   "./src/backup.js",
   "./src/zip.js",
+  "./assets/fonts/manifest.json",
   "./schemas/conference-manifest.schema.json",
   "./schemas/conference.schema.json",
   "./schemas/programme.schema.json",
@@ -34,7 +35,15 @@ const ENGINE_ASSETS = [
 self.addEventListener("install", event => {
   // Do not call skipWaiting(): an engine update should activate on a clean launch,
   // never by force-reloading a user who may be editing notes/photos.
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ENGINE_ASSETS)));
+  event.waitUntil((async()=>{
+    const cache=await caches.open(CACHE);
+    const response=await fetch("./assets/fonts/manifest.json");
+    if(!response.ok)throw new Error("Offline font manifest could not be loaded");
+    const manifest=await response.clone().json();
+    await cache.put("./assets/fonts/manifest.json",response);
+    const fontAssets=(manifest.assets||[]).map(path=>"./assets/fonts/"+path);
+    await cache.addAll([...ENGINE_ASSETS,...fontAssets]);
+  })());
 });
 
 self.addEventListener("activate", event => {
@@ -53,6 +62,11 @@ self.addEventListener("fetch", event => {
   // scripts can otherwise mix new modules with an old page during note editing.
   const engineUrl = new URL(url.href);engineUrl.search='';
   const isEngineAsset=ENGINE_ASSETS.some(path=>new URL(path,self.location.href).href===engineUrl.href);
+  const isFontAsset=url.pathname.includes("/assets/fonts/");
+  if(url.origin===self.location.origin&&isFontAsset){
+    event.respondWith(caches.open(CACHE).then(cache=>cache.match(engineUrl.href)).then(cached=>cached||fetch(event.request)));
+    return;
+  }
   if(url.origin===self.location.origin&&isEngineAsset){
     event.respondWith(caches.open(CACHE).then(cache=>cache.match(engineUrl.href)).then(cached=>cached||fetch(event.request)));
     return;

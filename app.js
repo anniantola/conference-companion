@@ -23,7 +23,7 @@ import {encodeStoredValue,decodeStoredValue} from './src/user-store.js';
   const defaultState = {
     favorites: [],
     posterFavorites: [],
-    theme: BRANDING.darkMode ? "dark" : "system",
+    theme: BRANDING.previewAppearance || BRANDING.defaultAppearance || (BRANDING.darkMode === true ? "dark" : "system"),
     compact: false,
     timeMode: "conference",
     locationId: "all",
@@ -1499,10 +1499,25 @@ import {encodeStoredValue,decodeStoredValue} from './src/user-store.js';
   function applyTheme() {
     const dark = state.theme === "dark" ||
       (state.theme === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
-    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    const root=document.documentElement,theme=dark?"dark":"light";
+    root.dataset.theme = theme;
     document.documentElement.classList.toggle("compact", !!state.compact);
     document.querySelector('meta[name="theme-color"]').setAttribute("content", dark ? "#000000" : "#f3f4f6");
+    const headerColor=BRANDING[dark?'headerBackgroundDark':'headerBackgroundLight']||(dark?'#191a1d':'#ffffff');
+    root.style.setProperty('--header-background',headerColor);
+    root.style.setProperty('--header-text',contrastRatioFor(headerColor,'#ffffff')>=contrastRatioFor(headerColor,'#111111')?'#ffffff':'#111111');
+    const accent=BRANDING.accent||BRANDING.primary||'#5b4b9a',surface=dark?'#111216':'#ffffff',fallbackForeground=dark?'#ffffff':'#111111';
+    root.style.setProperty('--on-accent',contrastRatioFor(accent,'#ffffff')>=contrastRatioFor(accent,'#111111')?'#ffffff':'#111111');
+    root.style.setProperty('--accent-text',contrastRatioFor(accent,surface)>=4.5?accent:fallbackForeground);
+    const lightLogo=BRANDING.logoLight||BRANDING.logo,darkLogo=BRANDING.logoDark||BRANDING.logo;
+    const logo= document.querySelector('.conference-logo'),fallbackLogo=document.querySelector('.conference-logo-fallback');
+    const source=dark?darkLogo:lightLogo,mode=root.dataset.headerStyle||'combined';
+    if(logo){if(source){const url=packageAssetUrl(source);if(logo.getAttribute('src')!==url)logo.src=url;logo.hidden=mode==='text';}else logo.hidden=true;}
+    if(fallbackLogo)fallbackLogo.hidden=mode==='logo'&&!!source;
+    const sponsors=[...document.querySelectorAll('.sponsor-grid img[data-light],.sponsor-grid img[data-dark]')];
+    for(const image of sponsors){const preferred=dark?image.dataset.dark:image.dataset.light;const selected=preferred||image.dataset.light||image.dataset.dark;if(selected&&image.getAttribute('src')!==selected)image.src=selected;}
   }
+  function contrastRatioFor(a,b){const lum=x=>{const m=/^#([\da-f]{6})$/i.exec(x||'');if(!m)return 0;const c=[0,2,4].map(i=>parseInt(m[1].slice(i,i+2),16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);return .2126*c[0]+.7152*c[1]+.0722*c[2];};const x=lum(a),y=lum(b);return(Math.max(x,y)+.05)/(Math.min(x,y)+.05);}
 
   function timeValue(t) {
     const [h,m] = t.split(":").map(Number);
@@ -2732,7 +2747,10 @@ import {encodeStoredValue,decodeStoredValue} from './src/user-store.js';
     const info=$("#officialConferenceInfo");
     if(info){
       const links=(CONFERENCE.links||[]).map(l=>({link:l,url:normalizeExternalLink(l.url)})).filter(x=>x.url).map(({link,url})=>`<a class="source-card" href="${esc(url)}" target="_blank" rel="noopener noreferrer"><div><strong>${esc(link.label)}</strong><p>${esc(link.description||"")}</p></div><span>↗</span></a>`).join("");
-      const sponsors=(BRANDING.sponsorAssets||[]).map(src=>`<img src="${esc(packageAssetUrl(src))}" alt="Sponsor or partner logo" loading="lazy">`).join("");
+      const sponsorLogos=Array.isArray(BRANDING.sponsorLogos)?BRANDING.sponsorLogos:null;
+      const sponsors=sponsorLogos
+        ?sponsorLogos.map(item=>{const light=item.light?packageAssetUrl(item.light):'',dark=item.dark?packageAssetUrl(item.dark):'',initial=light||dark,height=Math.max(20,Math.min(120,Number(item.height)||48));return initial?`<img src="${esc(initial)}" data-light="${esc(light)}" data-dark="${esc(dark)}" alt="${esc(item.name||'Sponsor or partner logo')}" style="height:${height}px" loading="lazy">`:'';}).join("")
+        :(BRANDING.sponsorAssets||[]).map(src=>`<img src="${esc(packageAssetUrl(src))}" alt="Sponsor or partner logo" loading="lazy">`).join("");
       const contactEmail=normalizeEmail(CONFERENCE.contactEmail);
       info.innerHTML=`<div class="official-info-card"><strong>${esc(CONFERENCE.fullName || CONFERENCE.name || "Conference")}</strong><p>${esc(CONFERENCE.startDate||"")}–${esc(CONFERENCE.endDate||"")}${CONFERENCE.city?` · ${esc(CONFERENCE.city)}`:""}</p>${contactEmail?`<a href="mailto:${esc(contactEmail)}">${esc(contactEmail)}</a>`:""}</div>${links?`<div class="location-list source-links">${links}</div>`:""}${sponsors?`<div class="sponsor-grid">${sponsors}</div>`:""}`;
     }
