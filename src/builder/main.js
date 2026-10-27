@@ -16,7 +16,7 @@ const defaults={
 };
 let project=structuredClone(defaults),rawRows=[],rawHeaders=[],saveTimer=null,pdfPages=[],pendingXlsxFile=null,pendingXlsxSourceId='',selectedRows=new Set();
 const STEP_NAMES=['Conference details','Programme import','Review & fix','People','Locations & tracks','Branding','Features & announcements','Preview, validate & publish'];
-let activeStep=1,latestPackage=null,pendingSave=Promise.resolve(),saveRevision=0,openPersonId='',peopleListSignature='',previewTimer=null,previewAssets=[],pendingPreviewAssets=0,renderRevision=0,appliedRevision=0;
+let activeStep=1,latestPackage=null,pendingSave=Promise.resolve(),saveRevision=0,openPersonId='',peopleListSignature='',previewTimer=null,previewAssets=[],pendingPreviewAssets=0,renderRevision=0,appliedRevision=0,previewGeneration=0,previewRequestRevision=0,previewLaunchedRequestRevision=0,previewStatusTimer=null,previewForceRequested=false,assetIdleResolvers=[];
 const previewIdentity=`builder-preview-${crypto.randomUUID()}`;
 
 function toast(msg){const el=$('#toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),1800);}
@@ -29,7 +29,8 @@ function setStep(step,{focus=false}={}){
   const progress=`Step ${activeStep} of 8 · ${STEP_NAMES[activeStep-1]}`;
   $('#wizardProgress').textContent=progress;$('#wizardFooterProgress').textContent=progress;
   $('#previousStep').disabled=activeStep===1;$('#nextStep').disabled=activeStep===8;
-  if(latestPackage){if(activeStep===4)renderPeopleDirectory(latestPackage);if(activeStep===5)renderLocationEditor(latestPackage.locations.locations||[],latestPackage.programme.tracks||[]);if(activeStep===3){renderRows();renderSessionEditor(latestPackage.programme.sessions||[],latestPackage.locations.locations||[],latestPackage.programme.tracks||[]);}if(activeStep===8&&pendingPreviewAssets===0&&renderRevision===appliedRevision)queuePreview();}
+  if(latestPackage){if(activeStep===4)renderPeopleDirectory(latestPackage);if(activeStep===5)renderLocationEditor(latestPackage.locations.locations||[],latestPackage.programme.tracks||[]);if(activeStep===3){renderRows();renderSessionEditor(latestPackage.programme.sessions||[],latestPackage.locations.locations||[],latestPackage.programme.tracks||[]);}}
+  if(activeStep===8)refreshPreview({force:false});
   if(focus){const title=$(`[data-step="${activeStep}"] h2`);title.setAttribute('tabindex','-1');title.focus();window.scrollTo({top:0,behavior:'instant'});}
   scheduleSave();
 }
@@ -41,7 +42,7 @@ function initWizard(){
 }
 function bindConfig(){
   $$('[data-config]').forEach(input=>{input.value=project.conference[input.dataset.config]||'';input.addEventListener('input',()=>{project.conference[input.dataset.config]=input.value;scheduleSave();renderDerived();});});
-  $$('[data-feature]').forEach(input=>{input.checked=project.features[input.dataset.feature]!==false;input.addEventListener('change',()=>{project.features[input.dataset.feature]=input.checked;scheduleSave();});});
+  $$('[data-feature]').forEach(input=>{input.checked=project.features[input.dataset.feature]!==false;input.addEventListener('change',()=>{project.features[input.dataset.feature]=input.checked;scheduleSave();renderDerived();});});
   $$('[data-policy]').forEach(input=>{input.checked=!!project.policy?.[input.dataset.policy];input.addEventListener('change',()=>{project.policy={...(project.policy||{}),[input.dataset.policy]:input.checked};scheduleSave();renderDerived();});});
   $('#primaryColor').value=project.branding.primary;$('#secondaryColor').value=project.branding.secondary;$('#accentColor').value=project.branding.accent;
   ['primaryColor','secondaryColor','accentColor'].forEach(id=>$('#'+id).addEventListener('input',e=>{project.branding[id.replace('Color','')]=e.target.value;scheduleSave();renderDerived();}));
@@ -101,27 +102,49 @@ function renderRows(){
   updateSelectedCount();
 }
 
-let deriveTimer=null;function renderDerivedDebounced(){clearTimeout(deriveTimer);deriveTimer=setTimeout(renderDerived,150);}
+let deriveTimer=null;function renderDerivedDebounced(){clearTimeout(deriveTimer);deriveTimer=setTimeout(()=>{deriveTimer=null;renderDerived();},150);}
 let previewPayload=null,previewSignature='';
+function setPreviewStatus(state){const el=$('#previewStatus');if(!el)return;el.dataset.state=state;el.textContent=state==='ready'?'Up to date':state==='failed'?'Failed to load preview. Review the project and try Refresh preview.':'Loading preview…';}
+function waitForPreviewAssets(){return pendingPreviewAssets?new Promise(resolve=>assetIdleResolvers.push(resolve)):Promise.resolve();}
+function finishPreviewAssetRead(){pendingPreviewAssets--;if(pendingPreviewAssets)return;const waiting=assetIdleResolvers.splice(0);for(const resolve of waiting)resolve();if(!waiting.length)renderDerived();}
+async function refreshPreview({force=true}={}){
+  if(force)previewForceRequested=true;
+  previewRequestRevision++;
+  if(activeStep===8)setPreviewStatus('loading');
+  clearTimeout(deriveTimer);deriveTimer=null;
+  await waitForPreviewAssets();
+  return renderDerived();
+}
 function previewAsset(asset){if(!asset?.bytes)return '';const url=URL.createObjectURL(new Blob([asset.bytes],{type:asset.type||'image/png'}));previewAssets.push(url);return url;}
 function queuePreview(){
   clearTimeout(previewTimer);
   if(activeStep!==8||!latestPackage||pendingPreviewAssets||renderRevision!==appliedRevision)return;
+  setPreviewStatus('loading');
   previewTimer=setTimeout(()=>{
+    previewTimer=null;
     if(pendingPreviewAssets||renderRevision!==appliedRevision)return;
     const signature=JSON.stringify([latestPackage.conference,latestPackage.programme,latestPackage.people,latestPackage.locations,latestPackage.branding,(project.logo?.bytes||[]).length,(project.sponsorFiles||[]).map(x=>[x.name,x.bytes?.length]),(project.peoplePhotos&&Object.keys(project.peoplePhotos).length)||0]);
-    if(signature===previewSignature&&$('#attendeePreview').src)return;
+    if(!previewForceRequested&&signature===previewSignature&&$('#attendeePreview').getAttribute('src')&&$('#previewStatus').dataset.state!=='failed'){
+      if($('#attendeePreview').contentDocument?.querySelector('#programList')?.innerHTML)setPreviewStatus('ready');
+      return;
+    }
+    previewForceRequested=false;
     previewSignature=signature;
+    const generation=++previewGeneration;
+    previewLaunchedRequestRevision=previewRequestRevision;
     for(const url of previewAssets)URL.revokeObjectURL(url);previewAssets=[];
     const pkg=structuredClone(latestPackage);
     // The real attendee runtime is used, but all its personal storage keys
     // belong to this disposable Builder preview identity.
-    pkg.conference.id=previewIdentity;
+    pkg.conference.id=`${previewIdentity}-${generation}`;
     if(project.logo?.bytes)pkg.branding.logo=previewAsset(project.logo);
     pkg.branding.sponsorAssets=(project.sponsorFiles||[]).map(previewAsset).filter(Boolean);
     for(const person of pkg.people.people||[])if(project.peoplePhotos?.[person.id])person.photoUrl=previewAsset(project.peoplePhotos[person.id]);
     previewPayload=pkg;
-    const frame=$('#attendeePreview');frame.src=`./index.html?builderPreview=1&revision=${Date.now()}`;
+    const frame=$('#attendeePreview');
+    clearTimeout(previewStatusTimer);
+    previewStatusTimer=setTimeout(()=>{if(generation===previewGeneration&&previewLaunchedRequestRevision===previewRequestRevision)setPreviewStatus('failed');},12000);
+    frame.src=`./index.html?builderPreview=1&revision=${generation}`;
   },120);
 }
 function applyPreviewNavigation(){
@@ -132,12 +155,29 @@ function applyPreviewNavigation(){
   if(room)doc.querySelector(`#roomFilters [data-room="${CSS.escape(room)}"]`)?.click();
 }
 function setupPreview(){
+  $('#refreshPreview').addEventListener('click',()=>refreshPreview());
   $('#previewSize').addEventListener('change',event=>{$('#attendeePreview').style.width=`${event.target.value}px`;});
   for(const id of ['previewDate','previewRoom'])$('#'+id).addEventListener('change',applyPreviewNavigation);
+  const frame=$('#attendeePreview');
+  const watch=()=>{
+    const generation=previewGeneration;
+    const check=()=>{
+      if(generation!==previewGeneration||previewLaunchedRequestRevision!==previewRequestRevision||previewTimer||renderRevision!==appliedRevision||$('#previewStatus').dataset.state!=='loading')return;
+      const doc=frame.contentDocument;
+      if(doc?.URL.includes(`revision=${generation}`)&&doc.querySelector('#programList')?.innerHTML){
+        clearTimeout(previewStatusTimer);applyPreviewNavigation();setPreviewStatus('ready');return;
+      }
+      if(doc?.URL.includes(`revision=${generation}`)&&doc.querySelector('main h1')?.textContent==='Conference app could not start'){
+        clearTimeout(previewStatusTimer);setPreviewStatus('failed');return;
+      }
+      setTimeout(check,80);
+    };check();
+  };
+  frame.addEventListener('load',()=>{if(!frame.contentDocument?.URL.includes(`revision=${previewGeneration}`))return;if(previewPayload)frame.contentWindow.postMessage({type:'conference-builder-preview',pkg:previewPayload},location.origin);watch();});
   window.addEventListener('message',event=>{
-    if(event.source!==$('#attendeePreview').contentWindow||event.origin!==location.origin||event.data?.type!=='conference-builder-preview-ready'||!previewPayload)return;
+    if(event.source!==frame.contentWindow||event.origin!==location.origin||event.data?.type!=='conference-builder-preview-ready'||!previewPayload||!frame.contentDocument?.URL.includes(`revision=${previewGeneration}`))return;
     event.source.postMessage({type:'conference-builder-preview',pkg:previewPayload},location.origin);
-    const check=()=>{if(!$('#attendeePreview').contentDocument?.querySelector('.day-tab'))return setTimeout(check,80);applyPreviewNavigation();};check();
+    watch();
   });
 }
 function updatePreviewControls(pkg){
@@ -228,7 +268,11 @@ function renderLocationEditor(locations,tracks){
 
 async function renderDerived(){
   const revision=++renderRevision;
-  const result=await buildPackage(project);if(revision!==renderRevision)return;appliedRevision=revision;scheduleSave();const {pkg,report}=result;if(project.reimportConflicts?.length)report.warnings.push(...project.reimportConflicts);if(project.rows.some(r=>r.personIdentityConflict&&!r.personIdentityResolved)&&!$('#reviewTable tbody [data-person-identity]'))renderRows();
+  previewRequestRevision++;
+  if(activeStep===8)setPreviewStatus('loading');
+  let result;
+  try{result=await buildPackage(project);}catch(error){if(revision===renderRevision){console.error(error);setPreviewStatus('failed');toast(error?.message||'Could not build preview');}return;}
+  if(revision!==renderRevision)return;appliedRevision=revision;scheduleSave();const {pkg,report}=result;if(project.reimportConflicts?.length)report.warnings.push(...project.reimportConflicts);if(project.rows.some(r=>r.personIdentityConflict&&!r.personIdentityResolved)&&!$('#reviewTable tbody [data-person-identity]'))renderRows();
   const conflictPanel=$('#conflictPanel'),conflictList=$('#conflictList'),conflicts=project.reimportConflicts||[];if(conflictPanel){conflictPanel.hidden=!conflicts.length;if(conflictList)conflictList.innerHTML=conflicts.map(x=>`<div class="conflict-item">${escapeHtml(x)}</div>`).join('');}
   latestPackage=pkg;
   updatePreviewControls(pkg);renderBrandingSample(pkg);if(!pendingPreviewAssets)queuePreview();
@@ -291,9 +335,9 @@ async function doImport(){
 }
 
 async function assetFromFile(file){if(!file)return null;const bytes=new Uint8Array(await file.arrayBuffer());const ext=file.type.includes('svg')?'.svg':file.type.includes('jpeg')?'.jpg':file.type.includes('webp')?'.webp':'.png';return{name:file.name,type:file.type,extension:ext,bytes};}
-async function chooseLogo(file){pendingPreviewAssets++;try{project.logo=await assetFromFile(file);scheduleSave();toast(project.logo?'Logo stored in Builder project':'Logo cleared');}finally{pendingPreviewAssets--;if(!pendingPreviewAssets)renderDerived();}}
+async function chooseLogo(file){pendingPreviewAssets++;try{project.logo=await assetFromFile(file);scheduleSave();toast(project.logo?'Logo stored in Builder project':'Logo cleared');}finally{finishPreviewAssetRead();}}
 async function chooseAppIcon(file){project.appIcon=await assetFromFile(file);scheduleSave();toast(project.appIcon?'App icon artwork stored':'App icon cleared');}
-async function chooseSponsors(files){pendingPreviewAssets++;try{project.sponsorFiles=[];for(const file of files||[])project.sponsorFiles.push(await assetFromFile(file));scheduleSave();toast(`${project.sponsorFiles.length} sponsor asset${project.sponsorFiles.length===1?'':'s'} stored`);}finally{pendingPreviewAssets--;if(!pendingPreviewAssets)renderDerived();}}
+async function chooseSponsors(files){pendingPreviewAssets++;try{project.sponsorFiles=[];for(const file of files||[])project.sponsorFiles.push(await assetFromFile(file));scheduleSave();toast(`${project.sponsorFiles.length} sponsor asset${project.sponsorFiles.length===1?'':'s'} stored`);}finally{finishPreviewAssetRead();}}
 async function exportBuilderProject(){try{const blob=await createBuilderProjectFile(project),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`${(project.conference?.shortName||project.conference?.name||'conference').replace(/[^a-z0-9]+/gi,'-').toLowerCase()}-builder-project.zip`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);toast('Builder project exported');}catch(err){console.error(err);toast('Could not export Builder project');}}
 async function importBuilderProject(file){try{const incoming=await readBuilderProjectFile(file);clearTimeout(saveTimer);saveRevision++;await pendingSave.catch(()=>{});project={...structuredClone(defaults),...incoming,conference:{...defaults.conference,...incoming.conference},features:{...defaults.features,...incoming.features},policy:{...defaults.policy,...incoming.policy},branding:{...defaults.branding,...incoming.branding,trackColors:{...(incoming.branding?.trackColors||{})},locationColors:{...(incoming.branding?.locationColors||{})}}};await saveProject(project);location.reload();}catch(err){console.error(err);toast(err?.message||'Could not import Builder project');}}
 
@@ -301,9 +345,9 @@ async function download(){try{const {blob,report,pkg}=await packageZip(project);
 async function confirmPublication(){const {pkg,report}=await buildPackage(project);renderReport(report);if(report.errors.length){toast('Resolve validation errors before confirming publication');return;}if(!confirm(`Confirm that data version ${pkg.manifest.dataVersion} has been deployed to the conference website?`))return;try{await confirmProjectPublication(project,pkg);scheduleSave();updateReleaseStatus();renderDerived();toast(`Version ${pkg.manifest.dataVersion} confirmed as published`);}catch(error){toast(error.message||'Could not confirm publication');}}
 
 async function init(){const saved=await loadProject();if(saved)project={...structuredClone(defaults),...saved,conference:{...defaults.conference,...saved.conference},features:{...defaults.features,...saved.features},policy:{...defaults.policy,...saved.policy},branding:{...defaults.branding,...saved.branding,trackColors:{...defaults.branding.trackColors,...saved.branding?.trackColors},locationColors:{...defaults.branding.locationColors,...saved.branding?.locationColors}},peopleOverrides:{...(saved.peopleOverrides||{})},locationOverrides:{...(saved.locationOverrides||{})},sessionOverrides:{...(saved.sessionOverrides||{})},peoplePhotos:{...(saved.peoplePhotos||{})},extraPeople:Array.isArray(saved.extraPeople)?saved.extraPeople:[],extraLocations:Array.isArray(saved.extraLocations)?saved.extraLocations:[],announcements:Array.isArray(saved.announcements)?saved.announcements:[],deletedSourceIds:Array.isArray(saved.deletedSourceIds)?saved.deletedSourceIds:[],changelog:Array.isArray(saved.changelog)?saved.changelog:[],lastPublishedVersion:Number(saved.lastPublishedVersion||0),lastExportedVersion:Number(saved.lastExportedVersion||0),confirmedPublications:Array.isArray(saved.confirmedPublications)?saved.confirmedPublications:[],identityRegistry:{people:{...(saved.identityRegistry?.people||{})},personRecords:{...(saved.identityRegistry?.personRecords||{})},autoConsolidatedIds:[...(saved.identityRegistry?.autoConsolidatedIds||[])],locations:{...(saved.identityRegistry?.locations||{})},tracks:{...(saved.identityRegistry?.tracks||{})}},logo:saved.logo||null,appIcon:saved.appIcon||null,sponsorFiles:Array.isArray(saved.sponsorFiles)?saved.sponsorFiles:[],sourceFiles:Array.isArray(saved.sourceFiles)?saved.sourceFiles:[]};bindConfig();initBulkEditor();renderRows();renderAnnouncementsBuilder();renderDerived();
-  $('#importProgramme').addEventListener('click',doImport);$('#xlsxSheet').addEventListener('change',e=>loadXlsxWorksheet(e.target.value).catch(err=>{console.error(err);toast(err.message||'Could not load worksheet');}));$('#applyMapping').addEventListener('click',applyMapping);$('#addRow').addEventListener('click',()=>{project.rows.push({id:crypto.randomUUID(),date:'',start:'',end:'',type:'talk',session:'',title:'',speaker:'',chair:'',affiliation:'',location:'',track:'',posterNumber:'',abstract:'',doi:'',manualEdited:true});scheduleSave();renderRows();renderDerived();});$('#logoFile').addEventListener('change',e=>chooseLogo(e.target.files[0]));$('#appIconFile').addEventListener('change',e=>chooseAppIcon(e.target.files[0]));$('#sponsorFiles').addEventListener('change',e=>chooseSponsors([...e.target.files]));$('#exportBuilderProject').addEventListener('click',exportBuilderProject);$('#importBuilderProject').addEventListener('click',()=>$('#builderProjectInput').click());$('#builderProjectInput').addEventListener('change',e=>{if(e.target.files[0])importBuilderProject(e.target.files[0]);e.target.value='';});$('#addPerson').addEventListener('click',async()=>{const id=`person-extra-${crypto.randomUUID()}`;project.extraPeople=[...(project.extraPeople||[]),{id,name:'New person',position:'',affiliation:'',publicEmail:'',orcid:'',website:'',photoUrl:''}];scheduleSave();await renderDerived();openPersonEditor(id);});$('#addLocation').addEventListener('click',()=>{project.extraLocations=[...(project.extraLocations||[]),{id:`loc-extra-${crypto.randomUUID()}`,type:'venue',name:'New location',parentLocationId:'',address:'',mapUrl:'',lat:'',lon:''}];scheduleSave();renderDerived();});$('#addAnnouncement').addEventListener('click',()=>{project.announcements.push({id:crypto.randomUUID(),timestamp:new Date().toISOString(),message:'',affectedIds:[]});scheduleSave();renderAnnouncementsBuilder();});$('#validateProject').addEventListener('click',renderDerived);$('#downloadPackage').addEventListener('click',download);$('#confirmPublication').addEventListener('click',confirmPublication);$('#resetProject').addEventListener('click',async()=>{if(!confirm('Reset the entire Builder project?'))return;clearTimeout(saveTimer);saveRevision++;await pendingSave.catch(()=>{});await clearProject();location.reload();});
+  $('#importProgramme').addEventListener('click',doImport);$('#xlsxSheet').addEventListener('change',e=>loadXlsxWorksheet(e.target.value).catch(err=>{console.error(err);toast(err.message||'Could not load worksheet');}));$('#applyMapping').addEventListener('click',applyMapping);$('#addRow').addEventListener('click',()=>{project.rows.push({id:crypto.randomUUID(),date:'',start:'',end:'',type:'talk',session:'',title:'',speaker:'',chair:'',affiliation:'',location:'',track:'',posterNumber:'',abstract:'',doi:'',manualEdited:true});scheduleSave();renderRows();renderDerived();});$('#logoFile').addEventListener('change',e=>chooseLogo(e.target.files[0]));$('#appIconFile').addEventListener('change',e=>chooseAppIcon(e.target.files[0]));$('#sponsorFiles').addEventListener('change',e=>chooseSponsors([...e.target.files]));$('#exportBuilderProject').addEventListener('click',exportBuilderProject);$('#importBuilderProject').addEventListener('click',()=>$('#builderProjectInput').click());$('#builderProjectInput').addEventListener('change',e=>{if(e.target.files[0])importBuilderProject(e.target.files[0]);e.target.value='';});$('#addPerson').addEventListener('click',async()=>{const id=`person-extra-${crypto.randomUUID()}`;project.extraPeople=[...(project.extraPeople||[]),{id,name:'New person',position:'',affiliation:'',publicEmail:'',orcid:'',website:'',photoUrl:''}];scheduleSave();await renderDerived();openPersonEditor(id);});$('#addLocation').addEventListener('click',()=>{project.extraLocations=[...(project.extraLocations||[]),{id:`loc-extra-${crypto.randomUUID()}`,type:'venue',name:'New location',parentLocationId:'',address:'',mapUrl:'',lat:'',lon:''}];scheduleSave();renderDerived();});$('#addAnnouncement').addEventListener('click',()=>{project.announcements.push({id:crypto.randomUUID(),timestamp:new Date().toISOString(),message:'',affectedIds:[]});scheduleSave();renderAnnouncementsBuilder();});$('#validateProject').addEventListener('click',()=>refreshPreview());$('#downloadPackage').addEventListener('click',download);$('#confirmPublication').addEventListener('click',confirmPublication);$('#resetProject').addEventListener('click',async()=>{if(!confirm('Reset the entire Builder project?'))return;clearTimeout(saveTimer);saveRevision++;await pendingSave.catch(()=>{});await clearProject();location.reload();});
 }
 init().then(()=>{
-  initWizard();initPeopleUi();setupPreview();
+  setupPreview();initWizard();initPeopleUi();
   $('#validationReport').addEventListener('click',event=>{const button=event.target.closest('[data-error-step]');if(!button)return;setStep(button.dataset.errorStep,{focus:true});const id=button.dataset.targetId,type=button.dataset.targetType;if(!id)return;if(type==='person'){openPersonEditor(id);return;}const row=project.rows.find(x=>x.entityId===id||x.id===id);const target=type==='session'?$$('#sessionPreview [data-session-id]').find(el=>el.dataset.sessionId===id):row?$$('#reviewTable tbody tr')[project.rows.indexOf(row)]:null;if(target){target.scrollIntoView({block:'center'});target.querySelector('input,select,textarea')?.focus();}});
 }).catch(error=>{console.error(error);setSaveStatus(`Builder could not load: ${error.message}`,true);});
