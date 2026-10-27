@@ -48,7 +48,8 @@ function applyDocument(pkg,model,loadInfo){
   try{
     const previewData=builderPreview?await new Promise((resolve,reject)=>{
       const timer=setTimeout(()=>reject(new Error('Builder preview did not receive conference data')),12000);
-      window.addEventListener('message',event=>{if(event.source!==window.parent||event.origin!==location.origin||event.data?.type!=='conference-builder-preview')return;clearTimeout(timer);resolve(event.data.pkg);},{once:true});
+      const receive=event=>{if(event.source!==window.parent||event.origin!==location.origin||event.data?.type!=='conference-builder-preview')return;window.removeEventListener('message',receive);clearTimeout(timer);resolve(event.data.pkg);};
+      window.addEventListener('message',receive);
       window.parent.postMessage({type:'conference-builder-preview-ready'},location.origin);
     }):null;
     const loadInfo=builderPreview?{pkg:previewData,source:'Builder preview',warnings:[],updated:false}:await loadConferencePackage(base,ENGINE_VERSION);const pkg=loadInfo.pkg;

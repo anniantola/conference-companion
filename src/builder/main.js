@@ -16,7 +16,7 @@ const defaults={
 };
 let project=structuredClone(defaults),rawRows=[],rawHeaders=[],saveTimer=null,pdfPages=[],pendingXlsxFile=null,pendingXlsxSourceId='',selectedRows=new Set();
 const STEP_NAMES=['Conference details','Programme import','Review & fix','People','Locations & tracks','Branding','Features & announcements','Preview, validate & publish'];
-let activeStep=1,latestPackage=null,pendingSave=Promise.resolve(),saveRevision=0,openPersonId='',peopleListSignature='',previewTimer=null,previewAssets=[];
+let activeStep=1,latestPackage=null,pendingSave=Promise.resolve(),saveRevision=0,openPersonId='',peopleListSignature='',previewTimer=null,previewAssets=[],pendingPreviewAssets=0,renderRevision=0,appliedRevision=0;
 const previewIdentity=`builder-preview-${crypto.randomUUID()}`;
 
 function toast(msg){const el=$('#toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),1800);}
@@ -29,7 +29,7 @@ function setStep(step,{focus=false}={}){
   const progress=`Step ${activeStep} of 8 · ${STEP_NAMES[activeStep-1]}`;
   $('#wizardProgress').textContent=progress;$('#wizardFooterProgress').textContent=progress;
   $('#previousStep').disabled=activeStep===1;$('#nextStep').disabled=activeStep===8;
-  if(latestPackage){if(activeStep===4)renderPeopleDirectory(latestPackage);if(activeStep===5)renderLocationEditor(latestPackage.locations.locations||[],latestPackage.programme.tracks||[]);if(activeStep===3){renderRows();renderSessionEditor(latestPackage.programme.sessions||[],latestPackage.locations.locations||[],latestPackage.programme.tracks||[]);}if(activeStep===8)queuePreview();}
+  if(latestPackage){if(activeStep===4)renderPeopleDirectory(latestPackage);if(activeStep===5)renderLocationEditor(latestPackage.locations.locations||[],latestPackage.programme.tracks||[]);if(activeStep===3){renderRows();renderSessionEditor(latestPackage.programme.sessions||[],latestPackage.locations.locations||[],latestPackage.programme.tracks||[]);}if(activeStep===8&&pendingPreviewAssets===0&&renderRevision===appliedRevision)queuePreview();}
   if(focus){const title=$(`[data-step="${activeStep}"] h2`);title.setAttribute('tabindex','-1');title.focus();window.scrollTo({top:0,behavior:'instant'});}
   scheduleSave();
 }
@@ -102,12 +102,16 @@ function renderRows(){
 }
 
 let deriveTimer=null;function renderDerivedDebounced(){clearTimeout(deriveTimer);deriveTimer=setTimeout(renderDerived,150);}
-let previewPayload=null;
+let previewPayload=null,previewSignature='';
 function previewAsset(asset){if(!asset?.bytes)return '';const url=URL.createObjectURL(new Blob([asset.bytes],{type:asset.type||'image/png'}));previewAssets.push(url);return url;}
 function queuePreview(){
   clearTimeout(previewTimer);
-  if(activeStep!==8||!latestPackage)return;
+  if(activeStep!==8||!latestPackage||pendingPreviewAssets||renderRevision!==appliedRevision)return;
   previewTimer=setTimeout(()=>{
+    if(pendingPreviewAssets||renderRevision!==appliedRevision)return;
+    const signature=JSON.stringify([latestPackage.conference,latestPackage.programme,latestPackage.people,latestPackage.locations,latestPackage.branding,(project.logo?.bytes||[]).length,(project.sponsorFiles||[]).map(x=>[x.name,x.bytes?.length]),(project.peoplePhotos&&Object.keys(project.peoplePhotos).length)||0]);
+    if(signature===previewSignature&&$('#attendeePreview').src)return;
+    previewSignature=signature;
     for(const url of previewAssets)URL.revokeObjectURL(url);previewAssets=[];
     const pkg=structuredClone(latestPackage);
     // The real attendee runtime is used, but all its personal storage keys
@@ -223,10 +227,11 @@ function renderLocationEditor(locations,tracks){
 }
 
 async function renderDerived(){
-  const result=await buildPackage(project);scheduleSave();const {pkg,report}=result;if(project.reimportConflicts?.length)report.warnings.push(...project.reimportConflicts);if(project.rows.some(r=>r.personIdentityConflict&&!r.personIdentityResolved)&&!$('#reviewTable tbody [data-person-identity]'))renderRows();
+  const revision=++renderRevision;
+  const result=await buildPackage(project);if(revision!==renderRevision)return;appliedRevision=revision;scheduleSave();const {pkg,report}=result;if(project.reimportConflicts?.length)report.warnings.push(...project.reimportConflicts);if(project.rows.some(r=>r.personIdentityConflict&&!r.personIdentityResolved)&&!$('#reviewTable tbody [data-person-identity]'))renderRows();
   const conflictPanel=$('#conflictPanel'),conflictList=$('#conflictList'),conflicts=project.reimportConflicts||[];if(conflictPanel){conflictPanel.hidden=!conflicts.length;if(conflictList)conflictList.innerHTML=conflicts.map(x=>`<div class="conflict-item">${escapeHtml(x)}</div>`).join('');}
   latestPackage=pkg;
-  updatePreviewControls(pkg);renderBrandingSample(pkg);queuePreview();
+  updatePreviewControls(pkg);renderBrandingSample(pkg);if(!pendingPreviewAssets)queuePreview();
   renderPeopleDirectory(pkg);
   const trackNames=new Map((pkg.programme.tracks||[]).map(t=>[t.id,t.name]));
   if(activeStep===5&&!document.activeElement?.closest('#locationsPreview'))renderLocationEditor(pkg.locations.locations||[],pkg.programme.tracks||[]);
@@ -286,9 +291,9 @@ async function doImport(){
 }
 
 async function assetFromFile(file){if(!file)return null;const bytes=new Uint8Array(await file.arrayBuffer());const ext=file.type.includes('svg')?'.svg':file.type.includes('jpeg')?'.jpg':file.type.includes('webp')?'.webp':'.png';return{name:file.name,type:file.type,extension:ext,bytes};}
-async function chooseLogo(file){project.logo=await assetFromFile(file);scheduleSave();renderDerived();toast(project.logo?'Logo stored in Builder project':'Logo cleared');}
+async function chooseLogo(file){pendingPreviewAssets++;try{project.logo=await assetFromFile(file);scheduleSave();toast(project.logo?'Logo stored in Builder project':'Logo cleared');}finally{pendingPreviewAssets--;if(!pendingPreviewAssets)renderDerived();}}
 async function chooseAppIcon(file){project.appIcon=await assetFromFile(file);scheduleSave();toast(project.appIcon?'App icon artwork stored':'App icon cleared');}
-async function chooseSponsors(files){project.sponsorFiles=[];for(const file of files||[])project.sponsorFiles.push(await assetFromFile(file));scheduleSave();renderDerived();toast(`${project.sponsorFiles.length} sponsor asset${project.sponsorFiles.length===1?'':'s'} stored`);}
+async function chooseSponsors(files){pendingPreviewAssets++;try{project.sponsorFiles=[];for(const file of files||[])project.sponsorFiles.push(await assetFromFile(file));scheduleSave();toast(`${project.sponsorFiles.length} sponsor asset${project.sponsorFiles.length===1?'':'s'} stored`);}finally{pendingPreviewAssets--;if(!pendingPreviewAssets)renderDerived();}}
 async function exportBuilderProject(){try{const blob=await createBuilderProjectFile(project),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`${(project.conference?.shortName||project.conference?.name||'conference').replace(/[^a-z0-9]+/gi,'-').toLowerCase()}-builder-project.zip`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);toast('Builder project exported');}catch(err){console.error(err);toast('Could not export Builder project');}}
 async function importBuilderProject(file){try{const incoming=await readBuilderProjectFile(file);clearTimeout(saveTimer);saveRevision++;await pendingSave.catch(()=>{});project={...structuredClone(defaults),...incoming,conference:{...defaults.conference,...incoming.conference},features:{...defaults.features,...incoming.features},policy:{...defaults.policy,...incoming.policy},branding:{...defaults.branding,...incoming.branding,trackColors:{...(incoming.branding?.trackColors||{})},locationColors:{...(incoming.branding?.locationColors||{})}}};await saveProject(project);location.reload();}catch(err){console.error(err);toast(err?.message||'Could not import Builder project');}}
 

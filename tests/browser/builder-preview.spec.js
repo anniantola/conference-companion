@@ -23,18 +23,19 @@ test('live Builder preview uses attendee UI, branding, filters and isolated pers
   await page.locator('#logoFile').setInputFiles({name:'pilot-logo.svg',mimeType:'image/svg+xml',buffer:Buffer.from(logo)});
   await page.locator('#sponsorFiles').setInputFiles({name:'sponsor.svg',mimeType:'image/svg+xml',buffer:Buffer.from(logo)});
   await page.locator('[data-goto-step="8"]').click();
-  const frame=page.frameLocator('#attendeePreview');
-  await expect(frame.locator('.brand-lockup')).toContainText('Preview');
-  await expect(frame.locator('.conference-logo')).toBeVisible();
-  await expect(frame.locator('.conference-logo')).toHaveAttribute('src',/^blob:/);
-  await expect(frame.locator('#programList')).toContainText('Synthetic talk 01');
-  await expect.poll(()=>frame.locator('html').evaluate(el=>getComputedStyle(el).getPropertyValue('--accent').trim())).toBe('#d02763');
+  // Firefox can render a dynamically navigated same-origin iframe before
+  // Playwright registers its frame. Read its real DOM through the parent.
+  const preview=selector=>page.evaluate(selector=>document.querySelector('#attendeePreview')?.contentDocument?.querySelector(selector)?.textContent||'',selector);
+  await expect.poll(()=>preview('.brand-lockup')).toContain('Preview');
+  await expect.poll(()=>page.evaluate(()=>document.querySelector('#attendeePreview')?.contentDocument?.querySelector('.conference-logo')?.getAttribute('src')||'')).toMatch(/^blob:/);
+  await expect.poll(()=>preview('#programList')).toContain('Synthetic talk 01');
+  await expect.poll(()=>page.evaluate(()=>document.querySelector('#attendeePreview')?.contentWindow?.getComputedStyle(document.querySelector('#attendeePreview').contentDocument.documentElement).getPropertyValue('--accent').trim()||'')).toBe('#d02763');
   await page.locator('#previewSize').selectOption('768');await expect(page.locator('#attendeePreview')).toHaveCSS('width','768px');
   await page.locator('#previewDate').selectOption('2031-06-11');
-  await expect(frame.locator('#programList')).toContainText('Synthetic talk 29');
+  await expect.poll(()=>preview('#programList')).toContain('Synthetic talk 29');
   await page.locator('#previewRoom').selectOption({label:'Room 1'});
-  await expect(frame.locator('#roomFilters [data-room="all"]')).not.toHaveClass(/active/);
-  const identity=await frame.locator('html').evaluate(()=>window.CONFERENCE_PACKAGE.conference.id);
+  await expect.poll(()=>page.evaluate(()=>document.querySelector('#attendeePreview')?.contentDocument?.querySelector('#roomFilters [data-room="all"]')?.classList.contains('active'))).toBe(false);
+  const identity=await page.evaluate(()=>document.querySelector('#attendeePreview').contentWindow.CONFERENCE_PACKAGE.conference.id);
   expect(identity).toMatch(/^builder-preview-/);
   const saved=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return (await loadProject()).conference.id;});
   expect(identity).not.toBe(saved);
