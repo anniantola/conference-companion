@@ -1,5 +1,9 @@
 # Release protocol (static GitHub Pages pilot)
 
+## v1.2.7 source-removal and compact-control update
+
+In Step 2, inspect the source manager's impact preview before removal. Choose **Remove source and associated programme data** to remove all entries exclusively supported by that file, including organizer corrections. Choose **Remove source but preserve manually edited entries** to keep corrected exclusive entries as independent, visibly labelled manual records; unchanged exclusive entries are deleted. Entries supported by other sources remain, with the removed source detached. Cancel leaves the project unchanged. After confirmation, check Steps 3–5 and Step 8, especially when removing the final source, and save/export a Builder project backup after the result is correct. The Compact Schedule switch aligns its thumb to the track edges using layout; check attendee behavior at narrow and desktop widths.
+
 ## v1.2.6 Builder usability release
 
 Before accepting programme data, review the Step 2 source comparison and choose merge, replace-source, or replace-programme deliberately. Source removal and programme replacement show the affected records before the atomic commit. Use Step 4's contextual identity cards to record same-person or different-person decisions; unresolved groups remain visible. PDF rows are not committed during extraction: inspect confidence groups, correct fields, exclude noise, preview the resulting programme changes, then confirm. Parser heuristics cannot establish correctness for every PDF layout; validate against the actual organizer programme, especially parallel columns, author lines, and OCR results.

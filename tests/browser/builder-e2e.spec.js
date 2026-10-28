@@ -117,8 +117,83 @@ test('multiple programme sources preview cross-file matches, preserve edits, and
   await page.locator('[data-goto-step="3"]').click();await expect(page.locator('#rowCount')).toHaveText('1 rows');await expect(page.locator('[data-field="title"]')).toHaveValue('Organizer corrected title');
   await page.locator('[data-goto-step="2"]').click();await expect(page.locator('#sourceManager [data-source-record]')).toHaveCount(2);
   await page.locator('#sourceManager [data-source-record]').first().locator('summary').click();
-  page.once('dialog',dialog=>{expect(dialog.message()).toContain('entries supported only by this source');dialog.accept();});await page.locator('[data-remove-source]').first().click();
+  await page.locator('[data-remove-source]').first().click();await expect(page.locator('#sourceRemovalDialog')).toBeVisible();
+  await page.locator('[name="sourceRemovalStrategy"][value="remove-associated"]').check();
+  await expect(page.locator('[data-removal-impact="entriesRetainedByOtherSources"]')).toHaveText('1');
+  await expect(page.locator('[data-removal-impact="programmeEntriesToDelete"]')).toHaveText('0');
+  await page.locator('#cancelSourceRemoval').click();await expect(page.locator('#sourceRemovalDialog')).toBeHidden();
+  await expect(page.locator('#sourceManager [data-source-record]')).toHaveCount(2);
+  await page.locator('[data-remove-source]').first().click();
+  await page.locator('[name="sourceRemovalStrategy"][value="remove-associated"]').check();await page.locator('#confirmSourceRemoval').click();
   await page.locator('[data-goto-step="3"]').click();await expect(page.locator('#rowCount')).toHaveText('1 rows');await expect(page.locator('[data-field="title"]')).toHaveValue('Organizer corrected title');
+  await page.locator('[data-goto-step="4"]').click();await expect(page.locator('#peoplePreview')).toContainText('Alex One');
+});
+
+test('removing the last programme source updates rendered people, locations and attendee preview while preserving independent records',async({page})=>{
+  await page.goto('/builder.html');
+  await page.locator('[data-config="name"]').fill('Source removal pilot');await page.locator('[data-config="shortName"]').fill('Removal');
+  await page.locator('[data-config="startDate"]').fill('2032-05-05');await page.locator('[data-config="endDate"]').fill('2032-05-05');
+  await page.locator('[data-goto-step="2"]').click();
+  const csv=`date,start,end,type,session,title,speaker,affiliation,room,track,posterNumber\n2032-05-05,09:00,09:30,talk,Methods,Imported talk,Ada Import,Imported Lab,Hall A,North,\n2032-05-05,12:00,13:00,poster,Poster session,Imported poster,Bea Poster,Poster Lab,Poster Hall,Common,P1`;
+  await page.locator('#programmeFile').setInputFiles({name:'last-source.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
+  await page.locator('#importProgramme').click();await page.locator('#applyMapping').click();await page.locator('#confirmImportChanges').click();
+  await page.locator('[data-goto-step="3"]').click();await expect(page.locator('#rowCount')).toHaveText('2 rows');
+  await page.locator('[data-row="0"][data-field="title"]').fill('Corrected imported talk');
+  await page.locator('#addRow').click();const manualIndex=2;
+  for(const [field,value] of Object.entries({date:'2032-05-05',start:'16:00',end:'16:30',session:'Organizer session',title:'Manual event',location:'Independent room',track:'Independent track'}))await page.locator(`[data-row="${manualIndex}"][data-field="${field}"]`).fill(value);
+  await page.locator('[data-goto-step="4"]').click();await page.locator('#addPerson').click();await page.locator('#personEditor [data-edit-field="name"]').fill('Independent person');await page.locator('#personEditor [data-edit-field="affiliation"]').fill('Independent lab');await page.locator('#personEditForm button[type="submit"]').click();
+  await page.locator('[data-goto-step="5"]').click();await page.locator('#addLocation').click();const independentLocation=page.locator('[data-location-editor]').filter({has:page.locator('[data-location-field="name"][value="New location"]')});
+  await independentLocation.locator('[data-location-field="name"]').fill('Independent room');await independentLocation.locator('[data-location-field="name"]').dispatchEvent('change');
+  await page.locator('[data-goto-step="2"]').click();await page.locator('#sourceManager [data-source-record] summary').click();await page.locator('[data-remove-source]').click();
+  await page.locator('[name="sourceRemovalStrategy"][value="remove-associated"]').check();
+  await expect(page.locator('[data-removal-impact="programmeEntriesToDelete"]')).toHaveText('2');
+  await expect(page.locator('[data-removal-impact="manuallyEditedEntriesAffected"]')).toHaveText('1');
+  await expect(page.locator('[data-removal-impact="peopleDisappearing"]')).toHaveText('2');
+  await expect(page.locator('[data-removal-impact="postersAffected"]')).toHaveText('1');
+  await page.locator('#cancelSourceRemoval').click();await page.locator('[data-remove-source]').click();await page.locator('[name="sourceRemovalStrategy"][value="remove-associated"]').check();await page.locator('#confirmSourceRemoval').click();
+  await page.locator('[data-goto-step="3"]').click();await expect(page.locator('#rowCount')).toHaveText('1 rows');await expect(page.locator('#reviewTable input[data-field="title"]')).toHaveValue('Manual event');await expect(page.locator('#reviewTable input[data-field="title"]')).not.toHaveValue('Corrected imported talk');
+  await page.locator('[data-goto-step="4"]').click();await expect(page.locator('#peoplePreview')).toContainText('Independent person');await expect(page.locator('#peoplePreview')).not.toContainText('Ada Import');await expect(page.locator('#peoplePreview')).not.toContainText('Bea Poster');
+  await page.locator('[data-goto-step="5"]').click();await expect(page.locator('#locationsPreview')).toContainText('Independent room');await expect(page.locator('#locationsPreview')).not.toContainText('Poster Hall');
+  await page.locator('[data-goto-step="8"]').click();await expect.poll(()=>page.evaluate(()=>document.querySelector('#attendeePreview')?.contentDocument?.querySelector('#programList')?.textContent||'')).toContain('Manual event');
+  await expect.poll(()=>page.evaluate(()=>document.querySelector('#attendeePreview')?.contentDocument?.querySelector('#programList')?.textContent||'')).not.toContain('Imported talk');
+  await expect.poll(()=>page.evaluate(()=>document.querySelector('#attendeePreview')?.contentDocument?.querySelector('#programList')?.textContent||'')).not.toContain('Imported poster');
+  const stored=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return loadProject();});
+  expect(stored.sourceFiles).toHaveLength(0);expect(stored.rows.map(row=>row.title)).toEqual(['Manual event']);expect(stored.rows[0].source).toBeUndefined();expect(stored.rows[0].manuallyMaintained).toBeFalsy();
+  await page.reload();await expect(page.locator('[data-step="8"]')).toBeVisible();await page.locator('[data-goto-step="3"]').click();await expect(page.locator('#rowCount')).toHaveText('1 rows');await expect(page.locator('#reviewTable input[data-field="title"]')).toHaveValue('Manual event');
+  await page.locator('[data-goto-step="8"]').click();await expect.poll(()=>page.evaluate(()=>document.querySelector('#attendeePreview')?.contentDocument?.querySelector('#programList')?.textContent||'')).toContain('Manual event');
+  const backupPromise=page.waitForEvent('download');await page.locator('#exportBuilderProject').click();const backup=await backupPromise;
+  page.once('dialog',dialog=>dialog.accept());await page.locator('#resetProject').click();await expect(page.locator('[data-step="1"]')).toBeVisible();
+  page.once('dialog',dialog=>dialog.accept());await page.locator('#builderProjectInput').setInputFiles(await backup.path());await expect.poll(()=>page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return (await loadProject())?.rows?.[0]?.title;})).toBe('Manual event');
+  await page.locator('[data-goto-step="3"]').click();await expect(page.locator('#rowCount')).toHaveText('1 rows');await expect(page.locator('#reviewTable input[data-field="title"]')).toHaveValue('Manual event');
+  const restored=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return loadProject();});expect(restored.sourceFiles).toHaveLength(0);expect(restored.rows[0].source).toBeUndefined();
+});
+
+test('preserved corrections become independent records and reimport requires an explicit match',async({page})=>{
+  await page.goto('/builder.html');await page.locator('[data-config="name"]').fill('Manual record pilot');await page.locator('[data-config="shortName"]').fill('Manual');await page.locator('[data-config="startDate"]').fill('2032-05-06');await page.locator('[data-config="endDate"]').fill('2032-05-06');await page.locator('[data-goto-step="2"]').click();
+  const csv=`date,start,end,type,session,title,speaker,affiliation,room,track\n2032-05-06,09:00,09:30,talk,Methods,Imported title,Alex Researcher,North Lab,Hall A,North`;
+  const upload=()=>page.locator('#programmeFile').setInputFiles({name:'manual-preserve.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
+  await upload();await page.locator('#importProgramme').click();await page.locator('#applyMapping').click();await page.locator('#confirmImportChanges').click();await page.locator('[data-goto-step="3"]').click();await page.locator('[data-field="title"]').fill('Organizer correction');await page.locator('[data-goto-step="8"]').click();await expect(page.locator('#previewStatus')).toHaveText('Up to date');await expect(page.locator('#builderSaveStatus')).toHaveText('Project saved locally');
+  const before=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');const row=(await loadProject()).rows[0];return {id:row.id,calendarUid:row.calendarUid};});
+  await page.locator('[data-goto-step="2"]').click();await page.locator('#sourceManager [data-source-record] summary').click();await page.locator('[data-remove-source]').click();await page.locator('[name="sourceRemovalStrategy"][value="preserve-edited"]').check();
+  await expect(page.locator('[data-removal-impact="programmeEntriesToDelete"]')).toHaveText('0');await expect(page.locator('[data-removal-impact="entriesRetainedAsManual"]')).toHaveText('1');await page.locator('#confirmSourceRemoval').click();
+  await page.locator('[data-goto-step="3"]').click();await expect(page.locator('#reviewTable input[data-field="title"]')).toHaveValue('Organizer correction');await expect(page.locator('#reviewTable')).toContainText('Manually maintained');
+  const detached=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return (await loadProject()).rows[0];});expect(detached.id).toBe(before.id);expect(detached.calendarUid).toBe(before.calendarUid);expect(detached.source).toBeUndefined();expect(detached.manuallyMaintained).toBe(true);
+  await page.reload();await page.locator('[data-goto-step="3"]').click();await expect(page.locator('#reviewTable input[data-field="title"]')).toHaveValue('Organizer correction');await expect(page.locator('#reviewTable')).toContainText('Manually maintained');
+  await page.locator('[data-goto-step="2"]').click();await upload();await page.locator('#importProgramme').click();await page.locator('#applyMapping').click();await expect(page.locator('#importReview')).toContainText('1 uncertain matches');
+  const choice=page.locator('[data-import-match]');await expect(choice.locator('option')).toHaveCount(3);const stillDetached=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return (await loadProject()).rows[0];});expect(stillDetached.title).toBe('Organizer correction');expect(stillDetached.source).toBeUndefined();
+  await choice.selectOption(before.id);await page.locator('#confirmImportChanges').click();await page.locator('[data-goto-step="3"]').click();await expect(page.locator('#rowCount')).toHaveText('1 rows');await expect(page.locator('#reviewTable input[data-field="title"]')).toHaveValue('Organizer correction');
+  const after=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return (await loadProject()).rows[0];});expect(after.id).toBe(before.id);expect(after.calendarUid).toBe(before.calendarUid);
+});
+
+test('a failed source-removal storage transaction leaves both the live and saved programme intact',async({page})=>{
+  await page.goto('/builder.html');await page.locator('[data-goto-step="2"]').click();
+  const csv=`date,start,end,type,session,title,speaker,affiliation,room,track\n2032-05-07,09:00,09:30,talk,Methods,Keep on failure,Ada Example,Lab,Hall A,North`;
+  await page.locator('#programmeFile').setInputFiles({name:'atomic-removal.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});await page.locator('#importProgramme').click();await page.locator('#applyMapping').click();await page.locator('#confirmImportChanges').click();await expect(page.locator('#builderSaveStatus')).toHaveText('Project saved locally');
+  await page.evaluate(()=>{const put=IDBObjectStore.prototype.put;window.originalProjectPut=put;IDBObjectStore.prototype.put=function(...args){const result=put.apply(this,args);if(window.failProjectWrite&&this.name==='projects')queueMicrotask(()=>{try{this.transaction.abort();}catch{}});return result;};window.failProjectWrite=true;});
+  await page.locator('#sourceManager [data-source-record] summary').click();await page.locator('[data-remove-source]').click();await page.locator('[name="sourceRemovalStrategy"][value="remove-associated"]').check();await page.locator('#confirmSourceRemoval').click();
+  await expect(page.locator('#builderSaveStatus')).toContainText('previous project remains intact');await expect(page.locator('#sourceRemovalDialog')).toBeVisible();
+  const saved=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return loadProject();});expect(saved.sourceFiles).toHaveLength(1);expect(saved.rows).toHaveLength(1);expect(saved.rows[0].title).toBe('Keep on failure');
+  await page.evaluate(()=>{window.failProjectWrite=false;IDBObjectStore.prototype.put=window.originalProjectPut;});await page.locator('#cancelSourceRemoval').click();await page.locator('[data-goto-step="3"]').click();await expect(page.locator('#rowCount')).toHaveText('1 rows');await expect(page.locator('#reviewTable input[data-field="title"]')).toHaveValue('Keep on failure');
 });
 
 test('CSV followed by an overlapping XLSX source is matched before one atomic import',async({page})=>{
@@ -132,6 +207,9 @@ test('CSV followed by an overlapping XLSX source is matched before one atomic im
   const before=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js'),p=await loadProject();return p.rows.length;});expect(before).toBe(1,'overlapping XLSX preview must not write duplicated rows');
   await page.locator('#confirmImportChanges').click();await page.locator('[data-goto-step="3"]').click();await expect(page.locator('#rowCount')).toHaveText('1 rows');await expect(page.locator('[data-field="title"]')).toHaveValue('Shared entry');
   await page.locator('[data-goto-step="2"]').click();await expect(page.locator('#sourceManager [data-source-record]')).toHaveCount(2);
+  const xlsxSource=page.locator('#sourceManager [data-source-record]').filter({hasText:'programme.xlsx'});await xlsxSource.locator('summary').click();await xlsxSource.locator('[data-remove-source]').click();await page.locator('[name="sourceRemovalStrategy"][value="remove-associated"]').check();
+  await expect(page.locator('[data-removal-impact="programmeEntriesToDelete"]')).toHaveText('0');await expect(page.locator('[data-removal-impact="entriesRetainedByOtherSources"]')).toHaveText('1');await page.locator('#confirmSourceRemoval').click();
+  await page.locator('[data-goto-step="3"]').click();await expect(page.locator('#rowCount')).toHaveText('1 rows');await expect(page.locator('[data-field="title"]')).toHaveValue('Shared entry');await page.locator('[data-goto-step="2"]').click();await expect(page.locator('#sourceManager [data-source-record]')).toHaveCount(1);
 });
 
 test('uncertain cross-file matches require an explicit decision and can be retained separately',async({page})=>{

@@ -7,8 +7,17 @@ const CALENDAR_FIELDS = new Set(['date','start','end','title','location','sessio
 
 const clean = value => String(value ?? '').trim().toLocaleLowerCase();
 const originalValue = (row, field) => row?.source?.matchData?.[field] ?? row?.source?.raw?.[field] ?? row?.[field] ?? '';
+function provenance(source){
+  if(Array.isArray(source?.sources)&&source.sources.length)return source.sources.map(item=>({...item}));
+  const ids=source?.contributors?.length?source.contributors:[source?.fileId].filter(Boolean);
+  return ids.map(fileId=>{
+    const id=(source?.sourceRecords||[]).find(value=>String(value).startsWith(`${fileId}:`))||(source?.fileId===fileId?source.id:'');
+    return {id:id||`${fileId}:retained`,fileId,...(source?.fileId===fileId?Object.fromEntries(['sheet','row','page','line','column','raw','matchData'].filter(key=>source[key]!==undefined).map(key=>[key,source[key]])): {})};
+  });
+}
 function scoreMatch(old, incoming) {
-  const oldRaw=old?.source?.matchData||old?.source?.raw||old, newRaw=incoming?.source?.matchData||incoming?.source?.raw||incoming;
+  const matchingSource=provenance(old?.source).find(source=>source.fileId&&source.fileId===incoming?.source?.fileId);
+  const oldRaw=matchingSource?.matchData||matchingSource?.raw||old?.source?.matchData||old?.source?.raw||old, newRaw=incoming?.source?.matchData||incoming?.source?.raw||incoming;
   const a={...old,...oldRaw}, b={...incoming,...newRaw};
   // Explicit IDs are handled separately. For ordinary sheets require a title
   // and corroboration from schedule/context fields; source row is never scored.
@@ -112,9 +121,11 @@ export function mergeImportedRows(existingRows, incomingRows, deletedSourceIds =
       speakerEntityIds:[...(incoming.speakerEntityIds?.length?incoming.speakerEntityIds:(old.speakerEntityIds||[]))],
       chairEntityIds:[...(incoming.chairEntityIds?.length?incoming.chairEntityIds:(old.chairEntityIds||[]))]
     };
-    const oldSources=old.source?.contributors||[old.source?.fileId,old.source?.id].filter(Boolean);
-    const newSources=incoming.source?.contributors||[incoming.source?.fileId,incoming.source?.id].filter(Boolean);
-    merged.source={...incoming.source,contributors:[...new Set([...oldSources,...newSources])],sourceRecords:[...new Set([...(old.source?.sourceRecords||[old.source?.id].filter(Boolean)),...(incoming.source?.sourceRecords||[incoming.source?.id].filter(Boolean))])]};
+    const sourceRefs=[...provenance(old.source),...provenance(incoming.source)],sourcesByRecord=new Map();
+    for(const source of sourceRefs){const key=source.id||`${source.fileId}|${source.sheet||''}|${source.row||source.page||''}`;sourcesByRecord.set(key,source);}
+    const sources=[...sourcesByRecord.values()],contributors=[...new Set(sources.map(source=>source.fileId).filter(Boolean))];
+    const primary=sources.find(source=>source.fileId===old.source?.fileId)||sources[0]||incoming.source;
+    merged.source={...old.source,...primary,contributors,sources,sourceRecords:[...new Set(sources.map(source=>source.id).filter(Boolean))]};
     let calendarChanged=false;
     for (const field of PROGRAMME_FIELDS) {
       if (old.manualFields?.[field]) {

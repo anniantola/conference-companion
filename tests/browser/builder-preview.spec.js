@@ -80,7 +80,7 @@ test('contextual validation links directly to the conflicting session editor',as
 
 test('attendee preview compact switch thumb fits in its track across preview widths',async({page})=>{
   await openPilotPreview(page);const frame=page.frameLocator('#attendeePreview');
-  for(const [option,width] of [['320',320],['375',375],['768',768],['1100',1100]]){
+  for(const [option,width] of [['320',320],['375',375],['430',430],['768',768],['1100',1100]]){
     await page.locator('#previewSize').selectOption(option);await expect(page.locator('#attendeePreview')).toHaveCSS('width',`${width}px`);
     await page.locator('.preview-frame-wrap').evaluate(element=>{element.scrollLeft=element.scrollWidth;});
     const settingsNav=frame.locator('.bottom-nav [data-target="settings"]');await expect(settingsNav).toBeVisible();
@@ -88,12 +88,17 @@ test('attendee preview compact switch thumb fits in its track across preview wid
     // wrapper. Dispatch the real nav click handler within the child document,
     // then test the switch's geometry in the rendered attendee view.
     await settingsNav.evaluate(element=>element.click());await expect(frame.locator('.view[data-view="settings"]')).toHaveClass(/active/);const toggle=frame.locator('#compactToggle');await expect(toggle).toBeVisible();
-    for(const checked of [false,true]){
-      if((await toggle.getAttribute('aria-checked'))!==String(checked))await toggle.evaluate(element=>element.click());
-      await expect(toggle).toHaveAttribute('aria-checked',String(checked));
-      const rects=await toggle.evaluate(element=>{const track=element.getBoundingClientRect(),thumb=element.querySelector('span').getBoundingClientRect();return{track:{left:track.left,right:track.right,top:track.top,bottom:track.bottom},thumb:{left:thumb.left,right:thumb.right,top:thumb.top,bottom:thumb.bottom}};});
-      expect(rects.thumb.left).toBeGreaterThanOrEqual(rects.track.left);expect(rects.thumb.right).toBeLessThanOrEqual(rects.track.right);expect(rects.thumb.top).toBeGreaterThanOrEqual(rects.track.top);expect(rects.thumb.bottom).toBeLessThanOrEqual(rects.track.bottom);
+    for(const theme of ['light','dark']){
+      const themeSelect=frame.locator('#themeSelect');await themeSelect.selectOption(theme);await expect(frame.locator('html')).toHaveAttribute('data-theme',theme);
+      for(const checked of [false,true]){
+        if((await toggle.getAttribute('aria-checked'))!==String(checked))await toggle.evaluate(element=>element.click());
+        await expect(toggle).toHaveAttribute('aria-checked',String(checked));
+        const rects=await toggle.evaluate(element=>{const track=element.getBoundingClientRect(),thumb=element.querySelector('span').getBoundingClientRect(),style=getComputedStyle(element);return{track:{left:track.left,right:track.right,top:track.top,bottom:track.bottom},thumb:{left:thumb.left,right:thumb.right,top:thumb.top,bottom:thumb.bottom},innerLeft:track.left+parseFloat(style.borderLeftWidth)+parseFloat(style.paddingLeft),innerRight:track.right-parseFloat(style.borderRightWidth)-parseFloat(style.paddingRight)};});
+        expect(rects.thumb.left).toBeGreaterThanOrEqual(rects.track.left);expect(rects.thumb.right).toBeLessThanOrEqual(rects.track.right);expect(rects.thumb.top).toBeGreaterThanOrEqual(rects.track.top);expect(rects.thumb.bottom).toBeLessThanOrEqual(rects.track.bottom);
+        await expect.poll(()=>toggle.evaluate(element=>{const track=element.getBoundingClientRect(),thumb=element.querySelector('span').getBoundingClientRect(),style=getComputedStyle(element),innerLeft=track.left+parseFloat(style.borderLeftWidth)+parseFloat(style.paddingLeft),innerRight=track.right-parseFloat(style.borderRightWidth)-parseFloat(style.paddingRight);return element.getAttribute('aria-checked')==='true'?Math.abs(innerRight-thumb.right):Math.abs(thumb.left-innerLeft);})).toBeLessThanOrEqual(1);
+      }
     }
+    if((await toggle.getAttribute('aria-checked'))!=='false')await toggle.evaluate(element=>element.click());await toggle.evaluate(element=>element.click());await expect(toggle).toHaveAttribute('aria-checked','true');await toggle.evaluate(element=>element.click());await expect(toggle).toHaveAttribute('aria-checked','false');
   }
 });
 

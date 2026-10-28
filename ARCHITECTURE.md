@@ -374,3 +374,20 @@ objects are converted to byte arrays on project load.
 Bootstrap startup diagnostics use DOM elements and `textContent`, never HTML
 interpolation. The first error line is bounded, and only the conference path
 without query/fragment parameters is displayed.
+
+## 21. Source removal and compact schedule control (v1.2.7)
+
+Source removal is computed against a cloned Builder project with the normal
+package builder. The organizer chooses whether exclusive source-backed rows,
+including corrected rows, are removed, or whether corrected rows become
+source-free manually maintained records. Rows with another contributing source
+lose only the removed contributor. The impact counts come from comparing the
+derived packages before and after the staged operation, including people,
+sessions and posters. The project structure is checked and the staged project
+is persisted as one IndexedDB record before becoming live in the Builder.
+Unused source state, references, and identity metadata are pruned while stable
+IDs and calendar UIDs on retained rows remain unchanged.
+
+The compact schedule switch uses a flex track and start/end alignment for its
+thumb. It has no fixed travel transform, so the thumb position derives from the
+switch's actual inner width and padding.

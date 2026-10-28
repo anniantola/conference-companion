@@ -20,6 +20,16 @@ PDF coverage uses representative synthetic page/column text and a browser PDF.js
 
 ---
 
+# Conference Companion v1.2.7 verification — 2026-10-28
+
+The full Node 22 `npm run test:unit` gate passed, including package schemas and semantic checks, existing project and import regressions, the 91-row/18-poster fixture, multiple poster sessions, deployment ZIP validation, and the new source-removal transaction tests.
+
+The complete Playwright suite passed in Chromium and Firefox: 126 tests total (63 per browser). New browser coverage verifies the source-removal impact dialog and cancellation, deletion of the final imported programme while preserving independent manual rows/people/locations, removed programme disappearance in the rendered Review/People/attendee preview views, corrected-row preservation and explicit reimport matching, XLSX removal while retaining a CSV-shared entry, backup/reload persistence, failed IndexedDB transaction recovery, and compact-toggle alignment at 320, 375, 430, 768, and 1100 px in standalone and Step 8 preview in light and dark themes.
+
+Local WebKit could not launch its first browser process because this host lacks `libavif.so.16`; the failures occur before application code executes. The complete WebKit suite remains covered by the GitHub Actions deployment workflow, which installs Playwright browser dependencies. This is a local runner limitation rather than an application assertion result; confirm the Actions run before release completion.
+
+---
+
 # Builder trust and v1.2.1 verification — 2026-10-26
 
 The complete Node 22 unit/schema/importer/Builder/deployment suite passed after

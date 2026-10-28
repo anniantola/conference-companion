@@ -181,14 +181,20 @@ test('compact schedule has measurable density and persists for Program and My Sc
 test('compact switch thumb stays inside its track at narrow and wide viewports',async({browser})=>{
   const context=await browser.newContext({viewport:{width:375,height:800},hasTouch:true,isMobile:true});const page=await context.newPage();await ready(page);
   await page.locator('[data-target="settings"]').click();const toggle=page.locator('#compactToggle');
-  for(const width of [320,375,430,768,1280]){
+  for(const width of [320,375,430,768,1100]){
     await page.setViewportSize({width,height:800});
+    for(const theme of ['light','dark']){
+      await page.locator('#themeSelect').selectOption(theme);await expect(page.locator('html')).toHaveAttribute('data-theme',theme);
     for(const checked of [false,true]){
       if((await toggle.getAttribute('aria-checked'))!==String(checked))await toggle.click();
       await expect(toggle).toHaveAttribute('aria-checked',String(checked));
-      const bounds=await toggle.evaluate(element=>{const track=element.getBoundingClientRect(),thumb=element.querySelector('span').getBoundingClientRect();return{track:{left:track.left,right:track.right,top:track.top,bottom:track.bottom},thumb:{left:thumb.left,right:thumb.right,top:thumb.top,bottom:thumb.bottom}};});
+      const bounds=await toggle.evaluate(element=>{const track=element.getBoundingClientRect(),thumb=element.querySelector('span').getBoundingClientRect(),style=getComputedStyle(element);return{track:{left:track.left,right:track.right,top:track.top,bottom:track.bottom},thumb:{left:thumb.left,right:thumb.right,top:thumb.top,bottom:thumb.bottom},innerLeft:track.left+parseFloat(style.borderLeftWidth)+parseFloat(style.paddingLeft),innerRight:track.right-parseFloat(style.borderRightWidth)-parseFloat(style.paddingRight)};});
       expect(bounds.thumb.left).toBeGreaterThanOrEqual(bounds.track.left);expect(bounds.thumb.right).toBeLessThanOrEqual(bounds.track.right);expect(bounds.thumb.top).toBeGreaterThanOrEqual(bounds.track.top);expect(bounds.thumb.bottom).toBeLessThanOrEqual(bounds.track.bottom);
+      await expect.poll(()=>toggle.evaluate(element=>{const track=element.getBoundingClientRect(),thumb=element.querySelector('span').getBoundingClientRect(),style=getComputedStyle(element),innerLeft=track.left+parseFloat(style.borderLeftWidth)+parseFloat(style.paddingLeft),innerRight=track.right-parseFloat(style.borderRightWidth)-parseFloat(style.paddingRight);return element.getAttribute('aria-checked')==='true'?Math.abs(innerRight-thumb.right):Math.abs(thumb.left-innerLeft);})).toBeLessThanOrEqual(1);
     }
+    }
+    // Repeated activation must continue toggling state and layout in both directions.
+    if((await toggle.getAttribute('aria-checked'))!=='false')await toggle.click();await toggle.click();await expect(toggle).toHaveAttribute('aria-checked','true');await toggle.click();await expect(toggle).toHaveAttribute('aria-checked','false');
   }
   await context.close();
 });

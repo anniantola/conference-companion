@@ -51,7 +51,7 @@
       </div>
       <section id="importReview" class="import-review" hidden aria-live="polite"></section>
       <section id="pdfReview" class="pdf-review" hidden aria-live="polite"></section>
-      <section class="source-manager"><div class="table-actions"><div><h3>Imported sources</h3><p class="muted">Review each file's contribution. Removing a source keeps manually edited or independently supported entries.</p></div></div><div id="sourceManager" class="source-manager-list"></div></section>
+      <section class="source-manager"><div class="table-actions"><div><h3>Imported sources</h3><p class="muted">Review each file's contribution. When removing a source, choose whether exclusive manual corrections become independent records or are deleted.</p></div></div><div id="sourceManager" class="source-manager-list"></div></section>
     </section>
 
     <section class="panel" data-step="3" hidden>
@@ -128,7 +128,7 @@
     <section class="panel publish-panel" data-step="8" hidden>
       <div class="step-title"><span>8</span><div><h2>Preview, validate & publish</h2><p>Publishing is blocked by structural errors. Warnings remain reviewable.</p></div></div>
       <div class="publish-grid">
-        <div class="attendee-preview"><div class="preview-controls"><label>Screen size<select id="previewSize"><option value="375">Phone · 375 px</option><option value="320">Small phone · 320 px</option><option value="768">Tablet · 768 px</option><option value="1100">Desktop · 1100 px</option></select></label><label>Date<select id="previewDate"></select></label><label>Room<select id="previewRoom"></select></label><label>Preview appearance<select id="previewAppearance"><option value="light">Light</option><option value="dark">Dark</option></select></label><button id="refreshPreview" class="primary-btn" type="button">↻ Refresh preview</button></div><p id="previewStatus" class="preview-status" role="status" aria-live="polite" data-state="loading">Loading preview…</p><div class="preview-frame-wrap"><iframe id="attendeePreview" title="Live attendee application preview"></iframe></div><p class="muted">Live preview uses the attendee application and a separate preview data identity. Date, room, theme, and viewport controls operate the app.</p></div>
+        <div class="attendee-preview"><div class="preview-controls"><label>Screen size<select id="previewSize"><option value="375">Phone · 375 px</option><option value="320">Small phone · 320 px</option><option value="430">Large phone · 430 px</option><option value="768">Tablet · 768 px</option><option value="1100">Desktop · 1100 px</option></select></label><label>Date<select id="previewDate"></select></label><label>Room<select id="previewRoom"></select></label><label>Preview appearance<select id="previewAppearance"><option value="light">Light</option><option value="dark">Dark</option></select></label><button id="refreshPreview" class="primary-btn" type="button">↻ Refresh preview</button></div><p id="previewStatus" class="preview-status" role="status" aria-live="polite" data-state="loading">Loading preview…</p><div class="preview-frame-wrap"><iframe id="attendeePreview" title="Live attendee application preview"></iframe></div><p class="muted">Live preview uses the attendee application and a separate preview data identity. Date, room, theme, and viewport controls operate the app.</p></div>
         <div>
           <div class="release-grid">
             <label>Data version<input id="dataVersion" type="number" min="1" value="1"></label>
@@ -143,6 +143,33 @@
     </section>
     <div class="wizard-footer"><button id="previousStep" class="secondary-btn" type="button">← Previous</button><span id="wizardFooterProgress" class="muted"></span><button id="nextStep" class="primary-btn" type="button">Next →</button></div>
   </main>
+  <dialog id="sourceRemovalDialog" class="source-removal-dialog" aria-labelledby="sourceRemovalTitle">
+    <h2 id="sourceRemovalTitle">Remove imported source?</h2>
+    <p>Choose how to handle programme entries supported by this source. Shared entries remain when another imported source supports them.</p>
+    <fieldset class="source-removal-options">
+      <legend>Programme data options</legend>
+      <label><input type="radio" name="sourceRemovalStrategy" value="remove-associated"><span><strong>Remove source and associated programme data</strong><small>Delete entries supported only by this source, including manually corrected entries.</small></span></label>
+      <label><input type="radio" name="sourceRemovalStrategy" value="preserve-edited"><span><strong>Remove source but preserve manually edited entries</strong><small>Delete unchanged exclusive entries. Detach corrected entries and retain them with their IDs as manually maintained records.</small></span></label>
+    </fieldset>
+    <p id="sourceRemovalDescription" class="source-removal-choice">Choose an option to see exactly what will change.</p>
+    <section id="sourceRemovalImpact" class="source-removal-impact" hidden aria-live="polite">
+      <h3>Impact preview</h3>
+      <dl>
+        <div><dt>Programme entries to delete</dt><dd data-removal-impact="programmeEntriesToDelete">0</dd></div>
+        <div><dt>Manually edited entries affected</dt><dd data-removal-impact="manuallyEditedEntriesAffected">0</dd></div>
+        <div><dt>Entries retained because another source supports them</dt><dd data-removal-impact="entriesRetainedByOtherSources">0</dd></div>
+        <div><dt>Entries retained as manually maintained</dt><dd data-removal-impact="entriesRetainedAsManual">0</dd></div>
+        <div><dt>People disappearing from the programme</dt><dd data-removal-impact="peopleDisappearing">0</dd></div>
+        <div><dt>Programme sessions affected</dt><dd data-removal-impact="sessionsAffected">0</dd></div>
+        <div><dt>Sessions disappearing</dt><dd data-removal-impact="sessionsDisappearing">0</dd></div>
+        <div><dt>Poster sessions affected</dt><dd data-removal-impact="posterSessionsAffected">0</dd></div>
+        <div><dt>Poster sessions disappearing</dt><dd data-removal-impact="posterSessionsDisappearing">0</dd></div>
+        <div><dt>Posters affected</dt><dd data-removal-impact="postersAffected">0</dd></div>
+      </dl>
+      <p>Conference details, branding, independently configured people/locations, and manually created programme rows are preserved.</p>
+    </section>
+    <div class="source-removal-actions"><button id="cancelSourceRemoval" class="secondary-btn" type="button">Cancel</button><button id="confirmSourceRemoval" class="danger-btn" type="button" disabled>Confirm source removal</button></div>
+  </dialog>
   <div id="toast" class="toast"></div>
   <script type="module" src="./src/builder/main.js"></script>
 </body>

@@ -3,6 +3,7 @@ import {parseCSV,guessMapping,rowsFromMapping,importXlsx,listXlsxSheets,importPd
 import {buildPackage,packageZip,packageContentFingerprint,confirmProjectPublication} from './package.js';
 import {createBuilderProjectFile,readBuilderProjectFile,normalizeBuilderProjectAssets,validateBuilderProjectStructure,validateBuilderProjectTrial} from './project-file.js';
 import {mergeImportedRows as mergeProgrammeRows} from './merge.js';
+import {prepareSourceRemoval} from './source-removal.js';
 import {possiblePersonDuplicates,mergePersonProfiles,identityReviewGroups,applyIdentityResolutions} from './people.js';
 import {describeValidationMessage} from './validation-ui.js';
 import {validatePackage} from '../validation.js';
@@ -28,7 +29,7 @@ function normalizeBranding(source={}){
   return b;
 }
 function normalizeSponsorFiles(files=[]){return files.map((item,index)=>item?.bytes?{id:'sponsor-'+(index+1),name:item.name||'Sponsor '+(index+1),light:item,dark:null,height:48}:{id:item?.id||'sponsor-'+(index+1),name:item?.name||'Sponsor '+(index+1),light:item?.light||null,dark:item?.dark||null,height:Math.max(20,Math.min(120,Number(item?.height)||48))});}
-let project=structuredClone(defaults),rawRows=[],rawHeaders=[],saveTimer=null,pdfPages=[],pendingXlsxFile=null,pendingXlsxSourceId='',pendingSourceFile=null,pendingMappedRows=[],pendingPdfAnalysis=null,pendingStructuredPackage=null,loadedWorksheetName='',worksheetLoading=false,selectedRows=new Set(),importRevision=0,commitRevision=0,worksheetRevision=0,importCommitInProgress=false;
+let project=structuredClone(defaults),rawRows=[],rawHeaders=[],saveTimer=null,pdfPages=[],pendingXlsxFile=null,pendingXlsxSourceId='',pendingSourceFile=null,pendingMappedRows=[],pendingPdfAnalysis=null,pendingStructuredPackage=null,loadedWorksheetName='',worksheetLoading=false,selectedRows=new Set(),importRevision=0,commitRevision=0,worksheetRevision=0,importCommitInProgress=false,sourceRemovalPlans=null,sourceRemovalBusy=false;
 const STEP_NAMES=['Conference details','Programme import','Review & fix','People','Locations & tracks','Branding','Features & announcements','Preview, validate & publish'];
 let activeStep=1,latestPackage=null,pendingSave=Promise.resolve(),saveRevision=0,openPersonId='',peopleListSignature='',previewTimer=null,previewAssets=[],pendingPreviewAssets=0,renderRevision=0,appliedRevision=0,previewGeneration=0,previewRequestRevision=0,previewLaunchedRequestRevision=0,previewStatusTimer=null,previewForceRequested=false,assetIdleResolvers=[];
 const previewIdentity=`builder-preview-${crypto.randomUUID()}`;
@@ -138,23 +139,45 @@ function mergeImportedRows(base,nextRows,resolutions={}){return mergeProgrammeRo
 function renderSourceManager(){
   const root=$('#sourceManager');if(!root)return;
   root.innerHTML=(project.sourceFiles||[]).map(source=>{
-    const rows=(project.rows||[]).filter(row=>row.source?.fileId===source.id||row.source?.contributors?.includes(source.id));
+    const rows=(project.rows||[]).filter(row=>(row.source?.contributors||[row.source?.fileId]).includes(source.id));
     const edited=rows.filter(row=>Object.keys(row.manualFields||{}).length),shared=rows.filter(row=>(row.source?.contributors||[]).filter(x=>x!==source.id).length);
     return `<details class="source-record" data-source-record="${escapeHtml(source.id)}"><summary><strong>${escapeHtml(source.name||'Imported file')}</strong><span>${escapeHtml((source.name||'').split('.').pop()?.toUpperCase()||'FILE')}</span><span>${escapeHtml(source.importedAt?new Date(source.importedAt).toLocaleDateString():'Import date unavailable')}</span><span>${rows.length} programme entries</span><span>${Number(source.updatedRecords||0)} updated · ${shared.length} shared · ${edited.length} manually edited</span></summary><div class="source-details"><p>${escapeHtml(source.status||'Imported')} · ${Number(source.contributedRecords||rows.length)} records contributed</p><ul>${rows.map(row=>`<li>${escapeHtml(row.title||'Untitled')} · ${escapeHtml(row.date||'date unknown')} ${escapeHtml(row.start||'')} · ${escapeHtml(row.source?.sheet||'')} ${row.source?.row?`row ${row.source.row}`:row.source?.page?`page ${row.source.page}`:''}${Object.keys(row.manualFields||{}).length?' · organizer edited':''}</li>`).join('')||'<li>No current programme entries</li>'}</ul><button class="secondary-btn" type="button" data-remove-source="${escapeHtml(source.id)}">Remove source…</button></div></details>`;
   }).join('')||'<p class="muted">No programme sources imported yet.</p>';
 }
-async function removeImportedSource(id){
-  const source=(project.sourceFiles||[]).find(item=>item.id===id);if(!source)return;
-  const rows=(project.rows||[]).filter(row=>row.source?.fileId===id||row.source?.contributors?.includes(id));
-  const remove=rows.filter(row=>!Object.keys(row.manualFields||{}).length&&(row.source?.contributors||[]).filter(x=>x!==id).length===0),preserve=rows.length-remove.length;
-  if(!confirm(`Remove ${source.name}? ${remove.length} entries supported only by this source will be removed. ${preserve} manually edited or independently supported entries will stay.`))return;
-  const next=structuredClone(project);next.sourceFiles=next.sourceFiles.filter(item=>item.id!==id);next.rows=next.rows.flatMap(row=>{
-    if(!(row.source?.fileId===id||row.source?.contributors?.includes(id)))return[row];
-    const contributors=(row.source?.contributors||[row.source?.fileId]).filter(x=>x&&x!==id);
-    if(!contributors.length&&!Object.keys(row.manualFields||{}).length){next.deletedSourceIds=[...new Set([...(next.deletedSourceIds||[]),row.source?.id].filter(Boolean))];return[];}
-    row.source.contributors=contributors;return[row];
-  });
-  try{clearTimeout(saveTimer);saveRevision++;await pendingSave.catch(()=>{});await saveProject(next);project=next;renderRows();renderSourceManager();await renderDerived();toast(`Removed source; ${remove.length} source-only entries removed and ${preserve} retained`);}catch(error){setSaveStatus('Source removal was not saved; the prior project remains intact.',true);toast(error.message||'Could not remove source');}
+const sourceRemovalLabel={'remove-associated':'Remove source and associated programme data','preserve-edited':'Remove source but preserve manually edited entries'};
+function renderSourceRemovalImpact(plan){
+  const impact=plan.impact;$('#sourceRemovalDescription').textContent=sourceRemovalLabel[plan.strategy];
+  for(const [key,value] of Object.entries(impact)){const target=$(`[data-removal-impact="${key}"]`);if(target)target.textContent=String(value);}
+}
+async function openSourceRemoval(id){
+  if(sourceRemovalBusy)return;
+  try{
+    const [removeAssociated,preserveEdited]=await Promise.all([prepareSourceRemoval(structuredClone(project),id,'remove-associated'),prepareSourceRemoval(structuredClone(project),id,'preserve-edited')]);
+    if(!(project.sourceFiles||[]).some(source=>source.id===id))return;
+    sourceRemovalPlans={id,options:{'remove-associated':removeAssociated,'preserve-edited':preserveEdited}};
+    const source=(project.sourceFiles||[]).find(item=>item.id===id);$('#sourceRemovalTitle').textContent=`Remove ${source.name||'imported source'}?`;
+    $$('input[name="sourceRemovalStrategy"]').forEach(input=>input.checked=false);
+    $('#sourceRemovalImpact').hidden=true;$('#confirmSourceRemoval').disabled=true;$('#sourceRemovalDescription').textContent='Choose an option to see exactly what will change.';
+    $('#sourceRemovalDialog').showModal();
+  }catch(error){console.error(error);toast(error.message||'Could not prepare source-removal preview; the project was not changed');}
+}
+async function confirmSourceRemoval(){
+  if(sourceRemovalBusy||!sourceRemovalPlans)return;
+  const strategy=$('input[name="sourceRemovalStrategy"]:checked')?.value;if(!strategy)return toast('Choose how to handle programme entries supported by this source');
+  sourceRemovalBusy=true;$('#confirmSourceRemoval').disabled=true;$('#cancelSourceRemoval').disabled=true;
+  const sourceId=sourceRemovalPlans.id;
+  try{
+    ++importRevision;++worksheetRevision;++renderRevision;clearTimeout(deriveTimer);deriveTimer=null;pendingSourceFile=null;pendingMappedRows=[];pendingStructuredPackage=null;pendingPdfAnalysis=null;pendingXlsxFile=null;pendingXlsxSourceId='';
+    clearTimeout(saveTimer);saveRevision++;await pendingSave.catch(()=>{});
+    const plan=await prepareSourceRemoval(structuredClone(project),sourceId,strategy);
+    await saveProject(plan.project);
+    project=plan.project;selectedRows=new Set([...selectedRows].filter(rowId=>project.rows.some(row=>row.id===rowId)));
+    $('#sourceRemovalDialog').close();sourceRemovalPlans=null;
+    renderRows();renderSourceManager();await renderDerived();
+    setSaveStatus('Project saved locally');
+    toast(`Source removed · ${plan.impact.programmeEntriesToDelete} programme entries deleted · ${plan.impact.entriesRetainedAsManual} retained as manually maintained`);
+  }catch(error){console.error(error);setSaveStatus('Source removal was not saved. The previous project remains intact.',true);toast(error.message||'Could not remove source; the previous project remains intact');}
+  finally{sourceRemovalBusy=false;$('#cancelSourceRemoval').disabled=false;$('#confirmSourceRemoval').disabled=!$('input[name="sourceRemovalStrategy"]:checked');}
 }
 async function commitImportedProject(next,revision){
   if(revision!==importRevision)throw new Error('A newer import replaced this result; please apply the current preview.');
@@ -181,11 +204,12 @@ async function applyMapping(){
 }
 function compareProgrammeImport(incoming,mode,source,resolutions={}){
   const original=project.rows||[],merged=mergeImportedRows(structuredClone(project),incoming,resolutions),incomingIds=new Set(incoming.map(row=>row.source.id));
+  const hasIncomingSource=row=>incomingIds.has(row.source?.id)||(row.source?.sourceRecords||[]).some(id=>incomingIds.has(id))||(row.source?.sources||[]).some(sourceRef=>incomingIds.has(sourceRef.id));
   const byId=new Map(original.map(row=>[row.id,row])),matched=new Set(),added=[],updated=[],unchanged=[];
-  for(const row of merged.rows){if(!incomingIds.has(row.source?.id))continue;const old=byId.get(row.id);if(!old){added.push(row);continue;}matched.add(old.id);const changed=FIELDS.some(field=>String(old[field]??'')!==String(row[field]??''));(changed?updated:unchanged).push(row);}
+  for(const row of merged.rows){if(!hasIncomingSource(row))continue;const old=byId.get(row.id);if(!old){added.push(row);continue;}matched.add(old.id);const changed=FIELDS.some(field=>String(old[field]??'')!==String(row[field]??''));(changed?updated:unchanged).push(row);}
   const removed=mode==='replace-programme'?original.filter(row=>!matched.has(row.id)):mode==='replace-source'?original.filter(row=>(row.source?.fileId===source.id||row.source?.contributors?.includes(source.id))&&!matched.has(row.id)&&!Object.keys(row.manualFields||{}).length):[];
   const removedIds=new Set(removed.map(row=>row.id));
-  const rows=mode==='replace-programme'?merged.rows.filter(row=>incomingIds.has(row.source?.id)):mode==='replace-source'?merged.rows.filter(row=>!removedIds.has(row.id)):merged.rows;
+  const rows=mode==='replace-programme'?merged.rows.filter(hasIncomingSource):mode==='replace-source'?merged.rows.filter(row=>!removedIds.has(row.id)):merged.rows;
   return {rows,conflicts:merged.conflicts,reviewMatches:merged.reviewMatches||[],added,updated,unchanged,removed,mode,resolutions};
 }
 function showImportComparison(comparison){
@@ -197,9 +221,9 @@ function showImportComparison(comparison){
 }
 async function confirmMappedImport(comparison){
   const revision=importRevision,source=pendingSourceFile;if(!source||!pendingMappedRows.length)return toast('Import preview is no longer available');
-  try{const next=structuredClone(project),mapping=Object.fromEntries($$('[data-map]').map(el=>[el.dataset.map,el.value]));next.mapping=mapping;next.rows=comparison.rows;next.reimportConflicts=comparison.conflicts;next.sourceState=rawRows.map((row,i)=>({sourceId:`${row.__sourceFileId||'source'}:${row.__sheet||'source'}:${row.__sourceRow||i+1}`,raw:row,mapping}));
+  try{const next=structuredClone(project),mapping=Object.fromEntries($$('[data-map]').map(el=>[el.dataset.map,el.value]));next.mapping=mapping;next.rows=comparison.rows;next.reimportConflicts=comparison.conflicts;const sourceState=(next.sourceState||[]).filter(item=>item?.fileId!==source.id&&item?.sourceFileId!==source.id&&!String(item?.sourceId||'').startsWith(`${source.id}:`));next.sourceState=[...sourceState,...rawRows.map((row,i)=>({fileId:source.id,sourceId:`${row.__sourceFileId||'source'}:${row.__sheet||'source'}:${row.__sourceRow||i+1}`,raw:row,mapping}))];
     const record={...source,importedAt:new Date().toISOString(),contributedRecords:pendingMappedRows.length,updatedRecords:comparison.updated.length,status:'Imported'};const files=(next.sourceFiles||[]).filter(x=>x.id!==source.id&&x.name!==source.name);next.sourceFiles=comparison.mode==='replace-programme'?[record]:[...files,record];if(pendingXlsxFile)next.lastWorksheet=$('#xlsxSheet').value;
-    if(pendingPdfAnalysis?.pages)next.sourceState=pendingPdfAnalysis.pages;
+    if(pendingPdfAnalysis?.pages)next.sourceState=[...(next.sourceState||[]),...pendingPdfAnalysis.pages.map(page=>({...page,sourceFileId:source.id}))];
     if(pendingStructuredPackage){const json=pendingStructuredPackage;next.conference={...next.conference,...json.conference};if(Number.isInteger(Number(json.manifest?.dataVersion)))next.dataVersion=Math.max(Number(next.dataVersion||1),Number(json.manifest.dataVersion));next.changelog=[...new Map([...(next.changelog||[]),...(Array.isArray(json.manifest?.changelog)?json.manifest.changelog:[])].map(item=>[Number(item.version),item])).values()].sort((a,b)=>Number(a.version)-Number(b.version));next.features={...next.features,...(json.conference.features||{})};next.branding={...next.branding,...(json.branding||{}),trackColors:{...(next.branding?.trackColors||{}),...(json.branding?.trackColors||{})},locationColors:{...(next.branding?.locationColors||{}),...(json.branding?.locationColors||{})}};for(const person of json.people?.people||[])next.peopleOverrides[person.id]={...(next.peopleOverrides[person.id]||{}),name:person.name||'',position:person.position||'',affiliation:(person.affiliations||[]).join('; '),publicEmail:person.publicEmail||person.email||'',orcid:person.orcid||'',website:(person.links||[]).find(x=>x.label==='Website')?.url||'',photoUrl:person.photoUrl||'',papers:person.papers||[]};for(const loc of json.locations?.locations||[])next.locationOverrides[loc.id]={...(next.locationOverrides[loc.id]||{}),name:loc.name,type:loc.type,parentLocationId:loc.parentLocationId,address:loc.address,mapUrl:loc.mapUrl,lat:loc.lat,lon:loc.lon};next.announcements=[...(json.programme.announcements||[])];}
     await commitImportedProject(next,revision);pendingSourceFile=null;pendingMappedRows=[];pendingPdfAnalysis=null;pendingStructuredPackage=null;$('#importReview').hidden=true;renderRows();renderDerived();renderSourceManager();$('#importStatus').textContent=`${record.name}: ${comparison.added.length} new, ${comparison.updated.length} updated, ${comparison.unchanged.length} unchanged`;toast('Programme import saved');
   }catch(error){console.error(error);toast(error?.message||'Import failed; existing project preserved');}
@@ -212,7 +236,8 @@ function rowInput(row,index,field){
   const type=field==='date'?'date':(field==='start'||field==='end')?'time':'text';
   const color=field==='location'?project.branding.locationColors?.[row.locationEntityId]:field==='track'?project.branding.trackColors?.[row.trackEntityId]:'';
   const input=`<input type="${type}" data-row="${index}" data-field="${field}" value="${escapeHtml(value)}" ${color?`style="border-left:4px solid ${escapeHtml(color)}"`:''}>`;
-  if(!['speaker','chair'].includes(field)||!row.personIdentityConflict||row.personIdentityResolved)return input;
+  const manualLabel=field==='title'&&row.manuallyMaintained?'<small class="manual-maintained-badge">Manually maintained</small>':'';
+  if(!['speaker','chair'].includes(field)||!row.personIdentityConflict||row.personIdentityResolved)return input+manualLabel;
   const names=String(value).split(/\s*(?:;|\band\b)\s*/i).filter(Boolean),idField=field==='speaker'?'speakerEntityIds':'chairEntityIds';
   const candidateLabel=id=>{const person=latestPackage?.people.people.find(item=>item.id===id);if(!person)return 'Profile context unavailable';const contexts=(project.rows||[]).filter(item=>[...(item.speakerEntityIds||[]),...(item.chairEntityIds||[])].includes(id)).slice(0,2).map(item=>`${item.title||item.session||'Programme entry'} · ${item.date||'date unknown'} ${item.start||''} · ${item.location||'room unknown'}`);return `${person.name} — ${(person.affiliations||[]).join('; ')||'affiliation unavailable'} · ${(person.position||'')} ${contexts.length?`· ${contexts.join(' / ')}`:''}`;};
   const selectors=names.map((name,i)=>{
@@ -221,7 +246,7 @@ function rowInput(row,index,field){
     if(!choices.length)return '';
     return `<label class="identity-choice">Choose profile for ${escapeHtml(name)}<select data-person-identity data-row="${index}" data-person-role="${field}" data-person-name="${escapeHtml(nameKey)}" data-speaker-index="${i}" aria-label="Choose profile for ${escapeHtml(name)}"><option value="">Choose a person…</option>${choices.map(id=>`<option value="${escapeHtml(id)}" ${row[idField]?.[i]===id?'selected':''}>${escapeHtml(candidateLabel(id))}</option>`).join('')}</select></label>`;
   }).join('');
-  return `${input}${selectors}`;
+  return `${input}${manualLabel}${selectors}`;
 }
 function renderRows(){
   const body=$('#reviewTable tbody');
@@ -537,7 +562,10 @@ async function download(){try{const {blob,report,pkg}=await packageZip(project);
 async function confirmPublication(){const {pkg,report}=await buildPackage(project);renderReport(report);if(report.errors.length){toast('Resolve validation errors before confirming publication');return;}if(!confirm(`Confirm that data version ${pkg.manifest.dataVersion} has been deployed to the conference website?`))return;try{await confirmProjectPublication(project,pkg);scheduleSave();updateReleaseStatus();renderDerived();toast(`Version ${pkg.manifest.dataVersion} confirmed as published`);}catch(error){toast(error.message||'Could not confirm publication');}}
 
 async function init(){const saved=await loadProject();if(saved)project={...structuredClone(defaults),...saved,conference:{...defaults.conference,...saved.conference},features:{...defaults.features,...saved.features},policy:{...defaults.policy,...saved.policy},branding:{...defaults.branding,...saved.branding,trackColors:{...defaults.branding.trackColors,...saved.branding?.trackColors},locationColors:{...defaults.branding.locationColors,...saved.branding?.locationColors}},peopleOverrides:{...(saved.peopleOverrides||{})},identityDecisions:{pairs:{...(saved.identityDecisions?.pairs||{})}},locationOverrides:{...(saved.locationOverrides||{})},sessionOverrides:{...(saved.sessionOverrides||{})},peoplePhotos:{...(saved.peoplePhotos||{})},extraPeople:Array.isArray(saved.extraPeople)?saved.extraPeople:[],extraLocations:Array.isArray(saved.extraLocations)?saved.extraLocations:[],announcements:Array.isArray(saved.announcements)?saved.announcements:[],deletedSourceIds:Array.isArray(saved.deletedSourceIds)?saved.deletedSourceIds:[],changelog:Array.isArray(saved.changelog)?saved.changelog:[],lastPublishedVersion:Number(saved.lastPublishedVersion||0),lastExportedVersion:Number(saved.lastExportedVersion||0),confirmedPublications:Array.isArray(saved.confirmedPublications)?saved.confirmedPublications:[],identityRegistry:{people:{...(saved.identityRegistry?.people||{})},personRecords:{...(saved.identityRegistry?.personRecords||{})},autoConsolidatedIds:[...(saved.identityRegistry?.autoConsolidatedIds||[])],locations:{...(saved.identityRegistry?.locations||{})},tracks:{...(saved.identityRegistry?.tracks||{})}},logo:saved.logo||null,appIcon:saved.appIcon||null,sponsorFiles:Array.isArray(saved.sponsorFiles)?saved.sponsorFiles:[],sourceFiles:Array.isArray(saved.sourceFiles)?saved.sourceFiles:[]};project.branding=normalizeBranding(saved?.branding);project.logoLight=saved?.logoLight||null;project.logoDark=saved?.logoDark||null;project.sponsorFiles=normalizeSponsorFiles(saved?.sponsorFiles||[]);normalizeBuilderProjectAssets(project);bindConfig();initBulkEditor();renderRows();renderAnnouncementsBuilder();renderSourceManager();renderDerived();
-  $('#importProgramme').addEventListener('click',doImport);$('#xlsxSheet').addEventListener('change',e=>loadXlsxWorksheet(e.target.value).catch(err=>{console.error(err);toast(err.message||'Could not load worksheet');}));$('#applyMapping').addEventListener('click',applyMapping);$('#sourceManager').addEventListener('click',event=>{const button=event.target.closest('[data-remove-source]');if(button)removeImportedSource(button.dataset.removeSource);});$('#addRow').addEventListener('click',()=>{project.rows.push({id:crypto.randomUUID(),date:'',start:'',end:'',type:'talk',session:'',title:'',speaker:'',chair:'',affiliation:'',location:'',track:'',posterNumber:'',abstract:'',doi:'',manualEdited:true});scheduleSave();renderRows();renderDerived();});$('#logoFile').addEventListener('change',e=>chooseLogo(e.target.files[0]));$('#appIconFile').addEventListener('change',e=>chooseAppIcon(e.target.files[0]));$('#sponsorFiles').addEventListener('change',e=>chooseSponsors([...e.target.files]));$('#exportBuilderProject').addEventListener('click',exportBuilderProject);$('#importBuilderProject').addEventListener('click',()=>$('#builderProjectInput').click());$('#builderProjectInput').addEventListener('change',e=>{if(e.target.files[0])importBuilderProject(e.target.files[0]);e.target.value='';});$('#addPerson').addEventListener('click',async()=>{const id=`person-extra-${crypto.randomUUID()}`;project.extraPeople=[...(project.extraPeople||[]),{id,name:'New person',position:'',affiliation:'',publicEmail:'',orcid:'',website:'',photoUrl:''}];scheduleSave();await renderDerived();openPersonEditor(id);});$('#addLocation').addEventListener('click',()=>{project.extraLocations=[...(project.extraLocations||[]),{id:`loc-extra-${crypto.randomUUID()}`,type:'venue',name:'New location',parentLocationId:'',address:'',mapUrl:'',lat:'',lon:''}];scheduleSave();renderDerived();});$('#addAnnouncement').addEventListener('click',()=>{project.announcements.push({id:crypto.randomUUID(),timestamp:new Date().toISOString(),message:'',affectedIds:[]});scheduleSave();renderAnnouncementsBuilder();});$('#validateProject').addEventListener('click',()=>refreshPreview());$('#downloadPackage').addEventListener('click',download);$('#confirmPublication').addEventListener('click',confirmPublication);$('#resetProject').addEventListener('click',async()=>{if(!confirm('Reset the entire Builder project?'))return;clearTimeout(saveTimer);saveRevision++;await pendingSave.catch(()=>{});await clearProject();location.reload();});
+  $('#importProgramme').addEventListener('click',doImport);$('#xlsxSheet').addEventListener('change',e=>loadXlsxWorksheet(e.target.value).catch(err=>{console.error(err);toast(err.message||'Could not load worksheet');}));$('#applyMapping').addEventListener('click',applyMapping);$('#sourceManager').addEventListener('click',event=>{const button=event.target.closest('[data-remove-source]');if(button)openSourceRemoval(button.dataset.removeSource);});
+  $('#sourceRemovalDialog').addEventListener('change',event=>{const strategy=event.target.value,plan=sourceRemovalPlans?.options[strategy];if(!plan)return;renderSourceRemovalImpact(plan);$('#sourceRemovalImpact').hidden=false;$('#confirmSourceRemoval').disabled=false;});
+  $('#confirmSourceRemoval').addEventListener('click',confirmSourceRemoval);$('#cancelSourceRemoval').addEventListener('click',()=>$('#sourceRemovalDialog').close());$('#sourceRemovalDialog').addEventListener('close',()=>{if(!sourceRemovalBusy)sourceRemovalPlans=null;});$('#sourceRemovalDialog').addEventListener('cancel',()=>{sourceRemovalPlans=null;});
+  $('#addRow').addEventListener('click',()=>{project.rows.push({id:crypto.randomUUID(),date:'',start:'',end:'',type:'talk',session:'',title:'',speaker:'',chair:'',affiliation:'',location:'',track:'',posterNumber:'',abstract:'',doi:'',manualEdited:true});scheduleSave();renderRows();renderDerived();});$('#logoFile').addEventListener('change',e=>chooseLogo(e.target.files[0]));$('#appIconFile').addEventListener('change',e=>chooseAppIcon(e.target.files[0]));$('#sponsorFiles').addEventListener('change',e=>chooseSponsors([...e.target.files]));$('#exportBuilderProject').addEventListener('click',exportBuilderProject);$('#importBuilderProject').addEventListener('click',()=>$('#builderProjectInput').click());$('#builderProjectInput').addEventListener('change',e=>{if(e.target.files[0])importBuilderProject(e.target.files[0]);e.target.value='';});$('#addPerson').addEventListener('click',async()=>{const id=`person-extra-${crypto.randomUUID()}`;project.extraPeople=[...(project.extraPeople||[]),{id,name:'New person',position:'',affiliation:'',publicEmail:'',orcid:'',website:'',photoUrl:''}];scheduleSave();await renderDerived();openPersonEditor(id);});$('#addLocation').addEventListener('click',()=>{project.extraLocations=[...(project.extraLocations||[]),{id:`loc-extra-${crypto.randomUUID()}`,type:'venue',name:'New location',parentLocationId:'',address:'',mapUrl:'',lat:'',lon:''}];scheduleSave();renderDerived();});$('#addAnnouncement').addEventListener('click',()=>{project.announcements.push({id:crypto.randomUUID(),timestamp:new Date().toISOString(),message:'',affectedIds:[]});scheduleSave();renderAnnouncementsBuilder();});$('#validateProject').addEventListener('click',()=>refreshPreview());$('#downloadPackage').addEventListener('click',download);$('#confirmPublication').addEventListener('click',confirmPublication);$('#resetProject').addEventListener('click',async()=>{if(!confirm('Reset the entire Builder project?'))return;clearTimeout(saveTimer);saveRevision++;await pendingSave.catch(()=>{});await clearProject();location.reload();});
 }
 init().then(()=>{
   setupPreview();initWizard();initPeopleUi();
