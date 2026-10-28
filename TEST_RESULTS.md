@@ -1,3 +1,28 @@
+# Conference Companion v1.2.8 verification — 2026-10-28
+
+The complete Node 22 `npm run test:unit` gate passed on the final provenance,
+cleanup, and empty-programme runtime changes. This includes schema and semantic
+validation, the 91-row/18-poster regression, Builder identity/import tests,
+legacy source-journal recovery, source-removal transactions, project backup,
+and generated deployment ZIP validation.
+
+The complete configured browser run executed 201 tests: Chromium passed 67/67
+and Firefox passed 67/67. WebKit's 67 cases could not start because the local
+host lacks `libavif.so.16`; Playwright MiniBrowser exited before application
+code ran. The focused source-cleanup cases passed in Chromium and Firefox,
+including persisted IndexedDB checks, reload, Step 3/4/8 DOM verification, and
+Builder ZIP backup/restore. The deployment workflow installs WebKit system
+dependencies and remains the three-engine verification gate.
+
+The confirmed deletion defect was stale programme rows in Builder project data,
+not a cached preview: missing historical provenance prevented row removal, and
+package generation then kept publishing those rows and their generated people.
+Clearing the final imported programme also exposed an empty-date assumption in
+the attendee status card; empty schedules now start and preview normally.
+
+Physical-device verification of camera/device state, PWA installation, and
+mobile screen readers remains outside this browser test run.
+
 # Reliability update v1.2.5 — 2026-10-28
 
 The complete Node 22 unit gate passed, including all schemas and package fixtures, legacy project migration, asset-byte ZIP round trips, incomplete-draft backup restoration, malformed backup rejection, the 91-row/18-poster CSV case, deployment ZIP validation, and URL/security regressions.

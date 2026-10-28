@@ -7,7 +7,7 @@ import * as qr from './src/qrcode.js';
 import * as backup from './src/backup.js';
 import {normalizeWebUrl} from './src/safe-url.js';
 
-const ENGINE_VERSION='1.2.7';
+const ENGINE_VERSION='1.2.8';
 const qs=new URLSearchParams(location.search);
 const builderPreview=qs.get('builderPreview')==='1'&&window.parent!==window;
 const base=(qs.get('conference')||'./conference').replace(/\/$/,'');
@@ -69,5 +69,6 @@ function legacyFont(value){return value==='serif'?'noto-serif':value==='condense
     window.CONFERENCE_SERVICES={userStore,calendar,vcard,qr,backup,getPackageDiagnostics:()=>getPackageDiagnostics(base),rollbackConferencePackage:()=>rollbackConferencePackage(base),resumeConferencePackageUpdates:()=>resumeConferencePackageUpdates(base)};
     applyDocument(pkg,model,loadInfo);
     await import('./app.js');
+    if(builderPreview)await window.CONFERENCE_APP_READY;
   }catch(err){console.error('Conference Companion startup failed:',err?.name||'Error');fail(err?.message||String(err));}
 })();

@@ -391,3 +391,33 @@ IDs and calendar UIDs on retained rows remain unchanged.
 The compact schedule switch uses a flex track and start/end alignment for its
 thumb. It has no fixed travel transform, so the thumb position derives from the
 switch's actual inner width and padding.
+
+## 22. Historical programme provenance and clearing imported data (v1.2.8)
+
+`src/builder/source-provenance.js` resolves current references (`fileId`,
+`contributors`, `sources`, and `sourceRecords`), legacy source-ID prefixes,
+aliases kept in source/import metadata, and uniquely matching journal records
+using mapped programme fields. Content-based recovery is accepted only when
+the match is strong and unique; conflicting or absent evidence remains
+uncertain. Resolution is idempotent and only writes recovered provenance into
+a staged operation.
+
+Step 2 retains the two per-source removal policies and adds **Clear imported
+programme data** for damaged or obsolete source registries. The clear preview
+shows derived people, sessions/posters, locations and tracks affected. Every
+row with uncertain origin requires an explicit keep-as-manual or delete choice;
+newly created rows are marked as organizer-created. Source removal and clear
+are staged against a cloned project, checked structurally, written in one
+IndexedDB transaction, read back, and rebuilt. Row/source references and a
+content fingerprint are compared with the reviewed plan. A mismatch restores
+the prior project before an error is shown. A loaded empty package is a valid
+Step 8 preview state and reports ready instead of remaining in Loading.
+
+The v1.2.7 failure was primarily data-level: old rows with missing
+`row.source` links remained in the persisted `rows` collection, so normal
+package generation correctly kept rendering them and their people. It was not
+an IndexedDB cache that could be fixed by refreshing the preview. Clearing the
+last imported programme also exposed a runtime status-card assumption that at
+least one date exists; the attendee runtime now renders an explicit empty
+programme state instead of failing startup. Historical source journals stored
+as either arrays or keyed objects are normalized before recovery and removal.

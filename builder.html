@@ -51,7 +51,7 @@
       </div>
       <section id="importReview" class="import-review" hidden aria-live="polite"></section>
       <section id="pdfReview" class="pdf-review" hidden aria-live="polite"></section>
-      <section class="source-manager"><div class="table-actions"><div><h3>Imported sources</h3><p class="muted">Review each file's contribution. When removing a source, choose whether exclusive manual corrections become independent records or are deleted.</p></div></div><div id="sourceManager" class="source-manager-list"></div></section>
+      <section class="source-manager"><div class="table-actions"><div><h3>Imported sources</h3><p class="muted">Review each file's contribution. When removing a source, choose whether exclusive manual corrections become independent records or are deleted.</p></div><button id="clearImportedProgramme" class="danger-btn" type="button">Clear imported programme data…</button></div><div id="sourceManager" class="source-manager-list"></div><p id="orphanProgrammeSummary" class="muted" role="status"></p></section>
     </section>
 
     <section class="panel" data-step="3" hidden>
@@ -159,6 +159,7 @@
         <div><dt>Manually edited entries affected</dt><dd data-removal-impact="manuallyEditedEntriesAffected">0</dd></div>
         <div><dt>Entries retained because another source supports them</dt><dd data-removal-impact="entriesRetainedByOtherSources">0</dd></div>
         <div><dt>Entries retained as manually maintained</dt><dd data-removal-impact="entriesRetainedAsManual">0</dd></div>
+        <div><dt>Entries with uncertain origin retained</dt><dd data-removal-impact="uncertainProgrammeEntriesRetained">0</dd></div>
         <div><dt>People disappearing from the programme</dt><dd data-removal-impact="peopleDisappearing">0</dd></div>
         <div><dt>Programme sessions affected</dt><dd data-removal-impact="sessionsAffected">0</dd></div>
         <div><dt>Sessions disappearing</dt><dd data-removal-impact="sessionsDisappearing">0</dd></div>
@@ -166,9 +167,25 @@
         <div><dt>Poster sessions disappearing</dt><dd data-removal-impact="posterSessionsDisappearing">0</dd></div>
         <div><dt>Posters affected</dt><dd data-removal-impact="postersAffected">0</dd></div>
       </dl>
-      <p>Conference details, branding, independently configured people/locations, and manually created programme rows are preserved.</p>
+      <p>Conference details, branding, independently configured people/locations, and manually created programme rows are preserved. Entries with uncertain origin are retained and must be reviewed with “Clear imported programme data” if they belong to a removed source.</p>
     </section>
     <div class="source-removal-actions"><button id="cancelSourceRemoval" class="secondary-btn" type="button">Cancel</button><button id="confirmSourceRemoval" class="danger-btn" type="button" disabled>Confirm source removal</button></div>
+  </dialog>
+  <dialog id="clearProgrammeDialog" class="source-removal-dialog" aria-labelledby="clearProgrammeTitle">
+    <div class="dialog-head"><div><p class="eyebrow">Programme data</p><h2 id="clearProgrammeTitle">Clear imported programme data?</h2></div></div>
+    <p>Imported entries and source records will be removed. Entries with uncertain origin need an explicit choice. Clearly manual records, conference settings, branding, and independently added people and locations are retained.</p>
+    <section class="source-removal-impact"><h3>Impact preview</h3><dl>
+      <div><dt>Imported entries to delete</dt><dd data-clear-impact="importedEntriesToDelete">0</dd></div>
+      <div><dt>Orphaned entries requiring a choice</dt><dd data-clear-impact="orphanedEntriesUncertain">0</dd></div>
+      <div><dt>Manually created entries to retain</dt><dd data-clear-impact="manualEntriesRetained">0</dd></div>
+      <div><dt>People disappearing</dt><dd data-clear-impact="peopleDisappearing">0</dd></div>
+      <div><dt>Sessions affected</dt><dd data-clear-impact="sessionsAffected">0</dd></div>
+      <div><dt>Posters affected</dt><dd data-clear-impact="postersAffected">0</dd></div>
+      <div><dt>Locations affected</dt><dd data-clear-impact="locationsAffected">0</dd></div>
+      <div><dt>Tracks affected</dt><dd data-clear-impact="tracksAffected">0</dd></div>
+    </dl></section>
+    <section id="uncertainProgrammeRows" class="uncertain-programme-rows" hidden><h3>Records with uncertain origin</h3><p>Choose whether each record should be deleted as imported data or kept as a manually maintained entry.</p><div id="uncertainProgrammeChoices"></div></section>
+    <div class="source-removal-actions"><button id="cancelClearProgramme" class="secondary-btn" type="button">Cancel</button><button id="confirmClearProgramme" class="danger-btn" type="button">Clear imported programme</button></div>
   </dialog>
   <div id="toast" class="toast"></div>
   <script type="module" src="./src/builder/main.js"></script>

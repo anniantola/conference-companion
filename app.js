@@ -1569,6 +1569,7 @@ import {encodeStoredValue,decodeStoredValue} from './src/user-store.js';
   }
 
   function statusForSelectedDay() {
+    if (!DAYS.length) return {title:"No programme available", sub:"The conference programme has not been added yet."};
     const now = conferenceNowParts();
     const day = DAYS.find(d => d.day === state.day);
     const events = ITEMS.filter(e => e.day===state.day).sort((a,b)=>timeValue(a.start)-timeValue(b.start));
@@ -3221,5 +3222,6 @@ import {encodeStoredValue,decodeStoredValue} from './src/user-store.js';
     toast(`${CONFERENCE.shortName || "Conference app"} installed`);
   });
 
-  init();
+  window.CONFERENCE_APP_READY=init();
+  window.CONFERENCE_APP_READY.then(()=>{window.CONFERENCE_APP_INITIALIZED=true;},()=>{});
 })();

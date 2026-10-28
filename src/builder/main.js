@@ -3,7 +3,8 @@ import {parseCSV,guessMapping,rowsFromMapping,importXlsx,listXlsxSheets,importPd
 import {buildPackage,packageZip,packageContentFingerprint,confirmProjectPublication} from './package.js';
 import {createBuilderProjectFile,readBuilderProjectFile,normalizeBuilderProjectAssets,validateBuilderProjectStructure,validateBuilderProjectTrial} from './project-file.js';
 import {mergeImportedRows as mergeProgrammeRows} from './merge.js';
-import {prepareSourceRemoval} from './source-removal.js';
+import {prepareSourceRemoval,prepareClearImportedProgramme} from './source-removal.js';
+import {classifyProgrammeRows,resolveRowProvenance,sourceStateRecords} from './source-provenance.js';
 import {possiblePersonDuplicates,mergePersonProfiles,identityReviewGroups,applyIdentityResolutions} from './people.js';
 import {describeValidationMessage} from './validation-ui.js';
 import {validatePackage} from '../validation.js';
@@ -138,8 +139,11 @@ function showMapping(mapping){const grid=$('#mappingGrid');grid.innerHTML=MAPPIN
 function mergeImportedRows(base,nextRows,resolutions={}){return mergeProgrammeRows(base.rows,nextRows,base.deletedSourceIds,resolutions);}
 function renderSourceManager(){
   const root=$('#sourceManager');if(!root)return;
+  const classified=classifyProgrammeRows(project),provenance=new Map(classified.map(item=>[item.row.id,item]));
+  const uncertain=classified.filter(item=>item.origin==='uncertain').length,orphaned=classified.filter(item=>item.orphaned).length;
+  $('#orphanProgrammeSummary').textContent=uncertain||orphaned?`${orphaned} imported entries have incomplete source links; ${uncertain} entries have uncertain origin. Use “Clear imported programme data” to review and remove orphaned records safely.`:'All programme entries have clear source or manual provenance.';
   root.innerHTML=(project.sourceFiles||[]).map(source=>{
-    const rows=(project.rows||[]).filter(row=>(row.source?.contributors||[row.source?.fileId]).includes(source.id));
+    const rows=(project.rows||[]).filter(row=>provenance.get(row.id)?.sourceIds.includes(source.id));
     const edited=rows.filter(row=>Object.keys(row.manualFields||{}).length),shared=rows.filter(row=>(row.source?.contributors||[]).filter(x=>x!==source.id).length);
     return `<details class="source-record" data-source-record="${escapeHtml(source.id)}"><summary><strong>${escapeHtml(source.name||'Imported file')}</strong><span>${escapeHtml((source.name||'').split('.').pop()?.toUpperCase()||'FILE')}</span><span>${escapeHtml(source.importedAt?new Date(source.importedAt).toLocaleDateString():'Import date unavailable')}</span><span>${rows.length} programme entries</span><span>${Number(source.updatedRecords||0)} updated · ${shared.length} shared · ${edited.length} manually edited</span></summary><div class="source-details"><p>${escapeHtml(source.status||'Imported')} · ${Number(source.contributedRecords||rows.length)} records contributed</p><ul>${rows.map(row=>`<li>${escapeHtml(row.title||'Untitled')} · ${escapeHtml(row.date||'date unknown')} ${escapeHtml(row.start||'')} · ${escapeHtml(row.source?.sheet||'')} ${row.source?.row?`row ${row.source.row}`:row.source?.page?`page ${row.source.page}`:''}${Object.keys(row.manualFields||{}).length?' · organizer edited':''}</li>`).join('')||'<li>No current programme entries</li>'}</ul><button class="secondary-btn" type="button" data-remove-source="${escapeHtml(source.id)}">Remove source…</button></div></details>`;
   }).join('')||'<p class="muted">No programme sources imported yet.</p>';
@@ -169,8 +173,8 @@ async function confirmSourceRemoval(){
   try{
     ++importRevision;++worksheetRevision;++renderRevision;clearTimeout(deriveTimer);deriveTimer=null;pendingSourceFile=null;pendingMappedRows=[];pendingStructuredPackage=null;pendingPdfAnalysis=null;pendingXlsxFile=null;pendingXlsxSourceId='';
     clearTimeout(saveTimer);saveRevision++;await pendingSave.catch(()=>{});
-    const plan=await prepareSourceRemoval(structuredClone(project),sourceId,strategy);
-    await saveProject(plan.project);
+    const previous=structuredClone(project),plan=await prepareSourceRemoval(previous,sourceId,strategy);
+    await persistAndVerifyProject(plan.project,plan);
     project=plan.project;selectedRows=new Set([...selectedRows].filter(rowId=>project.rows.some(row=>row.id===rowId)));
     $('#sourceRemovalDialog').close();sourceRemovalPlans=null;
     renderRows();renderSourceManager();await renderDerived();
@@ -178,6 +182,47 @@ async function confirmSourceRemoval(){
     toast(`Source removed · ${plan.impact.programmeEntriesToDelete} programme entries deleted · ${plan.impact.entriesRetainedAsManual} retained as manually maintained`);
   }catch(error){console.error(error);setSaveStatus('Source removal was not saved. The previous project remains intact.',true);toast(error.message||'Could not remove source; the previous project remains intact');}
   finally{sourceRemovalBusy=false;$('#cancelSourceRemoval').disabled=false;$('#confirmSourceRemoval').disabled=!$('input[name="sourceRemovalStrategy"]:checked');}
+}
+async function persistAndVerifyProject(next,plan){
+  const previous=structuredClone(project),expectedRowIds=(next.rows||[]).map(row=>row.id).sort(),expectedSources=(next.sourceFiles||[]).map(source=>source.id).sort();
+  const removedSourceIds=new Set((previous.sourceFiles||[]).map(source=>source.id).filter(id=>!expectedSources.includes(id)));
+  try{
+    await saveProject(next);
+    const persisted=await loadProject();if(!persisted)throw new Error('The saved project could not be read back from local storage');
+    if(JSON.stringify((persisted.rows||[]).map(row=>row.id).sort())!==JSON.stringify(expectedRowIds))throw new Error('The saved programme rows do not match the removal plan');
+    if(JSON.stringify((persisted.sourceFiles||[]).map(source=>source.id).sort())!==JSON.stringify(expectedSources))throw new Error('The saved source list does not match the removal plan');
+    for(const row of persisted.rows||[]){const source=row.source||{},refs=[source.fileId,...(source.contributors||[]),...(source.sources||[]).flatMap(ref=>[ref?.fileId,ref?.sourceId]),...(source.sourceRecords||[]),source.id].filter(Boolean).map(String);if(refs.some(ref=>[...removedSourceIds].some(id=>ref===id||ref.startsWith(`${id}:`)||ref.startsWith(`${id}/`)||ref.startsWith(`${id}#`))))throw new Error(`Programme entry “${row.title||row.id}” still references a removed source`);const activeRefs=resolveRowProvenance(persisted,row).sourceIds;if(activeRefs.some(id=>!(persisted.sourceFiles||[]).some(sourceFile=>sourceFile.id===id)))throw new Error(`Programme entry “${row.title||row.id}” still references an unavailable source`);}
+    const rebuilt=await buildPackage(persisted);if(plan?.package&&await packageContentFingerprint(rebuilt.pkg)!==await packageContentFingerprint(plan.package))throw new Error('The saved package does not match the reviewed removal result');
+    return persisted;
+  }catch(error){
+    try{await saveProject(previous);}catch(restoreError){throw new Error(`Removal verification failed (${error.message}); restoring the previous Builder project also failed (${restoreError.message})`);}
+    throw new Error(`Removal was not applied: ${error.message}. The previous project was restored.`);
+  }
+}
+let clearProgrammePlan=null,clearProgrammeBusy=false;
+async function openClearProgramme(){
+  if(clearProgrammeBusy)return;
+  try{
+    const plan=await prepareClearImportedProgramme(structuredClone(project),null);clearProgrammePlan=plan;
+    for(const [key,value] of Object.entries(plan.impact)){const target=$(`[data-clear-impact="${key}"]`);if(target&&typeof value==='number')target.textContent=String(value);}
+    const section=$('#uncertainProgrammeRows'),root=$('#uncertainProgrammeChoices');root.innerHTML='';section.hidden=!plan.impact.uncertainRows.length;
+    for(const row of plan.impact.uncertainRows){const item=document.createElement('fieldset');item.className='uncertain-programme-choice';item.dataset.uncertainRow=row.id;item.innerHTML=`<legend>${escapeHtml(row.title)} · ${escapeHtml(row.date||'date unknown')}</legend><label><input type="radio" name="uncertain-${escapeHtml(row.id)}" value="keep"><span>Keep as manually maintained</span></label><label><input type="radio" name="uncertain-${escapeHtml(row.id)}" value="delete"><span>Delete as imported</span></label>`;root.append(item);}
+    $('#confirmClearProgramme').disabled=plan.impact.uncertainRows.length>0;$('#clearProgrammeDialog').showModal();
+  }catch(error){console.error(error);toast(error.message||'Could not prepare imported programme cleanup');}
+}
+async function confirmClearProgramme(){
+  if(clearProgrammeBusy||!clearProgrammePlan)return;
+  const decisions={};for(const row of clearProgrammePlan.impact.uncertainRows){const selected=$(`[name="uncertain-${CSS.escape(row.id)}"]:checked`);if(!selected)return toast(`Choose whether to delete or keep “${row.title}”`);decisions[row.id]=selected.value;}
+  clearProgrammeBusy=true;$('#confirmClearProgramme').disabled=true;$('#cancelClearProgramme').disabled=true;
+  try{
+    ++importRevision;++worksheetRevision;++renderRevision;clearTimeout(deriveTimer);deriveTimer=null;pendingSourceFile=null;pendingMappedRows=[];pendingStructuredPackage=null;pendingPdfAnalysis=null;pendingXlsxFile=null;pendingXlsxSourceId='';
+    clearTimeout(saveTimer);saveRevision++;await pendingSave.catch(()=>{});
+    const plan=await prepareClearImportedProgramme(structuredClone(project),decisions);await persistAndVerifyProject(plan.project,plan);
+    project=plan.project;selectedRows.clear();sourceRemovalPlans=null;clearProgrammePlan=null;$('#clearProgrammeDialog').close();
+    renderRows();renderSourceManager();await renderDerived();
+    setSaveStatus('Project saved locally');toast(`Imported programme cleared · ${plan.impact.importedEntriesToDelete+plan.impact.uncertainEntriesSelected} entries deleted · ${plan.impact.manualEntriesRetained} manual entries retained`);
+  }catch(error){console.error(error);setSaveStatus('Programme cleanup was not saved. The previous project remains intact.',true);toast(error.message||'Could not clear imported programme data');}
+  finally{clearProgrammeBusy=false;$('#cancelClearProgramme').disabled=false;$('#confirmClearProgramme').disabled=false;}
 }
 async function commitImportedProject(next,revision){
   if(revision!==importRevision)throw new Error('A newer import replaced this result; please apply the current preview.');
@@ -221,7 +266,7 @@ function showImportComparison(comparison){
 }
 async function confirmMappedImport(comparison){
   const revision=importRevision,source=pendingSourceFile;if(!source||!pendingMappedRows.length)return toast('Import preview is no longer available');
-  try{const next=structuredClone(project),mapping=Object.fromEntries($$('[data-map]').map(el=>[el.dataset.map,el.value]));next.mapping=mapping;next.rows=comparison.rows;next.reimportConflicts=comparison.conflicts;const sourceState=(next.sourceState||[]).filter(item=>item?.fileId!==source.id&&item?.sourceFileId!==source.id&&!String(item?.sourceId||'').startsWith(`${source.id}:`));next.sourceState=[...sourceState,...rawRows.map((row,i)=>({fileId:source.id,sourceId:`${row.__sourceFileId||'source'}:${row.__sheet||'source'}:${row.__sourceRow||i+1}`,raw:row,mapping}))];
+  try{const next=structuredClone(project),mapping=Object.fromEntries($$('[data-map]').map(el=>[el.dataset.map,el.value]));next.mapping=mapping;next.rows=comparison.rows;next.reimportConflicts=comparison.conflicts;const sourceState=sourceStateRecords(next).filter(item=>item.fileId!==source.id&&!String(item.sourceRecordId||'').startsWith(`${source.id}:`));next.sourceState=[...sourceState,...rawRows.map((row,i)=>({fileId:source.id,sourceId:`${row.__sourceFileId||'source'}:${row.__sheet||'source'}:${row.__sourceRow||i+1}`,raw:row,mapping}))];
     const record={...source,importedAt:new Date().toISOString(),contributedRecords:pendingMappedRows.length,updatedRecords:comparison.updated.length,status:'Imported'};const files=(next.sourceFiles||[]).filter(x=>x.id!==source.id&&x.name!==source.name);next.sourceFiles=comparison.mode==='replace-programme'?[record]:[...files,record];if(pendingXlsxFile)next.lastWorksheet=$('#xlsxSheet').value;
     if(pendingPdfAnalysis?.pages)next.sourceState=[...(next.sourceState||[]),...pendingPdfAnalysis.pages.map(page=>({...page,sourceFileId:source.id}))];
     if(pendingStructuredPackage){const json=pendingStructuredPackage;next.conference={...next.conference,...json.conference};if(Number.isInteger(Number(json.manifest?.dataVersion)))next.dataVersion=Math.max(Number(next.dataVersion||1),Number(json.manifest.dataVersion));next.changelog=[...new Map([...(next.changelog||[]),...(Array.isArray(json.manifest?.changelog)?json.manifest.changelog:[])].map(item=>[Number(item.version),item])).values()].sort((a,b)=>Number(a.version)-Number(b.version));next.features={...next.features,...(json.conference.features||{})};next.branding={...next.branding,...(json.branding||{}),trackColors:{...(next.branding?.trackColors||{}),...(json.branding?.trackColors||{})},locationColors:{...(next.branding?.locationColors||{}),...(json.branding?.locationColors||{})}};for(const person of json.people?.people||[])next.peopleOverrides[person.id]={...(next.peopleOverrides[person.id]||{}),name:person.name||'',position:person.position||'',affiliation:(person.affiliations||[]).join('; '),publicEmail:person.publicEmail||person.email||'',orcid:person.orcid||'',website:(person.links||[]).find(x=>x.label==='Website')?.url||'',photoUrl:person.photoUrl||'',papers:person.papers||[]};for(const loc of json.locations?.locations||[])next.locationOverrides[loc.id]={...(next.locationOverrides[loc.id]||{}),name:loc.name,type:loc.type,parentLocationId:loc.parentLocationId,address:loc.address,mapUrl:loc.mapUrl,lat:loc.lat,lon:loc.lon};next.announcements=[...(json.programme.announcements||[])];}
@@ -283,7 +328,7 @@ function queuePreview(){
     if(pendingPreviewAssets||renderRevision!==appliedRevision)return;
     const signature=JSON.stringify([latestPackage.conference,latestPackage.programme,latestPackage.people,latestPackage.locations,latestPackage.branding,assetContentKey(project.logo),assetContentKey(project.logoLight),assetContentKey(project.logoDark),assetContentKey(project.appIcon),(project.sponsorFiles||[]).map(x=>[x.name,x.height,assetContentKey(x.light||x),assetContentKey(x.dark)]),Object.entries(project.peoplePhotos||{}).map(([id,x])=>[id,assetContentKey(x)])]);
     if(!previewForceRequested&&signature===previewSignature&&$('#attendeePreview').getAttribute('src')&&$('#previewStatus').dataset.state!=='failed'){
-      if($('#attendeePreview').contentDocument?.querySelector('#programList')?.innerHTML)setPreviewStatus('ready');
+      if($('#attendeePreview').contentWindow?.CONFERENCE_APP_INITIALIZED===true&&$('#attendeePreview').contentWindow?.CONFERENCE_PACKAGE?.conference?.id===`${previewIdentity}-${previewGeneration}`)setPreviewStatus('ready');
       return;
     }
     previewForceRequested=false;
@@ -330,7 +375,7 @@ function setupPreview(){
     const check=()=>{
       if(generation!==previewGeneration||previewLaunchedRequestRevision!==previewRequestRevision||previewTimer||renderRevision!==appliedRevision||$('#previewStatus').dataset.state!=='loading')return;
       const doc=frame.contentDocument;
-      if(doc?.URL.includes(`revision=${generation}`)&&doc.querySelector('#programList')?.innerHTML){
+      if(doc?.URL.includes(`revision=${generation}`)&&frame.contentWindow?.CONFERENCE_APP_INITIALIZED===true&&frame.contentWindow?.CONFERENCE_PACKAGE?.conference?.id===`${previewIdentity}-${generation}`){
         clearTimeout(previewStatusTimer);applyPreviewNavigation();setPreviewStatus('ready');return;
       }
       if(doc?.URL.includes(`revision=${generation}`)&&doc.querySelector('main h1')?.textContent==='Conference app could not start'){
@@ -565,9 +610,11 @@ async function init(){const saved=await loadProject();if(saved)project={...struc
   $('#importProgramme').addEventListener('click',doImport);$('#xlsxSheet').addEventListener('change',e=>loadXlsxWorksheet(e.target.value).catch(err=>{console.error(err);toast(err.message||'Could not load worksheet');}));$('#applyMapping').addEventListener('click',applyMapping);$('#sourceManager').addEventListener('click',event=>{const button=event.target.closest('[data-remove-source]');if(button)openSourceRemoval(button.dataset.removeSource);});
   $('#sourceRemovalDialog').addEventListener('change',event=>{const strategy=event.target.value,plan=sourceRemovalPlans?.options[strategy];if(!plan)return;renderSourceRemovalImpact(plan);$('#sourceRemovalImpact').hidden=false;$('#confirmSourceRemoval').disabled=false;});
   $('#confirmSourceRemoval').addEventListener('click',confirmSourceRemoval);$('#cancelSourceRemoval').addEventListener('click',()=>$('#sourceRemovalDialog').close());$('#sourceRemovalDialog').addEventListener('close',()=>{if(!sourceRemovalBusy)sourceRemovalPlans=null;});$('#sourceRemovalDialog').addEventListener('cancel',()=>{sourceRemovalPlans=null;});
+  $('#clearImportedProgramme').addEventListener('click',openClearProgramme);$('#cancelClearProgramme').addEventListener('click',()=>$('#clearProgrammeDialog').close());$('#confirmClearProgramme').addEventListener('click',confirmClearProgramme);$('#clearProgrammeDialog').addEventListener('change',()=>{const complete=clearProgrammePlan?.impact.uncertainRows.every(row=>!!$(`[name="uncertain-${CSS.escape(row.id)}"]:checked`));$('#confirmClearProgramme').disabled=!complete;});
   $('#addRow').addEventListener('click',()=>{project.rows.push({id:crypto.randomUUID(),date:'',start:'',end:'',type:'talk',session:'',title:'',speaker:'',chair:'',affiliation:'',location:'',track:'',posterNumber:'',abstract:'',doi:'',manualEdited:true});scheduleSave();renderRows();renderDerived();});$('#logoFile').addEventListener('change',e=>chooseLogo(e.target.files[0]));$('#appIconFile').addEventListener('change',e=>chooseAppIcon(e.target.files[0]));$('#sponsorFiles').addEventListener('change',e=>chooseSponsors([...e.target.files]));$('#exportBuilderProject').addEventListener('click',exportBuilderProject);$('#importBuilderProject').addEventListener('click',()=>$('#builderProjectInput').click());$('#builderProjectInput').addEventListener('change',e=>{if(e.target.files[0])importBuilderProject(e.target.files[0]);e.target.value='';});$('#addPerson').addEventListener('click',async()=>{const id=`person-extra-${crypto.randomUUID()}`;project.extraPeople=[...(project.extraPeople||[]),{id,name:'New person',position:'',affiliation:'',publicEmail:'',orcid:'',website:'',photoUrl:''}];scheduleSave();await renderDerived();openPersonEditor(id);});$('#addLocation').addEventListener('click',()=>{project.extraLocations=[...(project.extraLocations||[]),{id:`loc-extra-${crypto.randomUUID()}`,type:'venue',name:'New location',parentLocationId:'',address:'',mapUrl:'',lat:'',lon:''}];scheduleSave();renderDerived();});$('#addAnnouncement').addEventListener('click',()=>{project.announcements.push({id:crypto.randomUUID(),timestamp:new Date().toISOString(),message:'',affectedIds:[]});scheduleSave();renderAnnouncementsBuilder();});$('#validateProject').addEventListener('click',()=>refreshPreview());$('#downloadPackage').addEventListener('click',download);$('#confirmPublication').addEventListener('click',confirmPublication);$('#resetProject').addEventListener('click',async()=>{if(!confirm('Reset the entire Builder project?'))return;clearTimeout(saveTimer);saveRevision++;await pendingSave.catch(()=>{});await clearProject();location.reload();});
 }
 init().then(()=>{
+  $('#addRow').addEventListener('click',()=>{const row=project.rows.at(-1);if(row)row.manuallyCreated=true;});
   setupPreview();initWizard();initPeopleUi();
   $('#validationReport').addEventListener('click',event=>{const button=event.target.closest('[data-error-step]');if(!button)return;setStep(button.dataset.errorStep,{focus:true});const id=button.dataset.targetId,type=button.dataset.targetType;if(!id)return;if(type==='person'){openPersonEditor(id);return;}const row=project.rows.find(x=>x.entityId===id||x.id===id);const target=type==='session'?$$('#sessionPreview [data-session-id]').find(el=>el.dataset.sessionId===id):row?$$('#reviewTable tbody tr')[project.rows.indexOf(row)]:null;if(target){target.scrollIntoView({block:'center'});target.querySelector('input,select,textarea')?.focus();}});
 }).catch(error=>{console.error(error);setSaveStatus(`Builder could not load: ${error.message}`,true);});

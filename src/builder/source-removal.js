@@ -1,5 +1,6 @@
 import {buildPackage} from './package.js';
 import {validateBuilderProjectStructure} from './project-file.js';
+import {classifyProgrammeRows,reconcileSourceProvenance,sourceStateRecords} from './source-provenance.js';
 
 const edited=row=>Object.keys(row.manualFields||{}).length>0;
 const rowSources=source=>[...new Set(source?.contributors?.length?source.contributors:[source?.fileId].filter(Boolean))];
@@ -34,6 +35,10 @@ function pruneDerivedMetadata(project,pkg){
   for(const id of Object.keys(registry.personRecords||{}))if(!activePersonIds.has(canonical(id)))delete registry.personRecords[id];
   for(const [key,id] of Object.entries(registry.people||{}))if(!activePersonIds.has(canonical(id)))delete registry.people[key];
   if(registry.autoConsolidatedIds)registry.autoConsolidatedIds=registry.autoConsolidatedIds.filter(id=>activePersonIds.has(canonical(id)));
+  const activeLocationIds=new Set((pkg.locations?.locations||[]).map(item=>item.id));
+  for(const [key,id] of Object.entries(registry.locations||{}))if(!activeLocationIds.has(id))delete registry.locations[key];
+  const activeTrackIds=new Set((pkg.programme?.tracks||[]).map(item=>item.id));
+  for(const [key,id] of Object.entries(registry.tracks||{}))if(!activeTrackIds.has(id))delete registry.tracks[key];
   for(const key of ['peopleOverrides','peoplePhotos','mergedPersonPhotos'])for(const id of Object.keys(project[key]||{}))if(!personIds.has(canonical(id)))delete project[key][id];
   if(project.identityDecisions?.pairs)for(const pair of Object.keys(project.identityDecisions.pairs)){const [first,second]=pair.split('::');if(!personIds.has(canonical(first))||!personIds.has(canonical(second)))delete project.identityDecisions.pairs[pair];}
   const sessionIds=new Set((pkg.programme?.sessions||[]).map(session=>session.id));
@@ -50,10 +55,12 @@ export async function prepareSourceRemoval(project,sourceId,strategy){
   if(!['remove-associated','preserve-edited'].includes(strategy))throw new Error('Choose whether to remove associated programme data or preserve edited entries');
   const source=(project.sourceFiles||[]).find(item=>item.id===sourceId);
   if(!source)throw new Error('The selected imported source no longer exists');
-  const next=structuredClone(project),deleteRows=[],manualRows=[],sharedRows=[],affectedRows=[];
+  const next=reconcileSourceProvenance(structuredClone(project)),deleteRows=[],manualRows=[],sharedRows=[],affectedRows=[];
+  const provenance=new Map(classifyProgrammeRows(next).map(item=>[item.row.id,item]));
+  const uncertainProgrammeEntriesRetained=[...provenance.values()].filter(item=>item.origin==='uncertain').length;
   const removedSourceRecordIds=new Set();
   for(const row of next.rows||[]){
-    const sourceIds=rowSources(row.source);
+    const sourceIds=provenance.get(row.id)?.sourceIds||rowSources(row.source);
     if(!sourceIds.includes(sourceId))continue;
     affectedRows.push(row);
     const remaining=sourceIds.filter(id=>id!==sourceId);
@@ -70,7 +77,7 @@ export async function prepareSourceRemoval(project,sourceId,strategy){
   next.rows=(next.rows||[]).filter(row=>!deleteIds.has(row.id));
   next.sourceFiles=(next.sourceFiles||[]).filter(item=>item.id!==sourceId);
   next.deletedSourceIds=[...new Set([...(next.deletedSourceIds||[]),...removedSourceRecordIds].filter(Boolean))];
-  next.sourceState=(next.sourceState||[]).filter(item=>item?.fileId!==sourceId&&item?.sourceFileId!==sourceId&&!String(item?.sourceId||'').startsWith(`${sourceId}:`));
+  next.sourceState=sourceStateRecords(next).filter(item=>item.fileId!==sourceId&&!String(item.sourceRecordId||'').startsWith(`${sourceId}:`));
   const removedSourceNames=new Set([sourceId,...removedSourceRecordIds].filter(Boolean));
   next.reimportConflicts=(next.reimportConflicts||[]).filter(message=>![...removedSourceNames].some(value=>String(message).includes(value)));
 
@@ -91,5 +98,32 @@ export async function prepareSourceRemoval(project,sourceId,strategy){
   const sessionsAfterById=new Map((finalResult.pkg.programme?.sessions||[]).map(session=>[session.id,session]));
   const sessionsAffected=(beforeResult.pkg.programme?.sessions||[]).filter(session=>{const after=sessionsAfterById.get(session.id);return !after||JSON.stringify(sessionMembership(beforeResult.pkg,session))!==JSON.stringify(sessionMembership(finalResult.pkg,after));}).length;
   const posterSessionsAffected=posterSessionsBefore.filter(session=>{const after=sessionsAfterById.get(session.id);return !after||JSON.stringify(sessionMembership(beforeResult.pkg,session))!==JSON.stringify(sessionMembership(finalResult.pkg,after));}).length;
-  return {project:next,sourceId,strategy,package:finalResult.pkg,validation:finalResult.report,impact:{programmeEntriesToDelete:deleteRows.length,manuallyEditedEntriesAffected:affectedRows.filter(edited).length,entriesRetainedByOtherSources:sharedRows.length,entriesRetainedAsManual:manualRows.length,peopleDisappearing:peopleRemoved,sessionsAffected,sessionsDisappearing:sessionsRemoved,posterSessionsAffected,posterSessionsDisappearing:posterSessionsRemoved,postersAffected:postersRemoved}};
+  return {project:next,sourceId,strategy,package:finalResult.pkg,validation:finalResult.report,impact:{programmeEntriesToDelete:deleteRows.length,manuallyEditedEntriesAffected:affectedRows.filter(edited).length,entriesRetainedByOtherSources:sharedRows.length,entriesRetainedAsManual:manualRows.length,uncertainProgrammeEntriesRetained,peopleDisappearing:peopleRemoved,sessionsAffected,sessionsDisappearing:sessionsRemoved,posterSessionsAffected,posterSessionsDisappearing:posterSessionsRemoved,postersAffected:postersRemoved}};
+}
+
+/** Stage clearing all known imported rows and explicitly selected uncertain rows. */
+export async function prepareClearImportedProgramme(project,uncertainDecisions=null){
+  const next=reconcileSourceProvenance(structuredClone(project));
+  const classified=classifyProgrammeRows(next),decisions=uncertainDecisions instanceof Set?Object.fromEntries([...uncertainDecisions].map(id=>[id,'delete'])):uncertainDecisions;
+  const unresolved=classified.filter(item=>item.origin==='uncertain'&&(!decisions||!['delete','keep'].includes(decisions[item.row.id])));
+  if(uncertainDecisions!==null&&unresolved.length)throw new Error(`Choose whether to delete or keep each of the ${unresolved.length} programme entries with uncertain origin`);
+  const removeRows=classified.filter(item=>item.origin==='imported'||(item.origin==='uncertain'&&decisions?.[item.row.id]==='delete')),retainedRows=classified.filter(item=>!removeRows.includes(item));
+  const removedIds=new Set(removeRows.map(item=>item.row.id));
+  const removedSourceRecords=new Set();
+  for(const item of removeRows){
+    const source=item.row.source||{};
+    for(const id of [source.id,...(source.sourceRecords||[]),...(source.sources||[]).map(ref=>ref?.id)].filter(Boolean))removedSourceRecords.add(String(id));
+  }
+  next.rows=(next.rows||[]).filter(row=>!removedIds.has(row.id));
+  for(const item of retainedRows){const row=next.rows.find(record=>record.id===item.row.id);if(!row)continue;if(item.origin==='uncertain'){delete row.source;delete row.sources;delete row.sourceRecords;row.manuallyMaintained=true;}else if(item.origin==='manual'){delete row.source;delete row.sources;delete row.sourceRecords;}}
+  next.sourceFiles=[];next.sourceState=[];next.deletedSourceIds=[...new Set([...(next.deletedSourceIds||[]),...removedSourceRecords])];
+  next.reimportConflicts=[];
+  for(const row of next.rows)if(row.manuallyMaintained){delete row.source;delete row.sources;delete row.sourceRecords;}
+  const [beforeResult,afterResult]=await Promise.all([buildPackage(structuredClone(project)),buildPackage(next)]);
+  pruneDerivedMetadata(next,afterResult.pkg);validateBuilderProjectStructure(next);
+  const finalResult=await buildPackage(next);
+  const ids=list=>new Set((list||[]).map(item=>item.id));
+  const countRemoved=(before,after)=>[...ids(before)].filter(id=>!ids(after).has(id)).length;
+  const sessionsBefore=beforeResult.pkg.programme?.sessions||[],sessionsAfter=finalResult.pkg.programme?.sessions||[];
+  return {project:next,package:finalResult.pkg,validation:finalResult.report,impact:{importedEntriesToDelete:removeRows.filter(x=>x.origin==='imported').length,orphanedEntriesUncertain:classified.filter(x=>x.origin==='uncertain').length,uncertainEntriesSelected:removeRows.filter(x=>x.origin==='uncertain').length,manualEntriesRetained:retainedRows.filter(x=>x.origin==='manual').length,peopleDisappearing:countRemoved(beforeResult.pkg.people?.people,finalResult.pkg.people?.people),sessionsAffected:countRemoved(sessionsBefore,sessionsAfter),postersAffected:countRemoved(beforeResult.pkg.programme?.posters,finalResult.pkg.programme?.posters),locationsAffected:countRemoved(beforeResult.pkg.locations?.locations,finalResult.pkg.locations?.locations),tracksAffected:countRemoved(beforeResult.pkg.programme?.tracks,finalResult.pkg.programme?.tracks),uncertainRows:classified.filter(x=>x.origin==='uncertain').map(({row,sourceIds,candidateSourceIds})=>({id:row.id,title:row.title||row.session||'Untitled programme entry',date:row.date||'',sourceIds,candidateSourceIds}))}};
 }
