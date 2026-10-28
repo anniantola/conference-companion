@@ -1,5 +1,9 @@
 # Release protocol (static GitHub Pages pilot)
 
+## v1.2.6 Builder usability release
+
+Before accepting programme data, review the Step 2 source comparison and choose merge, replace-source, or replace-programme deliberately. Source removal and programme replacement show the affected records before the atomic commit. Use Step 4's contextual identity cards to record same-person or different-person decisions; unresolved groups remain visible. PDF rows are not committed during extraction: inspect confidence groups, correct fields, exclude noise, preview the resulting programme changes, then confirm. Parser heuristics cannot establish correctness for every PDF layout; validate against the actual organizer programme, especially parallel columns, author lines, and OCR results.
+
 1. Export a new package from the Builder (do not manually edit immutable entity IDs or calendar UIDs).
 2. Keep Builder project backup ZIP privately; do not publish it with attendee data.
 3. Commit the generated deployment into that conference's dedicated repository.

@@ -57,6 +57,14 @@ export function ensureProjectIdentities(project){
   const registry=project.identityRegistry;
   const canonicalPersonId=id=>{const seen=new Set();while(project.personIdAliases?.[id]&&!seen.has(id)){seen.add(id);id=project.personIdAliases[id];}return id;};
   const norm=value=>String(value||'').trim().toLocaleLowerCase();
+  const confirmedDifferent=(ids)=>{
+    const distinct=[...new Set(ids.map(canonicalPersonId))];if(distinct.length<2)return false;
+    const decisions=project.identityDecisions?.pairs||{};
+    for(let i=0;i<distinct.length;i++)for(let j=i+1;j<distinct.length;j++){
+      if(decisions[[distinct[i],distinct[j]].sort().join('::')]!=='different')return false;
+    }
+    return true;
+  };
   // Migrate the legacy name|affiliation index without changing any existing ID.
   for(const [key,id] of Object.entries(registry.people)){
     const canonical=canonicalPersonId(id),separator=key.indexOf('|');
@@ -123,7 +131,7 @@ export function ensureProjectIdentities(project){
     if(!id&&!a&&candidates.length===1&&(records[candidates[0]]?.affiliations?.length||records[candidates[0]]?.explicitIds?.length||role==='chair')){id=candidates[0];autoLinkedIds.add(id);stats.linkedAppearances++;}
     // A name alone cannot choose between two confirmed people, and a new
     // affiliation cannot prove that two same-name records are the same person.
-    if(!id&&((a&&exact.length>1)||(!a&&candidates.length>1))){
+    if(!id&&((a&&exact.length>1)||(!a&&candidates.length>1))&&!confirmedDifferent(a?exact:candidates)){
       stats.requiresReview++;
       project.identityWarnings.push(`Ambiguous person "${name}"${a?` at ${affiliation}`:''}: choose an existing profile in Review & fix.`);
     }
@@ -165,7 +173,7 @@ export function ensureProjectIdentities(project){
       for(const [index,name] of speakerNames.entries()){
         if(row.personIdentityResolved||row.personIdentityResolvedNames?.[name.toLowerCase()]||(row.speakerEntityIds?.[index]&&row.source?.id?.includes(':package:')))continue;
         const key=name.toLowerCase(),known=[...new Set(Object.entries(registry.people).filter(([k])=>k.startsWith(`${key}|`)).map(([,id])=>canonicalPersonId(id)))];
-        if(known.length>1){row.personIdentityConflict=true;row.personIdentityCandidates=[...new Set([...known,...(row.speakerEntityIds||[])])];}
+        if(known.length>1&&!confirmedDifferent(known)){row.personIdentityConflict=true;row.personIdentityCandidates=[...new Set([...known,...(row.speakerEntityIds||[])])];}
       }
     }
 
@@ -203,7 +211,7 @@ export function ensureProjectIdentities(project){
   for(const [name,occurrences] of noAffByName){
     const known=Object.entries(registry.people).filter(([identity])=>identity.startsWith(`${name}|`)).map(([,id])=>id);
     const candidates=[...new Set([...occurrences.map(x=>x.id),...known].filter(Boolean).map(canonicalPersonId))];
-    if(candidates.length>1)for(const item of occurrences){
+    if(candidates.length>1&&!confirmedDifferent(known.length>1?known:candidates))for(const item of occurrences){
       if(item.row.personIdentityResolved||item.row.personIdentityResolvedNames?.[name])continue;
       item.row.personIdentityConflict=true;
       item.row.personIdentityCandidates=[...new Set([...(item.row.personIdentityCandidates||[]),...candidates])];
@@ -368,7 +376,7 @@ export async function buildPackage(project){
   const now=new Date().toISOString();
   const version=Number(project.dataVersion||1);
   const changelog=[...(project.changelog||[])];
-  const manifest={schemaVersion:CURRENT_SCHEMA_VERSION,dataVersion:version,minimumEngineVersion:'1.2.5',publishedAt:now,files:['conference.json','programme.json','people.json','locations.json','branding.json'],checksums:{},changelog};
+  const manifest={schemaVersion:CURRENT_SCHEMA_VERSION,dataVersion:version,minimumEngineVersion:'1.2.6',publishedAt:now,files:['conference.json','programme.json','people.json','locations.json','branding.json'],checksums:{},changelog};
   const pkg={manifest,conference,programme,people:peopleJson,locations:locationsJson,branding};
   const report=validatePackage(pkg,{strictCalendarUid:true,policy:project.policy||{}});
   report.errors.push(...builderErrors);
@@ -447,7 +455,7 @@ async function fetchBytes(path){const r=await fetch(path,{cache:'no-store'});if(
 function manifestText(pkg){return JSON.stringify({name:pkg.conference.name,short_name:pkg.conference.shortName||pkg.conference.name,id:'./',start_url:'./',scope:'./',display:'standalone',background_color:'#000000',theme_color:pkg.branding.primary||'#000000',icons:[{src:'./icon-192.png',sizes:'192x192',type:'image/png',purpose:'any'},{src:'./icon-512.png',sizes:'512x512',type:'image/png',purpose:'any maskable'}]},null,2)+'\n';}
 function sharePreviewSvg(pkg){const title=String(pkg.conference.shortName||pkg.conference.name||'Conference').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630"><rect width="1200" height="630" fill="${pkg.branding.primary||'#000'}"/><rect x="60" y="60" width="1080" height="510" rx="44" fill="#fff" opacity=".96"/><text x="110" y="285" font-family="system-ui,sans-serif" font-weight="700" font-size="78" fill="#111">${title}</text><text x="110" y="370" font-family="system-ui,sans-serif" font-size="38" fill="#444">Conference Companion</text></svg>`;}
 export function workflowText(){return `name: Validate and deploy Conference Companion\n\non:\n  push:\n    branches: ["main"]\n  workflow_dispatch:\n\npermissions:\n  contents: read\n  pages: write\n  id-token: write\n\nconcurrency:\n  group: "pages"\n  cancel-in-progress: false\n\njobs:\n  deploy:\n    environment:\n      name: github-pages\n      url: \${{ steps.deployment.outputs.page_url }}\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@v6\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n      - name: Validate conference package\n        run: npm test\n      - name: Stage public application files\n        run: |\n          mkdir _site\n          cp -r index.html app.js bootstrap.js styles.css service-worker.js manifest.webmanifest icon-*.png share-preview.svg assets src schemas conference tools _site/\n      - uses: actions/configure-pages@v5\n      - uses: actions/upload-pages-artifact@v4\n        with:\n          path: "_site"\n      - name: Deploy to GitHub Pages\n        id: deployment\n        uses: actions/deploy-pages@v4\n`;}
-function generatedPackageJson(){return JSON.stringify({name:'conference-companion-deployment',version:'1.2.5',private:true,type:'module',scripts:{schema:'node tools/schema-check.mjs conference',validate:'node tools/validate-conference.mjs conference',test:'npm run schema && npm run validate'}},null,2)+'\n';}
+function generatedPackageJson(){return JSON.stringify({name:'conference-companion-deployment',version:'1.2.6',private:true,type:'module',scripts:{schema:'node tools/schema-check.mjs conference',validate:'node tools/validate-conference.mjs conference',test:'npm run schema && npm run validate'}},null,2)+'\n';}
 
 /** A repository-ready static deployment ZIP: stable engine + generated package + branded install assets. */
 export async function packageZip(project){

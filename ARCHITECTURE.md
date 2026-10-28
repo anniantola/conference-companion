@@ -355,6 +355,14 @@ Release package history is capped at five validated records per conference base,
 
 The shared JSON Schema validator implements the repository's used subset: type unions, enum, required, properties, additionalProperties, minimum/maximum, minLength, pattern, minItems/maxItems, and items. It is intentionally not described as full Draft 2020-12 support.
 
+## 20. Import source and identity review (v1.2.6)
+
+Programme import remains staged in memory until the organizer confirms the comparison and one atomic project-record save succeeds. The import mode is explicit: merge, replace the selected source, or replace the programme. Source records retain contributing-source IDs and source positions; the Step 2 manager shows per-source counts and status and removal previews whether rows are shared or manually edited. Cross-file reconciliation uses normalized title plus schedule and contextual corroboration; an uncertain match is presented for organizer resolution, and a matching time/location alone is never sufficient.
+
+Step 4 identity review persists decisions for identity pairs. `same` invokes the existing reference-safe merge path, `different` is retained as evidence that same-name profiles are separate, and `unresolved` leaves the ambiguity visible. Bulk operations are applied to a cloned project and saved once; a collision or invalid operation leaves the current project untouched. The review cards use programme, profile, and source context rather than asking organizers to reason from IDs. Earlier Step 3 assignments and current identity registry data continue to load.
+
+PDF extraction produces an in-memory review object, not programme rows. Native text is grouped by page and probable columns; OCR is attempted only when native text is sparse or lacks useful schedule anchors. Time-anchored rows are separated by confidence, and unrecognized lines remain text until explicitly converted. Extraction is still rule-based; PDFs with unusual reading order, complex merged cells, or weak scans can need substantial correction. OCR/PDF.js and spreadsheet parsing remain lazy CDN dependencies, so these Builder imports may need network access unless cached. No arbitrary-layout accuracy claim is made.
+
 Project archive validation is completed before the Builder drains pending
 autosaves or swaps the current project. The restore writes the complete staged
 project in one IndexedDB record, then reloads the interface. Any parsing,

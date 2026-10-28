@@ -26,6 +26,7 @@ function normalizeAsset(asset){
 export function normalizeBuilderProjectAssets(project){
   for(const key of ['logo','logoLight','logoDark','appIcon'])project[key]=normalizeAsset(project[key]);
   project.peoplePhotos=Object.fromEntries(Object.entries(project.peoplePhotos||{}).map(([id,asset])=>[id,normalizeAsset(asset)]));
+  project.mergedPersonPhotos=Object.fromEntries(Object.entries(project.mergedPersonPhotos||{}).map(([id,assets])=>[id,(assets||[]).map(normalizeAsset)]));
   project.sponsorFiles=(project.sponsorFiles||[]).map(item=>{
     const normalized=normalizeAsset(item);
     if(normalized!==item)return normalized;
@@ -90,6 +91,9 @@ export function validateBuilderProjectStructure(project){
   for(const key of ['sourceState','changelog','confirmedPublications'])for(const [index,item] of (project[key]||[]).entries())if(!isRecord(item))throw new Error(`Builder project backup has an invalid ${key} record ${index+1}`);
   for(const [index,item] of (project.reimportConflicts||[]).entries())if(typeof item!=='string')throw new Error(`Builder project backup has an invalid reimport conflict ${index+1}`);
   for(const key of ['peopleOverrides','locationOverrides','sessionOverrides','peoplePhotos'])validateMap(project[key],key,{records:key!=='peoplePhotos'});
+  if(project.mergedPersonPhotos!==undefined&&!isRecord(project.mergedPersonPhotos))throw new Error('Builder project backup has an invalid mergedPersonPhotos collection');
+  for(const [id,assets] of Object.entries(project.mergedPersonPhotos||{})){if(!Array.isArray(assets))throw new Error(`Builder project backup has invalid merged photos for ${id}`);assets.forEach((asset,index)=>validateAssetDescriptor(asset,`merged person photo ${id} ${index+1}`));}
+  if(project.identityDecisions!==undefined){if(!isRecord(project.identityDecisions))throw new Error('Builder project backup has an invalid identityDecisions structure');validateMap(project.identityDecisions.pairs,'identityDecisions.pairs',{stringValues:true});for(const [pair,decision] of Object.entries(project.identityDecisions.pairs||{}))if(!pair.includes('::')||!['same','different','unresolved'].includes(decision))throw new Error(`Builder project backup has an invalid identity decision for ${pair}`);}
   validateMap(project.personIdAliases,'personIdAliases',{stringValues:true});
   for(const key of ['logo','logoLight','logoDark','appIcon'])validateAssetDescriptor(project[key],key);
   for(const [id,asset] of Object.entries(project.peoplePhotos||{}))validateAssetDescriptor(asset,`person photo ${id}`);
@@ -161,6 +165,7 @@ export async function createBuilderProjectFile(project){
   for(const key of ['logo','logoLight','logoDark','appIcon'])safe[key]=await addAsset(project[key],'assets',key);
   safe.peoplePhotos={};
   for(const [personId,src] of Object.entries(project.peoplePhotos||{}))safe.peoplePhotos[personId]=await addAsset(src,'assets',`person-${personId}`);
+  safe.mergedPersonPhotos={};for(const [personId,assets] of Object.entries(project.mergedPersonPhotos||{}))safe.mergedPersonPhotos[personId]=await Promise.all(assets.map((src,index)=>addAsset(src,'assets',`person-${personId}-merged-${index+1}`)));
   safe.sponsorFiles=[];
   for(let i=0;i<(project.sponsorFiles||[]).length;i++){
     const src=project.sponsorFiles[i];
@@ -202,6 +207,7 @@ export async function readBuilderProjectFile(file){
   };
   for(const key of ['logo','logoLight','logoDark','appIcon'])project[key]=restoreAsset(project[key],key);
   project.peoplePhotos=Object.fromEntries(Object.entries(project.peoplePhotos||{}).map(([id,asset])=>[id,restoreAsset(asset,`person photo ${id}`)]));
+  project.mergedPersonPhotos=Object.fromEntries(Object.entries(project.mergedPersonPhotos||{}).map(([id,assets])=>[id,assets.map((asset,index)=>restoreAsset(asset,`merged person photo ${id} ${index+1}`))]));
   project.sponsorFiles=(project.sponsorFiles||[]).map((src,index)=>{
     if(src==null)return src;
     if(src.archivePath||src.bytes||src.blob instanceof Blob)return restoreAsset(src,`sponsor ${index+1}`);

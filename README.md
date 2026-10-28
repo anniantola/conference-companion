@@ -1,12 +1,14 @@
 # Conference Companion
 
-Current engine release: **v1.2.5**.
+Current engine release: **v1.2.6**.
 
 Conference Companion is a standalone, offline-first conference PWA plus a browser-based Conference Builder. The attendee engine is stable and conference content is published as a normalized, versioned data package rather than being hard-coded into the UI.
 
 ## What is implemented
 
 Builder project backups are restored only after archive, project structure, binary assets, and a disposable package build pass validation; an organizer confirms replacement before saving. Incomplete drafts remain restorable. CSV/XLSX/row-JSON imports stay as mapping previews until applied, and failed parsing or storage writes preserve the existing project and previous source files. The attendee release cache keeps five validated releases (active plus four recent); an explicitly selected rollback remains pinned until updates are resumed.
+
+Builder Step 2 now provides a source manager, explicit merge/replace-source/replace-programme modes, and a before-commit comparison of additions, updates, unchanged entries, conflicts, and removals. Source removal includes a support/manual-edit impact review. Step 4 presents ambiguous identities with programme and source context, and supports persistent pair decisions (same, different, or unresolved) plus atomic bulk profile resolution. PDF extraction is staged separately: confident entries, entries needing review, and unrecognized text are distinct; uncertain entries are opt-in and large extractions require acknowledgement. This remains heuristic extraction, not a guarantee for arbitrary PDF layouts; organizers must review every entry and the specific real programme PDF has not been verified.
 
 ### Attendee PWA
 
@@ -44,18 +46,19 @@ A same-version release with changed checksums is treated as a mutated release an
 Open `builder.html` in the development repository. The Builder implements:
 
 - an eight-step wizard with direct step navigation, Previous/Next controls, active-step persistence, and validation links to the relevant step; steps can be visited in any order;
-- PDF import through PDF.js with OCR fallback for image-only pages and low-confidence review warnings;
+- PDF import through PDF.js with lazy OCR fallback for scanned pages. Extraction is staged in a review screen; time-anchored candidates, lower-confidence entries and unrecognized text are separated, and no PDF rows reach the programme before confirmation;
 - XLS/XLSX import through SheetJS with explicit worksheet selection;
 - CSV and structured JSON import;
 - deterministic column mapping, including optional speaker/author and chair IDs in CSV/XLSX imports;
 - editable review table with multi-row selection and bulk edits;
 - first-class session editor so location/track/session-window changes are made once per Session and cascade to child talks;
 - source provenance and re-import conflict handling;
-- re-import reconciliation that prioritizes structured entity IDs and matches spreadsheets only against pre-import records from the same source sheet; presentation matches use title/presenter and schedule context, while posters require a poster number in matching session context; source row position alone never transfers an identity or organizer correction;
+- an imported-source manager with file-level contribution summaries and explicit Merge, Replace this source, and Replace programme modes. A preview lists additions, updates, unchanged rows, uncertain matches, and removals before the organizer confirms;
+- re-import reconciliation that prioritizes structured entity IDs and compares existing project rows only. Exact-title/context matches can cross file formats; a renamed cross-file candidate is offered for organizer choice, not automatically matched. Posters require a poster number in matching session context; source row position alone never transfers an identity or organizer correction;
 - preservation of organizer-edited fields, entity IDs, calendar UIDs and SEQUENCE history on correctly matched re-imports; ambiguous matches remain separate and are reported for review, while missing source rows remain visible;
-- a persistent ID-centered person registry (with migration of older name/affiliation indexes), explicit person IDs for structured and spreadsheet data, affiliation-aware matching, reuse of unambiguous affiliated speaker identities for recurring chairs, and a Builder review selector for unresolved same-name people;
+- a persistent ID-centered person registry (with migration of older name/affiliation indexes), explicit person IDs for structured and spreadsheet data, affiliation-aware matching, and a contextual identity-review workflow. Organizers can confirm two profiles are the same person, explicitly keep them separate, or leave the pair unresolved; decisions persist in project backups and across re-imports;
 - stable private identities for conference, sessions, presentations, calendar UIDs, people, locations and tracks;
-- an alphabetic People directory with search, role filters, one Save/Cancel editor, ORCID/web links and optional uploaded photographs; possible duplicates can be compared and merged individually or as checked pairs, with a chosen surviving ID and field values;
+- an alphabetic People directory with search, role filters, one Save/Cancel editor, ORCID/web links and optional uploaded photographs; identity comparisons show programme titles, sessions, dates, rooms/tracks and source references. Single and bulk resolutions are previewed and saved atomically, with surviving-profile and field-selection controls;
 - location editing including hierarchy, map URL and coordinates;
 - track editing and per-location/per-track color palettes, reflected in programme review;
 - branding, app icon, conference logo and sponsor assets, with immediate color previews and a live attendee-runtime preview for date, room and screen size;
@@ -67,6 +70,10 @@ Open `builder.html` in the development repository. The Builder implements:
 - private Builder project autosave in IndexedDB with visible save failures;
 - Builder project ZIP export/import, including source files and assets;
 - repository-ready deployment ZIP generation with the attendee engine, conference package, install assets, validator and GitHub Pages workflow.
+
+CSV, XLSX, structured JSON and PDF programme imports share the same pre-commit comparison and confirmation boundary. Source removal reports which rows are shared or manually edited. Replace-programme previews the unmatched rows that will be removed and preserves conference settings and branding. Failed parsing or storage writes leave the saved project unchanged.
+
+PDF extraction uses layout positions to separate repeated time columns, recognizes only time-anchored programme candidates automatically, and keeps headings, footers, author lines and other unassigned text in a separate review list. Organizers can edit candidates, exclude them or explicitly convert unrecognized lines into incomplete draft rows. Confidence labels describe heuristic assignment quality; they do not guarantee accurate extraction. Arbitrary conference PDFs and the specific organizer's original PDF have not been independently verified. OCR is attempted for image-only or text-poor pages, and its results require review.
 
 Builder project ZIPs are complete private backups: they include the full project, imported source files, app icon, legacy and light/dark logos, person photographs, ordered sponsor metadata and nested light/dark sponsor variants. Assets have unique archive paths and are checked for missing or damaged content. Import validates the whole archive before replacing the autosaved project; a failed import leaves the current project intact. Older single-logo and flat-sponsor projects remain supported. Keep project ZIPs private because they include source documents and organizer review data. The personal attendee backup is separate and replace-restores only the selected conference after its own validation.
 

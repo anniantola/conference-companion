@@ -8,6 +8,16 @@ WebKit could not launch in this environment. A focused launch attempt fails befo
 
 The Builder's SheetJS, PDF.js and Tesseract.js paths remain lazy public-CDN imports. XLSX/PDF/OCR Builder imports need connectivity unless dependencies are cached; the attendee runtime does not load them.
 
+# Conference Companion v1.2.6 verification — 2026-10-28
+
+The complete Node 22 `test:unit` gate passed: schema and semantic validation for all shipped fixtures; core, static, release, importer, Builder trust/identity, synthetic 91-row/18-poster, transactional project backup, deployment ZIP, and branding regressions.
+
+The complete configured Playwright run executed 174 tests: all 58 Chromium tests and all 58 Firefox tests passed. Every WebKit test failed before application code because Playwright MiniBrowser could not load the host library `libavif.so.16`. After that run, the complete Builder end-to-end file was rerun with the two final import regressions (CSV→overlapping-XLSX and explicit keep-separate resolution): all 18 cases passed across Chromium and Firefox. Counting the two added cases, 60 test cases per Chromium and Firefox are verified. WebKit could not launch any of its 60 cases; this is an environment dependency failure, not an application assertion failure. The repository CI workflow installs browser dependencies and remains the full WebKit verification gate.
+
+New browser workflows cover persistent same/different identity decisions with programme/source context; multi-source preview, correction retention, safe removal and replacement; staged PDF extraction review with unrecognized text kept out of the programme; and CSV followed by overlapping XLSX reconciliation without duplicate rows. Compact toggle geometry is checked in attendee and Step 8 preview at narrow through desktop widths.
+
+PDF coverage uses representative synthetic page/column text and a browser PDF.js test double. It validates staging, classification, corrections and confirmation behavior, but does not establish accuracy for arbitrary PDFs or the organizer's specific real-world programme. The SheetJS browser workflow is tested with a parser module double; actual workbook decoding remains dependent on the lazy CDN library.
+
 ---
 
 # Builder trust and v1.2.1 verification — 2026-10-26

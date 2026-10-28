@@ -178,6 +178,21 @@ test('compact schedule has measurable density and persists for Program and My Sc
   await context.close();
 });
 
+test('compact switch thumb stays inside its track at narrow and wide viewports',async({browser})=>{
+  const context=await browser.newContext({viewport:{width:375,height:800},hasTouch:true,isMobile:true});const page=await context.newPage();await ready(page);
+  await page.locator('[data-target="settings"]').click();const toggle=page.locator('#compactToggle');
+  for(const width of [320,375,430,768,1280]){
+    await page.setViewportSize({width,height:800});
+    for(const checked of [false,true]){
+      if((await toggle.getAttribute('aria-checked'))!==String(checked))await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-checked',String(checked));
+      const bounds=await toggle.evaluate(element=>{const track=element.getBoundingClientRect(),thumb=element.querySelector('span').getBoundingClientRect();return{track:{left:track.left,right:track.right,top:track.top,bottom:track.bottom},thumb:{left:thumb.left,right:thumb.right,top:thumb.top,bottom:thumb.bottom}};});
+      expect(bounds.thumb.left).toBeGreaterThanOrEqual(bounds.track.left);expect(bounds.thumb.right).toBeLessThanOrEqual(bounds.track.right);expect(bounds.thumb.top).toBeGreaterThanOrEqual(bounds.track.top);expect(bounds.thumb.bottom).toBeLessThanOrEqual(bounds.track.bottom);
+    }
+  }
+  await context.close();
+});
+
 test('delete all personal data supports cancellation, drains saves, reloads empty and isolates conferences',async({page})=>{
   await ready(page);
   const event=page.locator('#programList [data-event]').first(),eventId=await event.getAttribute('data-event');await event.locator('[data-star-event]').click();await event.click();await page.locator('.presentation-note').fill('Delete me');await expect(page.locator('#noteSaveStatus')).toHaveText('Saved');await page.locator('#photoInput').setInputFiles({name:'private.png',mimeType:'image/png',buffer:png});await expect(page.locator('#modalPhotos [data-photo-id]')).toHaveCount(1);await page.locator('#modalClose').click();

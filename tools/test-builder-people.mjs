@@ -4,7 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {parseCSV,guessMapping,rowsFromMapping} from '../src/builder/importers.js';
 import {mergeImportedRows} from '../src/builder/merge.js';
 import {buildPackage,packageZip} from '../src/builder/package.js';
-import {possiblePersonDuplicates,mergePersonProfiles} from '../src/builder/people.js';
+import {possiblePersonDuplicates,mergePersonProfiles,identityReviewGroups,decidePersonIdentity,applyIdentityResolutions} from '../src/builder/people.js';
 import {createBuilderProjectFile,readBuilderProjectFile} from '../src/builder/project-file.js';
 import {synthetic91Csv,synthetic91Headers} from './synthetic-91-csv.js';
 
@@ -80,12 +80,36 @@ const distinct=project([
 const separate=await buildPackage(distinct);
 assert.deepEqual(new Set(separate.pkg.people.people.map(p=>p.id)),new Set(['person-north','person-south']));
 assert.equal(possiblePersonDuplicates(separate.pkg.people.people).length,1,'Same-name profiles are review candidates, not automatic merges');
+assert.equal(identityReviewGroups(distinct,separate.pkg.people.people).length,1,'Same-name people with distinct affiliations enter a review group with context');
+const pair=separate.pkg.people.people.map(person=>person.id);
+decidePersonIdentity(distinct,pair[0],pair[1],'different');
+assert.equal(identityReviewGroups(distinct,separate.pkg.people.people).length,0,'Confirmed different profiles are no longer unresolved');
+const confirmed=await buildPackage(distinct);
+assert.equal(confirmed.report.warnings.some(warning=>warning.includes('Ambiguous person')),false,'Confirmed distinct people do not repeat identity warnings');
+const decisionBackup=await readBuilderProjectFile(await createBuilderProjectFile(distinct));
+assert.equal(decisionBackup.identityDecisions.pairs[[...pair].sort().join('::')],'different','Explicit separation persists in project backups');
+distinct.rows=mergeImportedRows(distinct.rows,distinct.rows.map(row=>({...row,source:{...row.source,fileId:'revised-source',id:`revised:${row.id}`} }))).rows;
+const afterReimport=await buildPackage(distinct);
+assert.equal(identityReviewGroups(distinct,afterReimport.pkg.people.people).length,0,'Re-import retains explicit different-person decisions');
 const missing=project([...distinct.rows,{id:'c',date:'2031-06-10',start:'11:00',end:'11:30',type:'talk',session:'C',title:'C',speaker:'Alex Same',affiliation:'',location:'Room C',track:'C'}]);
 await buildPackage(missing);
 assert.equal(missing.rows[2].personIdentityConflict,true,'Missing affiliation remains unresolved when multiple people share the name');
 const ambiguousChair=project([...distinct.rows,{id:'chair-row',date:'2031-06-10',start:'12:00',end:'12:30',type:'talk',session:'D',title:'D',speaker:'Other Speaker',affiliation:'Other Institute',chair:'Alex Same',location:'Room D',track:'D'}]);
 await buildPackage(ambiguousChair);
 assert.equal(ambiguousChair.rows[2].personIdentityConflict,true,'An unaffiliated chair is not assigned to either same-name researcher automatically');
+
+const bulkProject=project([]);bulkProject.extraPeople=[{id:'a',name:'Pat One',affiliations:['Institute A']},{id:'b',name:'Pat One',affiliations:['Institute B']},{id:'c',name:'Rae Two',affiliations:['Institute C']},{id:'d',name:'Rae Two',affiliations:['Institute D']}];bulkProject.peoplePhotos={a:{name:'a.jpg',type:'image/jpeg',bytes:new Uint8Array([1,2])},b:{name:'b.jpg',type:'image/jpeg',bytes:new Uint8Array([3,4])}};bulkProject.rows=[{id:'r1',speaker:'Pat One',speakerEntityIds:['b'],chair:'Rae Two',chairEntityIds:['d']}];
+assert.throws(()=>applyIdentityResolutions(bulkProject,bulkProject.extraPeople,[{firstId:'a',secondId:'b',decision:'same',keepId:'a'},{firstId:'a',secondId:'b',decision:'different'}]),/conflict/,'Conflicting simultaneous resolutions are rejected before mutation');
+assert.equal(bulkProject.rows[0].speakerEntityIds[0],'b','Rejected bulk resolution leaves source project references untouched');
+const mergedBulk=applyIdentityResolutions(bulkProject,bulkProject.extraPeople,[{firstId:'a',secondId:'b',decision:'same',keepId:'a'}]);
+assert.equal(mergedBulk.rows[0].speakerEntityIds[0],'a','Confirmed merge updates programme references atomically');
+assert.equal(mergedBulk.peoplePhotos.a.name,'a.jpg');assert.equal(mergedBulk.mergedPersonPhotos.a[0].name,'b.jpg','Non-selected profile photos remain recoverable in Builder data');
+const transitive=project([]);transitive.extraPeople=[{id:'same-a',name:'Same person'},{id:'same-c',name:'Same person'},{id:'different-b',name:'Other person'}];transitive.identityDecisions={pairs:{'different-b::same-a':'different'}};
+const transitiveResult=applyIdentityResolutions(transitive,transitive.extraPeople,[{firstId:'same-a',secondId:'same-c',decision:'same',keepId:'same-c'}]);
+assert.equal(transitiveResult.identityDecisions.pairs['different-b::same-c'],'different','Merging aliases carries confirmed distinct-person decisions to the surviving identity');
+transitive.identityDecisions.pairs['different-b::same-c']='same';
+assert.throws(()=>applyIdentityResolutions(transitive,transitive.extraPeople,[{firstId:'same-a',secondId:'same-c',decision:'same',keepId:'same-c'}]),/conflicting confirmed identity decisions/);
+assert.equal(transitive.extraPeople.length,3,'A contradictory merge fails without changing source profiles');
 
 // Old project ZIPs contain none of the new wizard or merge fields.
 const oldProject=structuredClone(initial);delete oldProject.activeStep;delete oldProject.personIdAliases;delete oldProject.personMergeHistory;delete oldProject.identityRegistry.personRecords;delete oldProject.identityRegistry.autoConsolidatedIds;

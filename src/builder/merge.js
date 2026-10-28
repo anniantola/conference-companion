@@ -8,10 +8,6 @@ const CALENDAR_FIELDS = new Set(['date','start','end','title','location','sessio
 const clean = value => String(value ?? '').trim().toLocaleLowerCase();
 const originalValue = (row, field) => row?.source?.matchData?.[field] ?? row?.source?.raw?.[field] ?? row?.[field] ?? '';
 function scoreMatch(old, incoming) {
-  const oldFile=String(old?.source?.fileId||''),newFile=String(incoming?.source?.fileId||'');
-  if(oldFile!==newFile)return 0;
-  const oldSheet=String(old?.source?.sheet||''),newSheet=String(incoming?.source?.sheet||'');
-  if(oldSheet!==newSheet)return 0;
   const oldRaw=old?.source?.matchData||old?.source?.raw||old, newRaw=incoming?.source?.matchData||incoming?.source?.raw||incoming;
   const a={...old,...oldRaw}, b={...incoming,...newRaw};
   // Explicit IDs are handled separately. For ordinary sheets require a title
@@ -29,16 +25,22 @@ function scoreMatch(old, incoming) {
       ((clean(a.location)&&clean(a.location)===clean(b.location))||(clean(a.track)&&clean(a.track)===clean(b.track)));
     return samePosterNumber&&sessionContext?120+contextEqual:0;
   }
-  if(sameTitle&&equal>=2)return 100+equal;
+  const contextConflicts=['type','session','location','track'].some(field=>clean(a[field])&&clean(b[field])&&clean(a[field])!==clean(b[field]));
+  const hasScheduleAnchor=clean(a.date)&&clean(a.date)===clean(b.date)||clean(a.session)&&clean(a.session)===clean(b.session);
+  const hasContextAnchor=['session','location','track','speaker'].some(field=>clean(a[field])&&clean(a[field])===clean(b[field]));
+  if(sameTitle&&equal>=3&&hasScheduleAnchor&&hasContextAnchor&&!contextConflicts)return 100+equal;
   // A renamed title can still match when its full time, session and speaker
   // context agree. This is deliberately stricter than row-number equality.
   const context=['date','start','end','session','location','track'];
   const contextEqual=context.filter(k=>clean(a[k])&&clean(a[k])===clean(b[k])).length;
-  if(sameSpeaker&&contextEqual>=4)return 70+contextEqual;
+  const sameSource=String(old?.source?.fileId||'')===String(incoming?.source?.fileId||'');
+  // A renamed title can preserve identity on re-importing its own source. Across
+  // independent files, schedule and speaker context alone are only a suggestion.
+  if(sameSpeaker&&contextEqual>=4&&hasScheduleAnchor&&!contextConflicts)return(sameSource?70:30)+contextEqual;
   return 0;
 }
 
-export function mergeImportedRows(existingRows, incomingRows, deletedSourceIds = []) {
+export function mergeImportedRows(existingRows, incomingRows, deletedSourceIds = [], resolutions = {}) {
   const originalRows = [...(existingRows || [])];
   const rows = [...originalRows];
   const existingSourceIds = new Set();
@@ -52,6 +54,7 @@ export function mergeImportedRows(existingRows, incomingRows, deletedSourceIds =
   const deleted = new Set(deletedSourceIds);
   const seenIncoming = new Set();
   const conflicts = [];
+  const reviewMatches=[];
   const matched = new Set();
   const matchedRows = new Set();
   const incomingList = [...(incomingRows || [])];
@@ -66,9 +69,12 @@ export function mergeImportedRows(existingRows, incomingRows, deletedSourceIds =
     if (deleted.has(sid)) continue;  // Respect explicit deletions in the review UI.
     if(incoming.entityId&&entityCounts.get(incoming.entityId)>1){conflicts.push(`${sid}: duplicated immutable entity ID ${incoming.entityId}; retained for organizer review`);rows.push(incoming);continue;}
     let i;
+    const resolvedId=resolutions?.[sid];
+    if(resolvedId==='__separate__'){rows.push(incoming);continue;}
+    if(resolvedId){const forced=originalRows.map((row,index)=>({row,index})).filter(item=>item.row.id===resolvedId);if(forced.length!==1||matchedRows.has(forced[0].index))throw new Error(`Import match resolution for ${sid} is invalid or conflicts with another selection`);i=forced[0].index;}
     // Structured imports carry immutable entity IDs. Match those across source
     // files before considering spreadsheet content.
-    if(incoming.entityId){
+    if(i===undefined&&incoming.entityId){
       const explicit=originalRows.map((r,index)=>({r,index})).filter(x=>x.r.entityId===incoming.entityId&&!matchedRows.has(x.index));
       if(explicit.length===1)i=explicit[0].index;
       else if(explicit.length>1){conflicts.push(`${sid}: ambiguous immutable entity ID ${incoming.entityId}; retained for organizer review`);rows.push(incoming);continue;}
@@ -76,9 +82,10 @@ export function mergeImportedRows(existingRows, incomingRows, deletedSourceIds =
     if(i===undefined){
       const candidates=originalRows.map((r,index)=>({r,index,score:scoreMatch(r,incoming)})).filter(x=>x.score>0&&!matchedRows.has(x.index));
       candidates.sort((a,b)=>b.score-a.score);
-      if(candidates.length&&(!candidates[1]||candidates[0].score>candidates[1].score))i=candidates[0].index;
+      if(candidates.length&&candidates[0].score>=70&&(!candidates[1]||candidates[0].score>candidates[1].score))i=candidates[0].index;
       else if(candidates.length){
         conflicts.push(`${sid}: ambiguous presentation match (${candidates.length} candidates); retained for organizer review`);
+        reviewMatches.push({incomingId:sid,candidates:candidates.map(item=>({id:item.r.id,title:item.r.title||'',date:item.r.date||'',start:item.r.start||'',session:item.r.session||'',location:item.r.location||'',track:item.r.track||''}))});
         rows.push(incoming);continue;
       }
     }
@@ -105,6 +112,9 @@ export function mergeImportedRows(existingRows, incomingRows, deletedSourceIds =
       speakerEntityIds:[...(incoming.speakerEntityIds?.length?incoming.speakerEntityIds:(old.speakerEntityIds||[]))],
       chairEntityIds:[...(incoming.chairEntityIds?.length?incoming.chairEntityIds:(old.chairEntityIds||[]))]
     };
+    const oldSources=old.source?.contributors||[old.source?.fileId,old.source?.id].filter(Boolean);
+    const newSources=incoming.source?.contributors||[incoming.source?.fileId,incoming.source?.id].filter(Boolean);
+    merged.source={...incoming.source,contributors:[...new Set([...oldSources,...newSources])],sourceRecords:[...new Set([...(old.source?.sourceRecords||[old.source?.id].filter(Boolean)),...(incoming.source?.sourceRecords||[incoming.source?.id].filter(Boolean))])]};
     let calendarChanged=false;
     for (const field of PROGRAMME_FIELDS) {
       if (old.manualFields?.[field]) {
@@ -125,5 +135,5 @@ export function mergeImportedRows(existingRows, incomingRows, deletedSourceIds =
     if (id && !matched.has(id) && !seenIncoming.has(id) && incomingScopes.has(JSON.stringify([old.source?.fileId,old.source?.sheet||''])))
       conflicts.push(`${id}: missing from new import; retained for manual review`);
   }
-  return {rows,conflicts};
+  return {rows,conflicts,reviewMatches};
 }

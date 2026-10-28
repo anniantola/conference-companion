@@ -42,12 +42,16 @@
         <label id="sheetChooserWrap" class="inline-field" hidden>Worksheet<select id="xlsxSheet"></select></label>
         <span id="importStatus" class="muted"></span>
       </div>
+      <label class="import-mode">How should this source interact with the programme?<select id="importMode"><option value="merge">Merge with existing programme</option><option value="replace-source">Replace this source's entries</option><option value="replace-programme">Replace entire programme</option></select></label>
       <div id="mappingCard" class="mapping-card" hidden>
         <h3>Column mapping</h3>
         <div id="mappingGrid" class="mapping-grid"></div>
-        <button id="applyMapping" class="secondary-btn">Apply mapping</button>
+        <p class="muted">Nothing is saved until you review the comparison and confirm the import.</p>
+        <button id="applyMapping" class="secondary-btn">Preview mapped changes</button>
       </div>
-      <details id="pdfExtract" hidden><summary>PDF extracted text</summary><textarea id="pdfText" rows="10" spellcheck="false"></textarea></details>
+      <section id="importReview" class="import-review" hidden aria-live="polite"></section>
+      <section id="pdfReview" class="pdf-review" hidden aria-live="polite"></section>
+      <section class="source-manager"><div class="table-actions"><div><h3>Imported sources</h3><p class="muted">Review each file's contribution. Removing a source keeps manually edited or independently supported entries.</p></div></div><div id="sourceManager" class="source-manager-list"></div></section>
     </section>
 
     <section class="panel" data-step="3" hidden>

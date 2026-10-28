@@ -53,6 +53,23 @@ assert.equal(explicit.rows[0].entityId,'p');
 assert.equal(explicit.rows[0].calendarUid,'uid-old');
 assert.deepEqual(explicit.rows[0].speakerEntityIds,['person-x']);
 
+const csvRow={...imported('csv:2',2),id:'csv-stable',calendarUid:'uid-cross-format',source:{...imported('csv:2',2).source,fileId:'csv-source'}};
+const xlsxSame={...imported('xlsx:7',7),source:{...imported('xlsx:7',7).source,fileId:'xlsx-source'}};
+const crossFormat=mergeImportedRows([csvRow],[xlsxSame]);
+assert.equal(crossFormat.rows.length,1,'Equivalent records from CSV and XLSX reconcile across source identities');
+assert.equal(crossFormat.rows[0].id,'csv-stable');assert.equal(crossFormat.rows[0].calendarUid,'uid-cross-format');
+assert.ok(crossFormat.rows[0].source.contributors.includes('csv-source')&&crossFormat.rows[0].source.contributors.includes('xlsx-source'),'Every supporting file is recorded on the reconciled entry');
+const renamedFromOtherFile={...xlsxSame,title:'A possibly revised title',source:{...xlsxSame.source,id:'xlsx:8',matchData:{...xlsxSame.source.matchData,title:'A possibly revised title'}}};
+const uncertain=mergeImportedRows([csvRow],[renamedFromOtherFile]);
+assert.equal(uncertain.rows.length,2,'A renamed cross-file match is never applied automatically');assert.equal(uncertain.reviewMatches[0].candidates[0].id,'csv-stable');
+const resolved=mergeImportedRows([csvRow],[renamedFromOtherFile],[],{ 'xlsx:8':'csv-stable'});
+assert.equal(resolved.rows.length,1);assert.equal(resolved.rows[0].id,'csv-stable','An organizer-selected possible match retains the old entity identity');
+const keptSeparate=mergeImportedRows([csvRow],[renamedFromOtherFile],[],{ 'xlsx:8':'__separate__'});
+assert.equal(keptSeparate.rows.length,2,'An organizer can explicitly keep an uncertain cross-source entry separate');
+assert.equal(keptSeparate.reviewMatches.length,0,'An explicit separate decision resolves the match review');
+const parallelDifferentTrack={...xlsxSame,title:csvRow.title,track:'Other track',source:{...xlsxSame.source,id:'xlsx:9',matchData:{...xlsxSame.source.matchData,title:csvRow.title,track:'Other track'}}};
+assert.equal(mergeImportedRows([csvRow],[parallelDifferentTrack]).rows.length,2,'Same title and time in a different track remain distinct');
+
 function project(rows,extras={}){return {conference:{id:'test-conference',name:'Test Conference',shortName:'Test',startDate:'2028-04-10',endDate:'2028-04-10',timezone:'Europe/Helsinki',venueName:'Main'},rows,features:{},branding:{primary:'#123456',secondary:'#234567',accent:'#123456',trackColors:{},locationColors:{}},identityRegistry:{people:{},locations:{},tracks:{}},sessionOverrides:{},dataVersion:1,lastPublishedVersion:0,changelog:[],...extras};}
 const poster={...base,id:'poster-row',date:'2028-04-10',type:'poster',session:'Poster session',title:'Poster title',posterNumber:'P1',start:'',end:'',speaker:'Poster Author'};
 const missingPoster=await buildPackage(project([{...poster}]));
@@ -67,8 +84,8 @@ const correctedPoster=await buildPackage(correctedPosterProject);
 assert.equal(correctedPoster.report.errors.length,0,correctedPoster.report.errors.join('\n'));
 assert.deepEqual(((s)=>[s.date,s.start,s.end])(correctedPoster.pkg.programme.sessions.find(s=>s.type==='poster-session')),['2028-04-10','17:00','18:00']);
 const pdfDefaultCheck=heuristicRowsFromPdf([{page:3,lines:['Untimed extracted schedule line']}],'2028-04-10','pdf-source');
-assert.equal(pdfDefaultCheck[0].date,'','PDF imports do not borrow conference default dates');
-const incompletePdf=heuristicRowsFromPdf([{page:2,lines:['Poster session','Unclear untimed line']}]);
+assert.equal(pdfDefaultCheck.length,0,'Untimed text is retained in extraction review, not converted into rows or given a default date');
+const incompletePdf=heuristicRowsFromPdf([{page:2,lines:['09:00–09:30 Opening programme']}]);
 const incomplete=await buildPackage(project(incompletePdf));
 assert.ok(incomplete.report.errors.length,'Incomplete PDF import cannot validate for export');
 assert.ok(incomplete.report.errors.some(x=>x.includes('PDF page 2')),'PDF validation error identifies its source');

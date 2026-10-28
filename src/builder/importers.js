@@ -57,7 +57,7 @@ export function rowsFromMapping(raw,mapping){
     session:val(row,'session'), title:val(row,'title'), speaker:val(row,'speaker'), chair:val(row,'chair'), affiliation:val(row,'affiliation'), location:val(row,'location'),
     track:val(row,'track'), abstract:val(row,'abstract'), doi:val(row,'doi'), posterNumber:val(row,'posterNumber'),
     speakerEntityIds:val(row,'speakerId').split(';').map(x=>x.trim()).filter(Boolean),chairEntityIds:val(row,'chairId').split(';').map(x=>x.trim()).filter(Boolean),
-    source:{id:`${row.__sourceFileId||'source'}:${row.__sheet||'source'}:${row.__sourceRow??i+1}`,fileId:row.__sourceFileId||'',row:row.__sourceRow??i+1,sheet:row.__sheet||'',raw:row,
+    source:{id:`${row.__sourceFileId||'source'}:${row.__sheet||'source'}:${row.__sourceRow??i+1}`,fileId:row.__sourceFileId||'',contributors:[row.__sourceFileId||'source'],row:row.__sourceRow??i+1,sheet:row.__sheet||'',raw:row,
       matchData:Object.fromEntries(['date','start','end','type','session','title','speaker','chair','affiliation','location','track','posterNumber'].map(k=>[k,val(row,k)]))}
   }));
 }
@@ -129,10 +129,11 @@ export async function importPdf(file,onProgress=()=>{}){
   for(let p=1;p<=doc.numPages;p++){
     onProgress(p,doc.numPages,'text');
     const page=await doc.getPage(p),content=await page.getTextContent();let columns=pdfTextRegions(content.items),lines=columns.flat(),ocr=false,ocrError='';
-    if(lines.join(' ').trim().length<12){
+    const nativeQuality=lines.filter(line=>/\b\d{1,2}:\d{2}\s*[-–—]/.test(line)).length;
+    if(lines.join(' ').trim().length<30||(!nativeQuality&&lines.length>0&&lines.every(line=>line.length<3))){
       try{onProgress(p,doc.numPages,'ocr');lines=await ocrPdfPage(page);ocr=true;}catch(err){ocrError=err?.message||String(err);}
     }
-    pages.push({page:p,lines,columns:ocr?[lines]:columns,ocr,ocrError});
+    pages.push({page:p,lines,columns:ocr?[lines]:columns,ocr,ocrError,extraction:ocr?'ocr':'native',nativeTextLength:content.items.map(item=>item.str||'').join(' ').trim().length});
   }
   return pages;
 }
@@ -152,12 +153,9 @@ export function heuristicRowsFromPdf(pages,_defaultDate='',sourceFileId='pdf'){
       if(heading){const field=/track|stream/i.test(heading[1])?'track':/session/i.test(heading[1])?'session':'location';context[field]=heading[2];posterWindow=null;lastRow=null;continue;}
       const tm=time.exec(line),poster=/^(?:Poster\s+|P)([A-Za-z]?\d+[A-Za-z]?)\s*[:.\-–]?\s+(.+)$/i.exec(line);
       if(!tm&&!poster){
-        // Wrapped text is retained, but never silently classified as an author.
-        if(lastRow&&line&&!dm&&!em){lastRow.title+=' '+line;lastRow.importWarnings.push('Wrapped text appended to title; verify title and authors.');lastRow.importConfidence=Math.min(lastRow.importConfidence,0.6);}
-        else if(line&&!dm&&!em){
-          const draft={id:crypto.randomUUID(),date:currentDate,start:'',end:'',type:'talk',...context,title:line,speaker:'',chair:'',affiliation:'',abstract:'',doi:'',posterNumber:'',importConfidence:0.2,importWarnings:['Untimed PDF text retained as a draft; assign its event type, date, start, and end before publishing.'],source:{id:`${sourceFileId}:pdf:${page.page}:${page.column?`column-${page.column}:`:''}${lineIndex+1}`,fileId:sourceFileId,page:page.page,column:page.column,line:lineIndex+1,confidence:0.2,raw:line}};
-          rows.push(draft);lastRow=draft;
-        }
+        // Unanchored text is kept in extraction review separately. It may be
+        // an author, heading, footer, or wrapped title; assigning it silently
+        // would create convincing but unsupported programme data.
         continue;
       }
       const warnings=['PDF assignment is provisional; verify session, room, track and authors.'];
@@ -171,13 +169,32 @@ export function heuristicRowsFromPdf(pages,_defaultDate='',sourceFileId='pdf'){
       if(poster&&!posterWindow)warnings.push('Poster has no explicit session time; assign it before publishing.');
       if(page.ocr)warnings.push('OCR text requires organizer review.');
       if(!currentDate)warnings.push('Missing date.');
-      const row={id:crypto.randomUUID(),date:currentDate,start,end,type:poster?'poster':'talk',...context,title,speaker,chair:'',affiliation:'',abstract:'',doi:'',posterNumber:poster?.[1]||'',importConfidence:0.6,importWarnings:warnings,source:{id:`${sourceFileId}:pdf:${page.page}:${page.column?`column-${page.column}:`:''}${lineIndex+1}`,fileId:sourceFileId,page:page.page,column:page.column,line:lineIndex+1,confidence:0.6,raw:line}};
+      const confidence=page.ocr?0.45:currentDate&&context.location&&context.session?0.8:0.62;
+      if(page.ocr)warnings.push('OCR-derived text; verify every field.');
+      if(!currentDate)warnings.push('Missing date.');
+      const row={id:crypto.randomUUID(),date:currentDate,start,end,type:poster?'poster':'talk',...context,title,speaker,chair:'',affiliation:'',abstract:'',doi:'',posterNumber:poster?.[1]||'',importConfidence:confidence,importWarnings:warnings,source:{id:`${sourceFileId}:pdf:${page.page}:${page.column?`column-${page.column}:`:''}${lineIndex+1}`,fileId:sourceFileId,page:page.page,column:page.column,line:lineIndex+1,extraction:page.extraction|| (page.ocr?'ocr':'native'),confidence,raw:line}};
       rows.push(row);lastRow=row;
     }
   }
   // Overlapping entries without explicit context must remain visible as ambiguous drafts.
   for(const row of rows)if(rows.some(other=>other!==row&&other.date===row.date&&other.start<row.end&&row.start<other.end&&(!row.location||!row.track)))row.importWarnings.push('Overlapping entries may belong to parallel columns/tracks; assign context manually.');
   return rows;
+}
+
+/** Review-oriented PDF result: only anchored programme entries are proposed. */
+export function analyzePdfProgram(pages,sourceFileId='pdf'){
+  const rows=heuristicRowsFromPdf(pages,'',sourceFileId);
+  const datePattern=/\b(?:20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[/.]\d{1,2}[/.]20\d{2})\b/;
+  const heading=/^(?:room|location|venue|track|stream|session)\s*:/i, timed=/\b\d{1,2}:\d{2}\s*[-–—]/;
+  const unrecognized=[];
+  for(const page of pages)for(const [columnIndex,column] of (page.columns||[page.lines]).entries())for(const [lineIndex,text] of column.entries()){
+    const value=String(text||'').trim();if(!value||datePattern.test(value)||heading.test(value)||timed.test(value)||/^(?:poster\s+|P)[A-Za-z]?\d+\s*[:.\-–]/i.test(value))continue;
+    unrecognized.push({text:value,page:page.page,column:columnIndex,line:lineIndex+1,extraction:page.extraction|| (page.ocr?'ocr':'native'),confidence:page.ocr?0.35:0.2});
+  }
+  const confident=rows.filter(row=>row.importConfidence>=0.7&&!row.importWarnings.some(warning=>/ambiguous|missing|OCR/i.test(warning)));
+  const needsReview=rows.filter(row=>!confident.includes(row));
+  const ocrPages=pages.filter(page=>page.ocr).length,failedPages=pages.filter(page=>page.ocrError).length;
+  return {confident,needsReview,unrecognized,quality:{pages:pages.length,ocrPages,failedPages,entryCount:rows.length,lowConfidence:needsReview.length,unrecognizedCount:unrecognized.length,extraction:ocrPages?'mixed/native+OCR':'native'}};
 }
 
 export function rowsFromStructuredPackage(json,sourceFileId='package'){

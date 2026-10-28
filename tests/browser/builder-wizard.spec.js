@@ -9,7 +9,7 @@ async function importSynthetic(page){
   await page.locator('[data-goto-step="2"]').click();
   await page.locator('#programmeFile').setInputFiles({name:'synthetic-91-people.csv',mimeType:'text/csv',buffer:Buffer.from(synthetic91Csv())});
   await page.locator('#importProgramme').click();await expect(page.locator('#mappingCard')).toBeVisible();
-  await page.locator('#applyMapping').click();
+  await page.locator('#applyMapping').click();await expect(page.locator('#importReview')).toBeVisible();await page.locator('#confirmImportChanges').click();
   await page.locator('[data-goto-step="3"]').click();await expect(page.locator('#reviewTable tbody tr')).toHaveCount(91);
 }
 
@@ -85,12 +85,11 @@ test('organizer merge updates chair references and keeps chosen profile details'
   await page.reload();await expect(page.locator('[data-step="4"]')).toBeVisible();
   await expect(page.locator('#peoplePreview .person-row')).toHaveCount(24);
   await expect(page.locator('#duplicateCount')).toHaveText('(1)');
-  await page.locator('#reviewDuplicates').click();
-  await page.locator('[data-merge-keep]').selectOption(keptId);
-  await page.locator('[data-merge-remove]').selectOption('person-legacy-chair');
-  await page.locator('[data-merge-choice="position"]').selectOption('remove');
-  await page.locator('[data-merge-choice="publicEmail"]').selectOption('remove');
-  page.once('dialog',dialog=>dialog.accept());await page.locator('[data-confirm-merge]').click();
+  const group=page.locator('[data-duplicate-group]').first();await expect(group).toBeVisible();
+  await group.locator('[data-identity-first]').selectOption(keptId);await group.locator('[data-identity-second]').selectOption('person-legacy-chair');
+  await group.locator('[data-identity-decision]').selectOption('same');await group.locator('[data-identity-keep]').selectOption(keptId);
+  await group.locator('[data-merge-choice="position"]').selectOption('remove');await group.locator('[data-merge-choice="publicEmail"]').selectOption('remove');
+  page.once('dialog',dialog=>dialog.accept());await group.locator('[data-apply-identity]').click();
   await expect(page.locator('#peoplePreview .person-row')).toHaveCount(23);
   await expect(page.locator('#duplicateCount')).toBeEmpty();
   await expect(page.locator('#builderSaveStatus')).toHaveText('Project saved locally');
@@ -105,10 +104,9 @@ test('bulk duplicate review merges only organizer-checked profile pairs',async({
   await expect(page.locator('#builderSaveStatus')).toHaveText('Project saved locally');
   const kept=await page.evaluate(async()=>{const {loadProject,saveProject}=await import('/src/builder/project-store.js');const p=await loadProject(),ids={};for(const number of ['08','09']){ids[number]=p.rows.find(row=>row.speaker===`Researcher ${number}`).speakerEntityIds[0];p.rows.find(row=>row.chair===`Researcher ${number}`).chairEntityIds=[`person-legacy-${number}`];}p.activeStep=4;await saveProject(p);return ids;});
   await page.reload();await expect(page.locator('#duplicateCount')).toHaveText('(2)');
-  await page.locator('#reviewDuplicates').click();
   const groups=page.locator('[data-duplicate-group]');await expect(groups).toHaveCount(2);
-  for(const number of ['08','09']){const group=groups.filter({hasText:`Researcher ${number}`});await group.locator('[data-merge-keep]').selectOption(kept[number]);await group.locator('[data-merge-remove]').selectOption(`person-legacy-${number}`);await group.locator('[data-bulk-merge]').check();}
-  page.once('dialog',dialog=>dialog.accept());await page.locator('[data-confirm-bulk-merge]').click();
+  for(const number of ['08','09']){const group=groups.filter({hasText:`Researcher ${number}`});await group.locator('[data-identity-first]').selectOption(kept[number]);await group.locator('[data-identity-second]').selectOption(`person-legacy-${number}`);await group.locator('[data-identity-decision]').selectOption('same');await group.locator('[data-identity-keep]').selectOption(kept[number]);await group.locator('[data-bulk-resolution]').check();}
+  await page.locator('[data-preview-bulk-resolution]').click();await expect(page.locator('#bulkResolutionPreview')).toBeVisible();page.once('dialog',dialog=>dialog.accept());await page.locator('[data-confirm-bulk-resolution]').click();
   await expect(page.locator('#peoplePreview .person-row')).toHaveCount(23);
   await expect(page.locator('#builderSaveStatus')).toHaveText('Project saved locally');
   const aliases=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return (await loadProject()).personIdAliases;});
@@ -253,8 +251,8 @@ test('failed programme parsing and IndexedDB writes preserve rows and previously
   await page.locator('#programmeFile').setInputFiles({name:'new.csv',mimeType:'text/csv',buffer:Buffer.from('title,speaker\nNew title,New speaker')});
   await page.locator('#importProgramme').click();await expect(page.locator('#mappingCard')).toBeVisible();
   await page.evaluate(()=>{const prototype=IDBObjectStore.prototype,original=prototype.put;let writes=0;window.__restoreImportPut=()=>{prototype.put=original;};prototype.put=function(value,...args){const request=original.call(this,value,...args);if(this.transaction.db.name==='conferenceCompanionBuilder'&&this.name==='projects'&&++writes===2)this.transaction.abort();return request;};});
-  await page.locator('#applyMapping').click();await expect(page.locator('#builderSaveStatus')).toContainText('Import was not saved');
-  await expect(page.locator('#toast')).toContainText('Could not apply import mapping');
+  await page.locator('#applyMapping').click();await expect(page.locator('#importReview')).toBeVisible();await page.locator('#confirmImportChanges').click();await expect(page.locator('#builderSaveStatus')).toContainText('Import was not saved');
+  await expect(page.locator('#toast')).toContainText('Import failed; existing project preserved');
   await page.evaluate(()=>window.__restoreImportPut());
   stored=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js'),project=await loadProject();return {...project,sourceText:await project.sourceFiles[0].blob.text()};});
   expect(stored.rows[0].id).toBe('keep-import');expect(stored.sourceFiles).toHaveLength(1);expect(stored.sourceText).toBe('old source');
@@ -267,9 +265,10 @@ test('ambiguous unaffiliated chair has a direct identity choice',async({page})=>
 2031-06-10,10:00,10:30,talk,South,South talk,Alex Same,,South Institute,Room B,South
 2031-06-10,11:00,11:30,talk,Methods,Methods talk,Other Speaker,Alex Same,Other Institute,Room C,Methods`;
   await page.locator('#programmeFile').setInputFiles({name:'ambiguous-chair.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
-  await page.locator('#importProgramme').click();await page.locator('#applyMapping').click();await page.locator('[data-goto-step="3"]').click();
+  await page.locator('#importProgramme').click();await page.locator('#applyMapping').click();await expect(page.locator('#importReview')).toBeVisible();await page.locator('#confirmImportChanges').click();await page.locator('[data-goto-step="3"]').click();
   const chairChoice=page.locator('#reviewTable tbody tr').nth(2).locator('select[data-person-role="chair"]');
   await expect(chairChoice).toHaveCount(1);
+  const candidateLabels=await chairChoice.locator('option').allTextContents();expect(candidateLabels.join(' ')).toContain('Alex Same');expect(candidateLabels.join(' ')).toContain('North Institute');expect(candidateLabels.join(' ')).not.toContain('person-');
   await expect(page.locator('#reviewTable tbody tr').nth(2).locator('select[data-person-role="speaker"]')).toHaveCount(0);
   await expect(page.locator('#builderSaveStatus')).toHaveText('Project saved locally');
   const northId=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');const project=await loadProject();return project.rows[0].speakerEntityIds[0];});

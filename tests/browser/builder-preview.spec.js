@@ -15,7 +15,7 @@ async function openPilotPreview(page,{expectReady=true}={}){
   await page.locator('[data-config="endDate"]').fill('2032-03-02');
   await page.locator('[data-goto-step="2"]').click();
   await page.locator('#programmeFile').setInputFiles({name:'pilot-preview.csv',mimeType:'text/csv',buffer:Buffer.from(pilotCsv)});
-  await page.locator('#importProgramme').click();await page.locator('#applyMapping').click();
+  await page.locator('#importProgramme').click();await page.locator('#applyMapping').click();await expect(page.locator('#importReview')).toBeVisible();await page.locator('#confirmImportChanges').click();
   await page.locator('[data-goto-step="8"]').click();
   if(expectReady)await expect(page.locator('#previewStatus')).toHaveText('Up to date');
 }
@@ -29,7 +29,7 @@ test('live Builder preview uses attendee UI, branding, filters and isolated pers
   await page.locator('[data-config="endDate"]').fill('2031-06-11');
   await page.locator('[data-goto-step="2"]').click();
   await page.locator('#programmeFile').setInputFiles({name:'synthetic-91-preview.csv',mimeType:'text/csv',buffer:Buffer.from(synthetic91Csv())});
-  await page.locator('#importProgramme').click();await page.locator('#applyMapping').click();
+  await page.locator('#importProgramme').click();await page.locator('#applyMapping').click();await expect(page.locator('#importReview')).toBeVisible();await page.locator('#confirmImportChanges').click();
   await page.locator('[data-goto-step="5"]').click();
   await page.locator('[data-location-editor]').filter({hasText:'Room 1'}).locator('[data-location-color]').fill('#123456');
   await page.locator('.entity-editor').filter({hasText:'Track 1'}).locator('[data-track-color]').fill('#654321');
@@ -68,7 +68,7 @@ test('contextual validation links directly to the conflicting session editor',as
   await page.locator('[data-config="endDate"]').fill('2031-06-10');
   await page.locator('[data-goto-step="2"]').click();
   await page.locator('#programmeFile').setInputFiles({name:'synthetic-91-validation.csv',mimeType:'text/csv',buffer:Buffer.from(synthetic91Csv())});
-  await page.locator('#importProgramme').click();await page.locator('#applyMapping').click();
+  await page.locator('#importProgramme').click();await page.locator('#applyMapping').click();await expect(page.locator('#importReview')).toBeVisible();await page.locator('#confirmImportChanges').click();
   await page.locator('[data-goto-step="8"]').click();
   const issue=page.locator('.validation-error').filter({hasText:'date outside conference range'}).first();
   await expect(issue).toContainText('2031-06-11');
@@ -76,6 +76,25 @@ test('contextual validation links directly to the conflicting session editor',as
   await issue.locator('[data-error-step]').click();
   await expect(page.locator('[data-step="3"]')).toBeVisible();
   await expect(page.locator('#sessionPreview [data-session-id]:focus-within')).toHaveCount(1);
+});
+
+test('attendee preview compact switch thumb fits in its track across preview widths',async({page})=>{
+  await openPilotPreview(page);const frame=page.frameLocator('#attendeePreview');
+  for(const [option,width] of [['320',320],['375',375],['768',768],['1100',1100]]){
+    await page.locator('#previewSize').selectOption(option);await expect(page.locator('#attendeePreview')).toHaveCSS('width',`${width}px`);
+    await page.locator('.preview-frame-wrap').evaluate(element=>{element.scrollLeft=element.scrollWidth;});
+    const settingsNav=frame.locator('.bottom-nav [data-target="settings"]');await expect(settingsNav).toBeVisible();
+    // Desktop preview widths can extend beyond the Builder's clipped iframe
+    // wrapper. Dispatch the real nav click handler within the child document,
+    // then test the switch's geometry in the rendered attendee view.
+    await settingsNav.evaluate(element=>element.click());await expect(frame.locator('.view[data-view="settings"]')).toHaveClass(/active/);const toggle=frame.locator('#compactToggle');await expect(toggle).toBeVisible();
+    for(const checked of [false,true]){
+      if((await toggle.getAttribute('aria-checked'))!==String(checked))await toggle.evaluate(element=>element.click());
+      await expect(toggle).toHaveAttribute('aria-checked',String(checked));
+      const rects=await toggle.evaluate(element=>{const track=element.getBoundingClientRect(),thumb=element.querySelector('span').getBoundingClientRect();return{track:{left:track.left,right:track.right,top:track.top,bottom:track.bottom},thumb:{left:thumb.left,right:thumb.right,top:thumb.top,bottom:thumb.bottom}};});
+      expect(rects.thumb.left).toBeGreaterThanOrEqual(rects.track.left);expect(rects.thumb.right).toBeLessThanOrEqual(rects.track.right);expect(rects.thumb.top).toBeGreaterThanOrEqual(rects.track.top);expect(rects.thumb.bottom).toBeLessThanOrEqual(rects.track.bottom);
+    }
+  }
 });
 
 test('Refresh preview rebuilds branding and keeps navigation, storage isolation and release state',async({page})=>{

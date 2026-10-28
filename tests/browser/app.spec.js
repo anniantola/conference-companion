@@ -37,7 +37,7 @@ test('Builder CSV mapping, bulk edits and private autosave',async({page})=>{
   await page.locator('[data-goto-step="2"]').click();
   await page.locator('#programmeFile').setInputFiles({name:'programme.csv',mimeType:'text/csv',buffer:Buffer.from('date,start,end,title,session,speaker,room,track\n2030-05-10,09:00,09:30,Sample talk,Methods,A. Example,Room A,Methods')});
   await page.locator('#importProgramme').click();await expect(page.locator('#mappingCard')).toBeVisible();
-  await page.locator('#applyMapping').click();await page.locator('[data-goto-step="3"]').click();await expect(page.locator('#rowCount')).toHaveText('1 rows');
+  await page.locator('#applyMapping').click();await expect(page.locator('#importReview')).toBeVisible();await page.locator('#confirmImportChanges').click();await page.locator('[data-goto-step="3"]').click();await expect(page.locator('#rowCount')).toHaveText('1 rows');
   await page.locator('#selectAllRows').check();await page.locator('#bulkField').selectOption('location');
   await page.locator('#bulkValue').fill('Room B');await page.locator('#applyBulkEdit').click();
   await expect(page.locator('[data-field="location"]')).toHaveValue('Room B');
@@ -83,7 +83,7 @@ test('rollback persists online and offline until explicitly resumed and retains 
   let current=makeRelease(10);
   await page.route('**/rollback-release/**',route=>{const name=new URL(route.request().url()).pathname.split('/').pop();return current[name]===undefined?route.fulfill({status:503,body:'unavailable'}):route.fulfill({contentType:'application/json',body:current[name]});});
   const conferenceId=JSON.parse(files['conference.json']).id,personal={favorites:['rollback-favorite'],posterFavorites:['rollback-poster'],notes:{'talk:rollback-favorite':'Keep these notes'}};
-  const load=()=>page.evaluate(async()=>{const {loadConferencePackage}=await import('/src/package-store.js');const result=await loadConferencePackage('./rollback-release','1.2.5');return {version:result.pkg.manifest.dataVersion,source:result.source,rollbackActive:result.rollbackActive};});
+  const load=()=>page.evaluate(async()=>{const {loadConferencePackage}=await import('/src/package-store.js');const result=await loadConferencePackage('./rollback-release','1.2.6');return {version:result.pkg.manifest.dataVersion,source:result.source,rollbackActive:result.rollbackActive};});
   const savePersonal=()=>page.evaluate(async({conferenceId,personal})=>{const {createUserStore}=await import('/src/user-store.js'),store=createUserStore(conferenceId);await store.saveState(personal);await store.saveProfile({name:'Rollback attendee',photo:new Blob(['profile-photo'])});await store.saveFriend({id:'rollback-contact',name:'Rollback contact',privateNotes:'Private contact note'});},{conferenceId,personal});
   const checkPersonal=async()=>{const value=await page.evaluate(async id=>{const {createUserStore}=await import('/src/user-store.js'),store=createUserStore(id),friends=await store.listFriends(),profile=await store.getProfile();return {state:await store.getState(),name:profile.name,photo:await profile.photo.text(),friends};},conferenceId);expect(value.state).toEqual(personal);expect(value.name).toBe('Rollback attendee');expect(value.photo).toBe('profile-photo');expect(value.friends[0].name).toBe('Rollback contact');expect(value.friends[0].privateNotes).toBe('Private contact note');};
   expect(await load()).toMatchObject({version:10,source:'network'});await savePersonal();

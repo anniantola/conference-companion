@@ -1,6 +1,6 @@
 {
   "name": "conference-companion",
-  "version": "1.2.5",
+  "version": "1.2.6",
   "private": true,
   "type": "module",
   "description": "Offline-first, package-driven conference companion PWA and conference package Builder.",
