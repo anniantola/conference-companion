@@ -1,10 +1,12 @@
 import {loadProject,saveProject,clearProject} from './project-store.js';
 import {parseCSV,guessMapping,rowsFromMapping,importXlsx,listXlsxSheets,importPdf,heuristicRowsFromPdf,rowsFromStructuredPackage} from './importers.js';
 import {buildPackage,packageZip,packageContentFingerprint,confirmProjectPublication} from './package.js';
-import {createBuilderProjectFile,readBuilderProjectFile,normalizeBuilderProjectAssets} from './project-file.js';
+import {createBuilderProjectFile,readBuilderProjectFile,normalizeBuilderProjectAssets,validateBuilderProjectStructure,validateBuilderProjectTrial} from './project-file.js';
 import {mergeImportedRows as mergeProgrammeRows} from './merge.js';
 import {possiblePersonDuplicates,mergePersonProfiles} from './people.js';
 import {describeValidationMessage} from './validation-ui.js';
+import {validatePackage} from '../validation.js';
+import {validatePackageSchemas} from '../json-schema.js';
 
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const FIELDS=['date','start','end','type','session','title','speaker','chair','affiliation','location','track','posterNumber','abstract','doi'];
@@ -26,7 +28,7 @@ function normalizeBranding(source={}){
   return b;
 }
 function normalizeSponsorFiles(files=[]){return files.map((item,index)=>item?.bytes?{id:'sponsor-'+(index+1),name:item.name||'Sponsor '+(index+1),light:item,dark:null,height:48}:{id:item?.id||'sponsor-'+(index+1),name:item?.name||'Sponsor '+(index+1),light:item?.light||null,dark:item?.dark||null,height:Math.max(20,Math.min(120,Number(item?.height)||48))});}
-let project=structuredClone(defaults),rawRows=[],rawHeaders=[],saveTimer=null,pdfPages=[],pendingXlsxFile=null,pendingXlsxSourceId='',selectedRows=new Set();
+let project=structuredClone(defaults),rawRows=[],rawHeaders=[],saveTimer=null,pdfPages=[],pendingXlsxFile=null,pendingXlsxSourceId='',pendingSourceFile=null,loadedWorksheetName='',worksheetLoading=false,selectedRows=new Set(),importRevision=0,commitRevision=0,worksheetRevision=0,importCommitInProgress=false;
 const STEP_NAMES=['Conference details','Programme import','Review & fix','People','Locations & tracks','Branding','Features & announcements','Preview, validate & publish'];
 let activeStep=1,latestPackage=null,pendingSave=Promise.resolve(),saveRevision=0,openPersonId='',peopleListSignature='',previewTimer=null,previewAssets=[],pendingPreviewAssets=0,renderRevision=0,appliedRevision=0,previewGeneration=0,previewRequestRevision=0,previewLaunchedRequestRevision=0,previewStatusTimer=null,previewForceRequested=false,assetIdleResolvers=[];
 const previewIdentity=`builder-preview-${crypto.randomUUID()}`;
@@ -131,13 +133,37 @@ function initBulkEditor(){const field=$('#bulkField');if(!field)return;field.inn
 function sessionFieldInput(session,field,locations,tracks){const value=session[field]??'';if(field==='locationId')return `<select data-session-field="locationId"><option value="">— none —</option>${locations.map(l=>`<option value="${escapeHtml(l.id)}" ${l.id===value?'selected':''}>${escapeHtml(l.name)}</option>`).join('')}</select>`;if(field==='trackId')return `<select data-session-field="trackId"><option value="">— none —</option>${tracks.map(t=>`<option value="${escapeHtml(t.id)}" ${t.id===value?'selected':''}>${escapeHtml(t.name)}</option>`).join('')}</select>`;const type=field==='date'?'date':(['start','end'].includes(field)?'time':'text');return `<input type="${type}" data-session-field="${field}" value="${escapeHtml(value)}">`;}
 function renderSessionEditor(sessions,locations,tracks){const root=$('#sessionPreview');if(!root)return;const bySessionId=new Map((sessions||[]).map(s=>[s.id,s]));root.innerHTML=(sessions||[]).map(s=>`<div class="session-card" data-session-id="${escapeHtml(s.id)}"><div class="session-card-head"><strong>${escapeHtml(s.title||'Session')}</strong><code>${escapeHtml(s.id)}</code></div><div class="session-card-grid"><label>Title${sessionFieldInput(s,'title',locations,tracks)}</label><label>Date${sessionFieldInput(s,'date',locations,tracks)}</label><label>Start${sessionFieldInput(s,'start',locations,tracks)}</label><label>End${sessionFieldInput(s,'end',locations,tracks)}</label><label>Location${sessionFieldInput(s,'locationId',locations,tracks)}</label><label>Track${sessionFieldInput(s,'trackId',locations,tracks)}</label></div></div>`).join('')||'<span class="muted">No sessions yet.</span>';root.querySelectorAll('[data-session-field]').forEach(el=>el.addEventListener('change',()=>{const card=el.closest('[data-session-id]'),id=card.dataset.sessionId,field=el.dataset.sessionField;const current=project.sessionOverrides?.[id]||{};const before=String(bySessionId.get(id)?.[field]??'');const value=el.value;project.sessionOverrides={...(project.sessionOverrides||{}),[id]:{...current,[field]:value,sequenceBump:Number(current.sequenceBump||0)+(before!==String(value)?1:0)}};scheduleSave();renderDerivedDebounced();}));}
 
-function showMapping(mapping){project.mapping=mapping;const grid=$('#mappingGrid');grid.innerHTML=MAPPING_FIELDS.map(f=>`<label>${LABELS[f]}<select data-map="${f}">${mappingOptions(mapping[f])}</select></label>`).join('');$('#mappingCard').hidden=false;}
-function mergeImportedRows(nextRows){
-  const {rows,conflicts}=mergeProgrammeRows(project.rows,nextRows,project.deletedSourceIds);
-  project.reimportConflicts=conflicts;
-  return rows;
+function showMapping(mapping){const grid=$('#mappingGrid');grid.innerHTML=MAPPING_FIELDS.map(f=>`<label>${LABELS[f]}<select data-map="${f}">${mappingOptions(mapping[f])}</select></label>`).join('');$('#mappingCard').hidden=false;}
+function mergeImportedRows(base,nextRows){return mergeProgrammeRows(base.rows,nextRows,base.deletedSourceIds);}
+async function commitImportedProject(next,revision){
+  if(revision!==importRevision)throw new Error('A newer import replaced this result; please apply the current preview.');
+  if(importCommitInProgress)throw new Error('Another import is being saved; wait for it to finish before applying this result.');
+  validateBuilderProjectStructure(next);
+  if(revision!==importRevision)throw new Error('A newer import replaced this result; please apply the current preview.');
+  importCommitInProgress=true;const previousInert=document.body.inert;document.body.inert=true;const commit=++commitRevision;
+  clearTimeout(saveTimer);saveRevision++;
+  try{
+    await pendingSave.catch(()=>{});
+    if(commit!==commitRevision||revision!==importRevision)throw new Error('Import was superseded before it could be saved.');
+    await saveProject(structuredClone(project));
+    await saveProject(structuredClone(next));
+    project=next;setSaveStatus('Project saved locally');
+  }catch(error){setSaveStatus('Import was not saved; the previous project is preserved.',true);throw error;}
+  finally{document.body.inert=previousInert;importCommitInProgress=false;}
 }
-function applyMapping(){const mapping={};$$('[data-map]').forEach(s=>mapping[s.dataset.map]=s.value);project.mapping=mapping;project.rows=mergeImportedRows(rowsFromMapping(rawRows,mapping));project.sourceState=rawRows.map((row,i)=>({sourceId:`${row.__sourceFileId||'source'}:${row.__sheet||'source'}:${row.__sourceRow||i+1}`,raw:row,mapping}));scheduleSave();renderRows();renderDerived();toast('Mapping applied');}
+async function applyMapping(){
+  if(!rawRows.length||!pendingSourceFile)return toast('Load an import preview first');
+  if(pendingXlsxFile&&(worksheetLoading||loadedWorksheetName!==$('#xlsxSheet').value))return toast('Wait for the selected worksheet to finish loading before applying its mapping.');
+  const revision=importRevision,mapping={};$$('[data-map]').forEach(s=>mapping[s.dataset.map]=s.value);
+  try{
+    const next=structuredClone(project),incoming=rowsFromMapping(rawRows,mapping),merged=mergeImportedRows(next,incoming);
+    next.mapping=mapping;next.rows=merged.rows;next.reimportConflicts=merged.conflicts;
+    next.sourceState=rawRows.map((row,i)=>({sourceId:`${row.__sourceFileId||'source'}:${row.__sheet||'source'}:${row.__sourceRow||i+1}`,raw:row,mapping}));
+    const source=pendingSourceFile;next.sourceFiles=[...(next.sourceFiles||[]).filter(x=>x.id!==source.id&&x.name!==source.name),source];
+    if(pendingXlsxFile)next.lastWorksheet=$('#xlsxSheet').value;
+    await commitImportedProject(next,revision);pendingSourceFile=null;renderRows();renderDerived();toast('Mapping applied');
+  }catch(error){console.error(error);toast(error?.message||'Could not apply import mapping');}
+}
 
 function rowInput(row,index,field){
   const value=row[field]??'';
@@ -361,53 +387,58 @@ async function renderDerived(){
 function errorStep(message){if(/conference\.|conference |timezone|venue name|website|contact email/i.test(message))return 1;if(/person|people|speaker|author|chair|affiliation/i.test(message))return 4;if(/location|track|venue|room/i.test(message))return 5;if(/brand|logo|icon|color/i.test(message))return 6;if(/announcement|feature/i.test(message))return 7;if(/row|session|presentation|poster|calendar|time|date|source/i.test(message))return 3;return 8;}
 function renderReport(report){const el=$('#validationReport');if(!report.errors.length&&!report.warnings.length){el.innerHTML='<div class="validation-ok">Validation passed. Package is structurally ready to publish.</div>';return;}const issue=(message,severity)=>{const described=describeValidationMessage(message,latestPackage,project),target=described.target,step=target?.type==='person'?4:target?.type==='location'?5:target?3:errorStep(message);return `<div class="validation-${severity}">${escapeHtml(described.text)} <button class="secondary-btn" type="button" data-error-step="${step}" ${target?`data-target-type="${target.type}" data-target-id="${escapeHtml(target.id)}"`:''}>Go to ${escapeHtml(target?'record':STEP_NAMES[step-1])}</button></div>`;};const unique=(messages)=>[...new Set(messages)];el.innerHTML=[...unique(report.errors).map(x=>issue(x,'error')),...unique(report.warnings).map(x=>issue(x,'warning'))].join('');}
 
-async function loadXlsxWorksheet(sheetName){
+async function loadXlsxWorksheet(sheetName,importToken=importRevision){
   if(!pendingXlsxFile)return;
-  const status=$('#importStatus');status.textContent=`Loading worksheet ${sheetName}…`;
-  const rows=await importXlsx(pendingXlsxFile,sheetName);
-  rawRows=rows.map(row=>({...row,__sourceFileId:pendingXlsxSourceId}));
-  rawHeaders=Object.keys(rawRows[0]||{}).filter(x=>!x.startsWith('__'));
-  project.lastWorksheet=sheetName;
+  const revision=++worksheetRevision,file=pendingXlsxFile,sourceId=pendingXlsxSourceId,status=$('#importStatus');worksheetLoading=true;status.textContent=`Loading worksheet ${sheetName}…`;
+  const rows=await importXlsx(file,sheetName);
+  if(revision!==worksheetRevision||importToken!==importRevision||file!==pendingXlsxFile)return;
+  const staged=rows.map(row=>({...row,__sourceFileId:sourceId}));rawRows=staged;
+  loadedWorksheetName=sheetName;worksheetLoading=false;
+  rawHeaders=Object.keys(staged[0]||{}).filter(x=>!x.startsWith('__'));
   showMapping(guessMapping(rawHeaders));
-  scheduleSave();
-  status.textContent=`${rawRows.length} rows loaded from ${sheetName}`;
+  status.textContent=`${rawRows.length} rows loaded from ${sheetName}; apply mapping to save`;
 }
 
 async function doImport(){
-  const file=$('#programmeFile').files[0];if(!file)return toast('Choose a file first');const status=$('#importStatus');status.textContent='Importing…';
+  const file=$('#programmeFile').files[0];if(!file)return toast('Choose a file first');const status=$('#importStatus'),revision=++importRevision;status.textContent='Importing…';rawRows=[];rawHeaders=[];$('#mappingCard').hidden=true;pendingXlsxFile=null;pendingXlsxSourceId='';loadedWorksheetName='';worksheetLoading=false;worksheetRevision++;
   try{
     const previousSource=(project.sourceFiles||[]).find(x=>x.name===file.name);
     const sourceFile={id:previousSource?.id||crypto.randomUUID(),name:file.name,type:file.type,lastModified:file.lastModified,blob:file};
-    project.sourceFiles=[...(project.sourceFiles||[]).filter(x=>x.name!==file.name),sourceFile];
-    scheduleSave();
+    pendingSourceFile=sourceFile;
     const ext=file.name.split('.').pop().toLowerCase();
-    if(!['xlsx','xls'].includes(ext)){pendingXlsxFile=null;pendingXlsxSourceId='';$('#sheetChooserWrap').hidden=true;}
+    if(!['xlsx','xls'].includes(ext)){pendingXlsxFile=null;pendingXlsxSourceId='';loadedWorksheetName='';worksheetLoading=false;worksheetRevision++;$('#sheetChooserWrap').hidden=true;}
     const tagSource=rows=>rows.map(row=>({...row,__sourceFileId:sourceFile.id}));
-    if(ext==='csv'){rawRows=tagSource(parseCSV(await file.text()));rawHeaders=Object.keys(rawRows[0]||{}).filter(x=>!x.startsWith('__'));showMapping(guessMapping(rawHeaders));status.textContent=`${rawRows.length} CSV rows loaded`;}
-    else if(ext==='xlsx'||ext==='xls'){const sheets=await listXlsxSheets(file);if(!sheets.length)throw new Error('Workbook has no sheets');pendingXlsxFile=file;pendingXlsxSourceId=sourceFile.id;const chooser=$('#xlsxSheet'),wrap=$('#sheetChooserWrap');chooser.innerHTML=sheets.map(name=>`<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');const selected=sheets.includes(project.lastWorksheet)?project.lastWorksheet:sheets[0];chooser.value=selected;wrap.hidden=sheets.length<2;await loadXlsxWorksheet(selected);}
+    if(ext==='csv'){const staged=tagSource(parseCSV(await file.text()));if(revision!==importRevision)return;rawRows=staged;rawHeaders=Object.keys(rawRows[0]||{}).filter(x=>!x.startsWith('__'));showMapping(guessMapping(rawHeaders));status.textContent=`${rawRows.length} CSV rows loaded; apply mapping to save`;}
+    else if(ext==='xlsx'||ext==='xls'){const sheets=await listXlsxSheets(file);if(revision!==importRevision)return;if(!sheets.length)throw new Error('Workbook has no sheets');pendingXlsxFile=file;pendingXlsxSourceId=sourceFile.id;loadedWorksheetName='';worksheetLoading=false;const chooser=$('#xlsxSheet'),wrap=$('#sheetChooserWrap');chooser.innerHTML=sheets.map(name=>`<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');const selected=sheets.includes(project.lastWorksheet)?project.lastWorksheet:sheets[0];chooser.value=selected;wrap.hidden=sheets.length<2;await loadXlsxWorksheet(selected,revision);}
     else if(ext==='json'){
       const json=JSON.parse(await file.text());
-      if(Array.isArray(json)){rawRows=tagSource(json);rawHeaders=Object.keys(rawRows[0]||{}).filter(x=>!x.startsWith('__'));showMapping(guessMapping(rawHeaders));status.textContent=`${rawRows.length} JSON rows loaded`;}
+      if(Array.isArray(json)){const staged=tagSource(json);if(revision!==importRevision)return;rawRows=staged;rawHeaders=Object.keys(rawRows[0]||{}).filter(x=>!x.startsWith('__'));showMapping(guessMapping(rawHeaders));status.textContent=`${rawRows.length} JSON rows loaded; apply mapping to save`;}
       else if(json.programme&&json.conference){
-        project.conference={...project.conference,...json.conference};
-        if(Number.isInteger(Number(json.manifest?.dataVersion)))project.dataVersion=Math.max(Number(project.dataVersion||1),Number(json.manifest.dataVersion));
+        const schemaErrors=await validatePackageSchemas(json);if(schemaErrors.length)throw new Error(`Structured conference JSON failed schema validation: ${schemaErrors.join('; ')}`);
+        const semantic=validatePackage(json);if(semantic.errors.length)throw new Error(`Structured conference JSON is invalid: ${semantic.errors.join('; ')}`);
+        if(revision!==importRevision)return;
+        const next=structuredClone(project),merged=mergeImportedRows(next,rowsFromStructuredPackage(json,sourceFile.id));
+        next.conference={...next.conference,...json.conference};
+        if(Number.isInteger(Number(json.manifest?.dataVersion)))next.dataVersion=Math.max(Number(next.dataVersion||1),Number(json.manifest.dataVersion));
         const incomingHistory=Array.isArray(json.manifest?.changelog)?json.manifest.changelog:[];
-        project.changelog=[...new Map([...(project.changelog||[]),...incomingHistory].map(item=>[Number(item.version),item])).values()].sort((a,b)=>Number(a.version)-Number(b.version));
-        project.features={...project.features,...(json.conference.features||{})};
-        project.branding={...project.branding,...(json.branding||{}),trackColors:{...(project.branding?.trackColors||{}),...(json.branding?.trackColors||{})},locationColors:{...(project.branding?.locationColors||{}),...(json.branding?.locationColors||{})}};
-        for(const person of json.people?.people||[]){project.peopleOverrides[person.id]={name:person.name||'',position:person.position||'',affiliation:(person.affiliations||[]).join('; '),publicEmail:person.publicEmail||person.email||'',orcid:person.orcid||'',website:(person.links||[]).find(x=>x.label==='Website')?.url||'',photoUrl:person.photoUrl||'',papers:person.papers||[]};}
-        for(const loc of json.locations?.locations||[]){project.locationOverrides[loc.id]={name:loc.name,type:loc.type,parentLocationId:loc.parentLocationId,address:loc.address,mapUrl:loc.mapUrl,lat:loc.lat,lon:loc.lon};}
-        project.announcements=[...(json.programme.announcements||[])];
-        project.rows=mergeImportedRows(rowsFromStructuredPackage(json,sourceFile.id));
-        status.textContent=`Structured conference package loaded: ${project.rows.length} review rows`;scheduleSave();renderRows();renderAnnouncementsBuilder();renderDerived();
+        next.changelog=[...new Map([...(next.changelog||[]),...incomingHistory].map(item=>[Number(item.version),item])).values()].sort((a,b)=>Number(a.version)-Number(b.version));
+        next.features={...next.features,...(json.conference.features||{})};
+        next.branding={...next.branding,...(json.branding||{}),trackColors:{...(next.branding?.trackColors||{}),...(json.branding?.trackColors||{})},locationColors:{...(next.branding?.locationColors||{}),...(json.branding?.locationColors||{})}};
+        next.peopleOverrides={...next.peopleOverrides};for(const person of json.people?.people||[])next.peopleOverrides[person.id]={...(next.peopleOverrides[person.id]||{}),name:person.name||'',position:person.position||'',affiliation:(person.affiliations||[]).join('; '),publicEmail:person.publicEmail||person.email||'',orcid:person.orcid||'',website:(person.links||[]).find(x=>x.label==='Website')?.url||'',photoUrl:person.photoUrl||'',papers:person.papers||[]};
+        next.locationOverrides={...next.locationOverrides};for(const loc of json.locations?.locations||[])next.locationOverrides[loc.id]={...(next.locationOverrides[loc.id]||{}),name:loc.name,type:loc.type,parentLocationId:loc.parentLocationId,address:loc.address,mapUrl:loc.mapUrl,lat:loc.lat,lon:loc.lon};
+        next.announcements=[...(json.programme.announcements||[])];next.rows=merged.rows;next.reimportConflicts=merged.conflicts;
+        next.sourceFiles=[...(next.sourceFiles||[]).filter(x=>x.id!==sourceFile.id&&x.name!==sourceFile.name),sourceFile];
+        await commitImportedProject(next,revision);status.textContent=`Structured conference package loaded: ${next.rows.length} review rows`;renderRows();renderAnnouncementsBuilder();renderDerived();
       }
-      else if(Array.isArray(json.rows)){rawRows=tagSource(json.rows);rawHeaders=Object.keys(rawRows[0]||{}).filter(x=>!x.startsWith('__'));showMapping(guessMapping(rawHeaders));status.textContent=`${rawRows.length} JSON rows loaded`;}
+      else if(Array.isArray(json.rows)){const staged=tagSource(json.rows);if(revision!==importRevision)return;rawRows=staged;rawHeaders=Object.keys(rawRows[0]||{}).filter(x=>!x.startsWith('__'));showMapping(guessMapping(rawHeaders));status.textContent=`${rawRows.length} JSON rows loaded; apply mapping to save`;}
       else throw new Error('JSON must be an array of rows or contain a rows array');
     }
     else if(ext==='pdf'){
-      pdfPages=await importPdf(file,(p,n,mode)=>status.textContent=mode==='ocr'?`OCR for image-only PDF page ${p}/${n}…`:`Extracting PDF page ${p}/${n}…`);$('#pdfExtract').hidden=false;$('#pdfText').value=pdfPages.map(p=>`--- Page ${p.page} ---\n${p.lines.join('\n')}`).join('\n\n');project.rows=mergeImportedRows(heuristicRowsFromPdf(pdfPages,project.conference.startDate,sourceFile.id));project.sourceState=pdfPages;scheduleSave();renderRows();renderDerived();const ocrCount=pdfPages.filter(x=>x.ocr).length,ocrFailures=pdfPages.filter(x=>x.ocrError).length;status.textContent=`Extracted ${pdfPages.length} pages${ocrCount?` · OCR ${ocrCount}`:''}${ocrFailures?` · OCR failed ${ocrFailures}`:''}; ${project.rows.length} timed rows detected. Review them below.`;
+      const pages=await importPdf(file,(p,n,mode)=>{if(revision===importRevision)status.textContent=mode==='ocr'?`OCR for image-only PDF page ${p}/${n}…`:`Extracting PDF page ${p}/${n}…`;});if(revision!==importRevision)return;if(!Array.isArray(pages)||!pages.length)throw new Error('PDF import returned no readable pages');
+      const next=structuredClone(project),merged=mergeImportedRows(next,heuristicRowsFromPdf(pages,next.conference.startDate,sourceFile.id));next.rows=merged.rows;next.reimportConflicts=merged.conflicts;next.sourceState=pages;next.sourceFiles=[...(next.sourceFiles||[]).filter(x=>x.id!==sourceFile.id&&x.name!==sourceFile.name),sourceFile];
+      await commitImportedProject(next,revision);pdfPages=pages;$('#pdfExtract').hidden=false;$('#pdfText').value=pages.map(p=>`--- Page ${p.page} ---\n${p.lines.join('\n')}`).join('\n\n');renderRows();renderDerived();const ocrCount=pages.filter(x=>x.ocr).length,ocrFailures=pages.filter(x=>x.ocrError).length;status.textContent=`Extracted ${pages.length} pages${ocrCount?` · OCR ${ocrCount}`:''}${ocrFailures?` · OCR failed ${ocrFailures}`:''}; ${next.rows.length} timed rows detected. Review them below.`;
     } else throw new Error('Unsupported file type');
-  }catch(err){console.error(err);status.textContent='Import failed';toast(err.message||'Import failed');}
+  }catch(err){if(revision===importRevision){pendingSourceFile=null;console.error(err);status.textContent='Import failed; existing project preserved';toast(err.message||'Import failed');}}
 }
 
 async function assetFromFile(file){if(!file)return null;const bytes=new Uint8Array(await file.arrayBuffer());const ext=file.type.includes('svg')?'.svg':file.type.includes('jpeg')?'.jpg':file.type.includes('webp')?'.webp':'.png';return{name:file.name,type:file.type,extension:ext,bytes};}
@@ -416,14 +447,22 @@ async function chooseAppIcon(file){project.appIcon=await assetFromFile(file);sch
 async function chooseSponsors(files){pendingPreviewAssets++;try{project.sponsorFiles=[];for(const file of files||[])project.sponsorFiles.push(await assetFromFile(file));scheduleSave();toast(`${project.sponsorFiles.length} sponsor asset${project.sponsorFiles.length===1?'':'s'} stored`);}finally{finishPreviewAssetRead();}}
 async function exportBuilderProject(){try{const blob=await createBuilderProjectFile(project),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`${(project.conference?.shortName||project.conference?.name||'conference').replace(/[^a-z0-9]+/gi,'-').toLowerCase()}-builder-project.zip`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);toast('Builder project exported');}catch(err){console.error(err);toast('Could not export Builder project');}}
 async function importBuilderProject(file){try{
-  // Parse and validate every referenced ZIP asset before touching the current
-  // autosave. Build into a separate object and persist it atomically first.
+  const revision=++importRevision;
   const incoming=await readBuilderProjectFile(file);
+  if(revision!==importRevision)return;
   const nextProject={...structuredClone(defaults),...incoming,conference:{...defaults.conference,...incoming.conference},features:{...defaults.features,...incoming.features},policy:{...defaults.policy,...incoming.policy},branding:{...defaults.branding,...incoming.branding,trackColors:{...(incoming.branding?.trackColors||{})},locationColors:{...(incoming.branding?.locationColors||{})}}};
   normalizeBuilderProjectAssets(nextProject);
   nextProject.branding=normalizeBranding(incoming.branding);nextProject.logoLight=incoming.logoLight||null;nextProject.logoDark=incoming.logoDark||null;nextProject.sponsorFiles=normalizeSponsorFiles(incoming.sponsorFiles||[]);
-  clearTimeout(saveTimer);saveRevision++;await pendingSave.catch(()=>{});
-  await saveProject(nextProject);project=nextProject;location.reload();
+  await validateBuilderProjectTrial(nextProject);
+  if(revision!==importRevision)return;
+  if(!confirm('Replace the current Builder project with this backup? The current project will be saved first.'))return;
+  const previousInert=document.body.inert;document.body.inert=true;clearTimeout(saveTimer);saveRevision++;
+  try{
+    await pendingSave.catch(()=>{});
+    await saveProject(structuredClone(project));
+    await saveProject(structuredClone(nextProject));
+    project=nextProject;location.reload();
+  }finally{document.body.inert=previousInert;}
 }catch(err){console.error(err);toast(err?.message||'Could not import Builder project');}}
 
 async function download(){try{const {blob,report,pkg}=await packageZip(project);renderReport(report);const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`${pkg.conference.id||'conference'}-data-package-v${pkg.manifest.dataVersion}.zip`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);project.lastExportedVersion=Number(pkg.manifest.dataVersion||project.dataVersion||1);project.lastExportedAt=new Date().toISOString();project.lastExportedFingerprint=await packageContentFingerprint(pkg);scheduleSave();updateReleaseStatus();toast('Validated deployment ZIP downloaded; confirm publication after deploying it');}catch(err){console.error(err);toast(err?.message||'Fix validation errors before exporting');const result=await buildPackage(project);renderReport(result.report);}}

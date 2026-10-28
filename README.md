@@ -1,10 +1,12 @@
 # Conference Companion
 
-Current engine release: **v1.2.4**.
+Current engine release: **v1.2.5**.
 
 Conference Companion is a standalone, offline-first conference PWA plus a browser-based Conference Builder. The attendee engine is stable and conference content is published as a normalized, versioned data package rather than being hard-coded into the UI.
 
 ## What is implemented
+
+Builder project backups are restored only after archive, project structure, binary assets, and a disposable package build pass validation; an organizer confirms replacement before saving. Incomplete drafts remain restorable. CSV/XLSX/row-JSON imports stay as mapping previews until applied, and failed parsing or storage writes preserve the existing project and previous source files. The attendee release cache keeps five validated releases (active plus four recent); an explicitly selected rollback remains pinned until updates are resumed.
 
 ### Attendee PWA
 

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import {createBuilderProjectFile,readBuilderProjectFile,normalizeBuilderProjectAssets} from '../src/builder/project-file.js';
+import './test-webcrypto.mjs';
+import {createBuilderProjectFile,readBuilderProjectFile,normalizeBuilderProjectAssets,validateBuilderProjectStructure,validateBuilderProjectTrial} from '../src/builder/project-file.js';
 import {createStoredZip,readStoredZip,textEntry} from '../src/zip.js';
 
 const asset=(name,bytes,type='image/svg+xml')=>({name,type,extension:name.slice(name.lastIndexOf('.')),bytes:new Uint8Array(bytes)});
@@ -7,7 +8,7 @@ const bytes=value=>[...value];
 const project={
   conference:{id:'backup-fixture',name:'Backup fixture',startDate:'2032-05-01',endDate:'2032-05-02'},
   rows:[{id:'entry-one',title:'Imported title',source:{id:'programme:1'}}],
-  identityRegistry:{people:{'name-key':['person-stable']},personRecords:{'person-stable':{id:'person-stable',name:'Example Person'}}},
+  identityRegistry:{people:{'name-key':'person-stable'},personRecords:{'person-stable':{id:'person-stable',name:'Example Person'}}},
   peopleOverrides:{'person-stable':{position:'Professor',affiliation:'Example University'}},
   sessionOverrides:{sessionOne:{locationId:'roomA',sequenceBump:2}},
   lastPublishedVersion:4,lastExportedVersion:5,dataVersion:6,changelog:[{version:6,message:'Backup fixture'}],
@@ -37,7 +38,7 @@ const paths=descriptors.map(x=>x?.archivePath).filter(Boolean);
 assert.equal(new Set(paths).size,paths.length,'each asset has a collision-free ZIP path');
 for(const descriptor of descriptors.filter(Boolean))assert.ok(entries.has(descriptor.archivePath),`archive includes ${descriptor.archivePath}`);
 
-const legacy={conference:{name:'Older project'},logo:asset('legacy-logo.png',[71,72,73],'image/png'),sponsorFiles:[asset('legacy-sponsor.png',[74,75],'image/png')],peoplePhotos:{},sourceFiles:[]};
+const legacy={conference:{name:'Older project'},rows:[],logo:asset('legacy-logo.png',[71,72,73],'image/png'),sponsorFiles:[asset('legacy-sponsor.png',[74,75],'image/png')],peoplePhotos:{},sourceFiles:[]};
 const oldRoundTrip=await readBuilderProjectFile(await createBuilderProjectFile(legacy));
 assert.deepEqual(bytes(oldRoundTrip.logo.bytes),bytes(legacy.logo.bytes),'legacy single logo is preserved');
 assert.deepEqual(bytes(oldRoundTrip.sponsorFiles[0].bytes),bytes(legacy.sponsorFiles[0].bytes),'legacy flat sponsor asset is preserved');
@@ -45,6 +46,24 @@ const legacyAutosave={logoLight:{name:'old-autosave.svg',bytes:{'0':81,'1':82,'2
 normalizeBuilderProjectAssets(legacyAutosave);
 assert.deepEqual(bytes(legacyAutosave.logoLight.bytes),[81,82,83],'numeric-key bytes from old Builder autosaves are migrated');
 assert.deepEqual(bytes(legacyAutosave.sponsorFiles[0].light.bytes),[91,92],'old autosaved sponsor variant bytes are migrated');
+
+const incompleteDraft={conference:{id:'draft',name:'Incomplete but valid draft',startDate:'',endDate:'',timezone:'UTC'},rows:[{id:'unfinished',date:'',title:''}],branding:{primary:'#5b4b9a',secondary:'#2f7d68',accent:'#5b4b9a',trackColors:{},locationColors:{}},features:{},identityRegistry:{people:{},locations:{},tracks:{}}};
+assert.equal(await validateBuilderProjectTrial(incompleteDraft),true,'a structurally valid but incomplete programme remains restorable');
+await assert.rejects(()=>validateBuilderProjectTrial({...incompleteDraft,conference:{...incompleteDraft.conference,startDate:'someday'}}),/invalid package structure.*conference\.startDate/);
+const malformed=[
+  [{conference:[],rows:[]},/conference object/],
+  [{conference:{},rows:'not an array'},/rows collection/],
+  [{conference:{},rows:[{title:7}]},/row 1 field title/],
+  [{conference:{},rows:[],peopleOverrides:[]},/peopleOverrides identity/],
+  [{conference:{},rows:[],identityRegistry:{people:{a:7}}},/non-string identity/],
+  [{conference:{},rows:[],identityRegistry:{personRecords:{personA:{id:'personB'}}}},/inconsistent person identity/],
+  [{conference:{},rows:[],branding:{brandMode:'unknown'}},/branding\.brandMode/]
+];
+for(const [value,pattern] of malformed)assert.throws(()=>validateBuilderProjectStructure(value),pattern);
+const missingRows=await createStoredZip([{name:'project.json',data:JSON.stringify({format:'conference-companion-builder-project',version:1,project:{conference:{name:'No rows'}}})}]);
+await assert.rejects(()=>readBuilderProjectFile(missingRows),/rows collection/);
+const unsupported=await createStoredZip([{name:'project.json',data:JSON.stringify({format:'conference-companion-builder-project',version:2,project:{conference:{},rows:[]}})}]);
+await assert.rejects(()=>readBuilderProjectFile(unsupported),/Unsupported Builder project/);
 
 const missingWrapper={format:'conference-companion-builder-project',version:1,project:{logoLight:{name:'missing.svg',archivePath:'assets/missing.svg'}}};
 const missingZip=await createStoredZip([{name:'project.json',data:JSON.stringify(missingWrapper)}]);

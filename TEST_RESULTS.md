@@ -1,30 +1,12 @@
-# Reliability, backup, and rollback verification — 2026-10-28, engine v1.2.4
+# Reliability update v1.2.5 — 2026-10-28
 
-The full Node.js unit gate passed, including all schemas and fixtures, release
-validation, importers, the 91-record/18-poster synthetic regression, Builder
-identity/trust checks, project ZIP backup tests, and all three extracted
-deployment-package validations. The new ZIP tests compare complete asset bytes
-for distinct light/dark logos, sponsor variants, icon, person image and source
-files; they also reject missing, corrupted and duplicate ZIP entries. Chromium
-and Firefox passed all **100/100** configured browser tests, including rollback
-online/offline reload behavior, explicit resume, attendee-data persistence,
-failed restore non-overwrite and startup XSS cases.
+The complete Node 22 unit gate passed, including all schemas and package fixtures, legacy project migration, asset-byte ZIP round trips, incomplete-draft backup restoration, malformed backup rejection, the 91-row/18-poster CSV case, deployment ZIP validation, and URL/security regressions.
 
-The full configured browser matrix has **150** cases. WebKit's 50 cases could
-not launch on this host: Playwright's MiniBrowser exits before the test body
-because `libavif.so.16` is missing. This is an environment dependency failure,
-not an application assertion failure. No system-wide package was installed.
-GitHub Actions run [40654711654](https://github.com/anniantola/conference-companion/actions/runs/40654711654)
-then passed the complete Node gate and all **150/150** Playwright tests across
-Chromium, Firefox and WebKit. It deployed commit `73e58b85e26cc458ef8d210c10ed9d27491cf046`.
-The Pages deployment status is successful; the live attendee `bootstrap.js`
-reports engine v1.2.4, the live Builder generator reports version/minimum engine
-1.2.4, and both the attendee and Builder pages return HTTP 200.
+All 104 Playwright tests passed across Chromium and Firefox (52 per browser), including transactional backup restore, cancellation, simulated IndexedDB write failures, failed programme parsing/import writes, bounded release retention, rollback reload/offline behavior, and attendee-data preservation.
 
-The Builder's SheetJS, PDF.js and Tesseract.js paths remain lazy public-CDN
-imports. Their licenses and network requirement are documented in README and
-ARCHITECTURE; offline Builder parsing for XLSX/PDF/OCR is not claimed. The
-attendee engine does not load these libraries.
+WebKit could not launch in this environment. A focused launch attempt fails before test code because Playwright MiniBrowser cannot load the host shared library `libavif.so.16`; no package was installed system-wide. The repository GitHub Actions workflow installs Playwright system dependencies and runs the complete three-browser suite; its run result is recorded in the release report.
+
+The Builder's SheetJS, PDF.js and Tesseract.js paths remain lazy public-CDN imports. XLSX/PDF/OCR Builder imports need connectivity unless dependencies are cached; the attendee runtime does not load them.
 
 ---
 

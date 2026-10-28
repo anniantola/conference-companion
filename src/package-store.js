@@ -4,6 +4,8 @@ import {CURRENT_SCHEMA_VERSION,migratePackage} from './migrations.js';
 
 const DB_NAME = 'conferenceCompanionPackages';
 const DB_VERSION = 1;
+// Keep the active release plus four recent validated releases for rollback.
+export const RELEASE_HISTORY_LIMIT = 5;
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -42,9 +44,12 @@ async function activateRecord(base, record) {
       // A candidate download may finish after a rollback was selected in
       // another page. Recheck the persisted lock inside the activation tx.
       if(old.rollbackActive)return;
+      const candidates=[record.key,...(old.history||[]),...(old.rollbackKey?[old.rollbackKey]:[])].filter((key,index,all)=>typeof key==='string'&&all.indexOf(key)===index);
+      const retained=candidates.slice(0,Math.max(RELEASE_HISTORY_LIMIT,old.rollbackActive?2:1));
+      const history=retained;
+      for(const key of candidates)if(!retained.includes(key))packages.delete(key);
       packages.put(record);
-      const history = [record.key, ...(old.history || []).filter(x => x !== record.key)];
-      meta.put({base, activeKey:record.key, history, rollbackActive:false, rollbackKey:null, rollbackDataVersion:null, updatedAt:Date.now()});
+      meta.put({base,activeKey:record.key,history,rollbackActive:false,rollbackKey:null,rollbackDataVersion:null,updatedAt:Date.now()});
       activated=true;
     };
     getMeta.onerror = () => reject(getMeta.error);
@@ -67,7 +72,7 @@ async function validateStoredRecord(record){
 }
 
 async function cachedRecords(meta){
-  const keys=[meta?.activeKey,...(meta?.history||[])].filter((key,index,all)=>typeof key==='string'&&all.indexOf(key)===index);
+  const keys=[meta?.activeKey,meta?.rollbackActive?meta?.rollbackKey:null,...(meta?.history||[])].filter((key,index,all)=>typeof key==='string'&&all.indexOf(key)===index).slice(0,RELEASE_HISTORY_LIMIT);
   const records=[];
   for(const key of keys){
     const record=await getRecord('packages',key).catch(()=>null);
@@ -253,7 +258,7 @@ export async function rollbackConferencePackage(base) {
   const normalizedBase = String(base || './conference').replace(/\/$/, '');
   const meta = await getRecord('meta', normalizedBase);
   if(meta?.rollbackActive)throw new Error('Automatic updates are already paused at a rollback release.');
-  const candidateKeys=(meta?.history||[]).filter(key=>key!==meta?.activeKey);
+  const candidateKeys=(meta?.history||[]).filter(key=>key!==meta?.activeKey).slice(0,RELEASE_HISTORY_LIMIT-1);
   if(!candidateKeys.length)throw new Error('No previous validated conference package is available');
   let previous=null,lastReason='Previous conference package is unavailable';
   for(const key of candidateKeys){
@@ -280,7 +285,8 @@ export async function getPackageDiagnostics(base) {
   const meta = await getRecord('meta', normalizedBase).catch(() => null);
   if (!meta) return {base:normalizedBase, activeKey:null, history:[],rollbackActive:false,records:[]};
   const records=[];
-  for (const key of meta.history || []) {
+  const diagnosticKeys=[meta.activeKey,...(meta.history||[])].filter((key,index,all)=>typeof key==='string'&&all.indexOf(key)===index).slice(0,RELEASE_HISTORY_LIMIT);
+  for (const key of diagnosticKeys) {
     const row=await getRecord('packages',key).catch(()=>null);
     if(row)records.push({key:row.key,dataVersion:row.dataVersion,publishedAt:row.pkg?.manifest?.publishedAt,storedAt:row.storedAt,active:row.key===meta.activeKey,rollback:row.key===(meta.rollbackKey||'')});
   }

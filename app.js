@@ -132,7 +132,7 @@ import {encodeStoredValue,decodeStoredValue} from './src/user-store.js';
   }
 
   function packageAssetUrl(value) {
-    if(!value)return "";if(/^(?:[a-z]+:|\/)/i.test(value))return value;return `${CONFIG.packageBase||"./conference"}/${String(value).replace(/^\.\//,"")}`;
+    if(!value)return "";if(CONFIG.builderPreview&&String(value).startsWith('blob:'))return String(value);const safe=normalizeWebUrl(value,{allowRelative:true});if(!safe)return "";if(/^https:/i.test(safe))return safe;return `${CONFIG.packageBase||"./conference"}/${safe.replace(/^\/+/,"")}`;
   }
 
 

@@ -32,8 +32,14 @@ export function normalizeWebUrl(value, {allowRelative = false} = {}) {
 
   if (allowRelative && !/^[a-z][a-z0-9+.-]*:/i.test(text) && !text.startsWith('//')) {
     const path = text.replace(/^\.\//, '');
-    if (path && !path.split('/').some(part => part === '..' || part === '.')) return path;
-    return '';
+    if (!path || path.startsWith('//') || /[?#]/.test(path)) return '';
+    try {
+      const parts=path.replace(/^\//,'').split('/');
+      if(parts.some(part=>!part||/%2f|%5c/i.test(part)||['.','..'].includes(decodeURIComponent(part))))return '';
+      if(parts.some(part=>{let decoded=part;for(let i=0;i<16;i++){if(decoded==='.'||decoded==='..'||decoded.includes('/')||decoded.includes('\\'))return true;const next=decodeURIComponent(decoded);if(next===decoded)break;decoded=next;}return decoded==='.'||decoded==='..'||decoded.includes('/')||decoded.includes('\\');}))return '';
+      return path;
+    }
+    catch { return ''; }
   }
 
   if (/^[a-z][a-z0-9+.-]*:/i.test(text) && !/^https:/i.test(text)) return '';
@@ -71,7 +77,7 @@ export function validatePackageUrls(pkg) {
         errors.push(`${fieldPath} must be a safe HTTPS, email, or DOI link`);
       } else if (typeof child === 'string' && ['mapUrl', 'officialWebsite', 'linkedin', 'programmePdf'].includes(key) && child.trim() && !normalizeWebUrl(child, {allowRelative:key==='programmePdf'})) {
         errors.push(`${fieldPath} must be an HTTPS URL or DOI reference`);
-      } else if (typeof child === 'string' && ['photoUrl','logo'].includes(key) && child.trim() && !normalizeWebUrl(child, {allowRelative:true})) {
+      } else if (typeof child === 'string' && (['photoUrl','logo','logoLight','logoDark'].includes(key)||/\.sponsorAssets\[\d+\]$/.test(fieldPath)||(['light','dark'].includes(key)&&/branding\.sponsorLogos\[\d+\]/.test(path))) && child.trim() && !normalizeWebUrl(child, {allowRelative:true})) {
         errors.push(`${fieldPath} must be a safe HTTPS URL or relative asset path`);
       } else if (typeof child === 'string' && ['contactEmail', 'publicEmail'].includes(key) && child.trim() && !normalizeEmail(child)) {
         errors.push(`${fieldPath} must be a valid email address`);
@@ -79,6 +85,8 @@ export function validatePackageUrls(pkg) {
         errors.push(`${fieldPath} must be a valid ORCID identifier`);
       } else if (typeof child === 'string' && key === 'doi' && child.trim() && !normalizeWebUrl(child)) {
         errors.push(`${fieldPath} must be a valid HTTPS or DOI reference`);
+      } else if (key === 'sponsorAssets' && Array.isArray(child)) {
+        child.forEach((url,index)=>{if(typeof url!=='string'||!normalizeWebUrl(url,{allowRelative:true}))errors.push(`${fieldPath}[${index}] must be a safe HTTPS URL or relative asset path`);});
       } else if (key === 'links' && Array.isArray(child)) {
         child.forEach((link,index)=>{
           if(typeof link==='string'){

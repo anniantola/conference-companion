@@ -8,6 +8,12 @@
 6. A **new published rollback release** is a new publish, never a copied older `conference-manifest.json`: restore the last-good content into the Builder, set `dataVersion` to a number greater than every previously published release, update `publishedAt`, checksums and changelog, and publish/tag again. Preserve existing `calendarUid` for existing events; increase their `SEQUENCE` when calendar-visible fields change. Separately, an attendee can select a previous validated local package in Settings. That pins the cached release and pauses automatic conference updates across reloads until **Resume automatic updates** is chosen; it does not publish or change a conference data version.
 7. Never delete attendees' local data; use stable IDs.
 
+## v1.2.5 reliability notes
+
+Project backup replacement and programme import are transactional. Validate a project archive and its staged trial package before confirming replacement. CSV/XLSX/row JSON are previews until mapped; structured JSON and PDF commit only after staged checks. If a write fails, the previous saved project remains authoritative. External SheetJS, PDF.js, and Tesseract dependencies remain lazy CDN imports; XLSX/PDF Builder imports therefore need connectivity unless the dependency is already cached. The attendee app itself remains offline-capable.
+
+The package cache retains the active validated release and four recent validated releases. Rollback selection is persisted and pinned; automatic updates resume only when the attendee asks. This local engine release history is distinct from conference `dataVersion` and does not change the publication process.
+
 The Builder currently provides a downloadable repository ZIP, **not** authenticated GitHub commit/tag automation. Users must execute steps 3–5 in GitHub. The static pilot does not provide organizer accounts, cloud APIs, hosted vCards or push.
 
 ## Acceptance required before NEURONICS production
@@ -17,3 +23,10 @@ The Builder currently provides a downloadable repository ZIP, **not** authentica
 - Perform manual device/browser tests for install, offline reload, note editing during an app update, re-import, photo capture, backup/restore and ICS imports in Google/Apple/Outlook.
 - Confirm share-image previews on the final custom HTTPS domain (many crawlers prefer PNG/JPEG and absolute URLs).
 - Check accessibility using keyboard and screen reader, and representative phone widths.
+# v1.2.5 reliability release
+
+- Builder project ZIP imports validate project structure, referenced assets, and a disposable trial package before asking to replace the saved project. The current autosave is persisted first; IndexedDB's atomic project write leaves it intact if the incoming write fails. Structurally valid but incomplete drafts remain restorable.
+- CSV/XLSX/row JSON remain mapping previews until Apply mapping. Structured JSON and PDF imports stage all changes in a clone, validate/build before committing, and atomically save source files with programme changes. Failed parser loads or saves preserve the prior project and source files.
+- Conference package cache retains five validated releases (active plus four recent) and prunes older package records atomically with activation. Persistent rollback pins its selected release and is not affected by cleanup; personal attendee data lives in separate storage.
+- Runtime and Node schema validation enforce the repository schema subset, including enum, type, required, properties, additionalProperties, minimum/maximum, minLength/pattern, minItems/maxItems, and items. This is not full Draft 2020-12 support.
+- Package asset URLs use the same HTTPS/relative-path validator for legacy and light/dark logos, sponsor variants, and person photos. Blob URLs remain allowed only by the trusted Builder preview resolver.

@@ -1,4 +1,5 @@
 import {createStoredZip,readStoredZip,textEntry} from '../zip.js';
+import {buildPackage} from './package.js';
 
 async function bytesOf(value){
   if(!value)return null;
@@ -35,6 +36,108 @@ export function normalizeBuilderProjectAssets(project){
   return project;
 }
 function cleanName(value='file'){return String(value).replace(/[^a-zA-Z0-9._-]+/g,'-').replace(/^-+|-+$/g,'')||'file';}
+
+const isRecord=value=>!!value&&typeof value==='object'&&!Array.isArray(value)&&!(typeof Blob!=='undefined'&&value instanceof Blob)&&!(value instanceof ArrayBuffer)&&!ArrayBuffer.isView(value);
+function recordCollection(project,key,{required=false,asset=false}={}){
+  const value=project[key];
+  if(value===undefined&&!required)return;
+  if(asset?(!isRecord(value)):!Array.isArray(value))throw new Error(`Builder project backup has an invalid ${key} collection`);
+}
+function validateAssetDescriptor(value,label,{required=false}={}){
+  if(value==null){if(required)throw new Error(`Builder project backup is missing ${label}`);return;}
+  if(!isRecord(value)&&!(value instanceof Blob))throw new Error(`Builder project backup has an invalid ${label} asset`);
+  if(isRecord(value)&&value.name!==undefined&&typeof value.name!=='string')throw new Error(`Builder project backup has an invalid ${label} asset name`);
+  if(isRecord(value)&&value.type!==undefined&&typeof value.type!=='string')throw new Error(`Builder project backup has an invalid ${label} asset type`);
+  if(isRecord(value)&&value.bytes!==undefined&&!(value.bytes instanceof Uint8Array)&&!(value.bytes instanceof ArrayBuffer)&&!(value.bytes instanceof Blob)&&!isLegacyByteObject(value.bytes))throw new Error(`Builder project backup has invalid ${label} asset bytes`);
+  if(isRecord(value)&&value.bytes!==undefined&&value.bytes.byteLength===0)throw new Error(`Builder project backup has empty ${label} asset bytes`);
+  if(isRecord(value)&&value.bytes instanceof Blob&&value.bytes.size===0)throw new Error(`Builder project backup has empty ${label} asset bytes`);
+  if(isRecord(value)&&value.blob!==undefined&&!(value.blob instanceof Blob))throw new Error(`Builder project backup has invalid ${label} asset blob`);
+}
+function validateMap(value,label,{stringValues=false,records=false}={}){
+  if(value===undefined)return;
+  if(!isRecord(value))throw new Error(`Builder project backup has an invalid ${label} identity structure`);
+  for(const [key,item] of Object.entries(value)){
+    if(!key)throw new Error(`Builder project backup has an empty key in ${label}`);
+    if(stringValues&&typeof item!=='string')throw new Error(`Builder project backup has a non-string identity in ${label}`);
+    if(records&&!isRecord(item))throw new Error(`Builder project backup has an invalid record in ${label}`);
+  }
+}
+
+/** Validate persisted Builder state, while allowing semantically incomplete programme drafts. */
+export function validateBuilderProjectStructure(project){
+  if(!isRecord(project))throw new Error('Builder project backup does not contain a valid project');
+  if(!isRecord(project.conference))throw new Error('Builder project backup is missing a valid conference object');
+  for(const key of ['name','shortName','fullName','startDate','endDate','timezone','timezoneLabel','locale','language','city','country','officialWebsite','contactEmail','venueName','venueAddress'])if(project.conference[key]!==undefined&&typeof project.conference[key]!=='string')throw new Error(`Builder project backup has an invalid conference.${key}`);
+  recordCollection(project,'rows',{required:true});
+  const rowStrings=['id','entityId','sessionId','posterSessionId','calendarUid','posterSessionCalendarUid','date','start','end','type','session','title','speaker','chair','affiliation','location','track','posterNumber','abstract','doi'];
+  project.rows.forEach((row,index)=>{
+    if(!isRecord(row))throw new Error(`Builder project backup has an invalid programme row ${index+1}`);
+    for(const key of rowStrings)if(row[key]!==undefined&&typeof row[key]!=='string')throw new Error(`Builder project backup has an invalid row ${index+1} field ${key}`);
+    for(const key of ['speakerEntityIds','chairEntityIds','personIdentityCandidates','importWarnings'])if(row[key]!==undefined&&(!Array.isArray(row[key])||row[key].some(item=>typeof item!=='string')))throw new Error(`Builder project backup has an invalid row ${index+1} collection ${key}`);
+    if(row.manualFields!==undefined&&(!isRecord(row.manualFields)||Object.values(row.manualFields).some(value=>typeof value!=='boolean')))throw new Error(`Builder project backup has invalid row ${index+1} manual field markers`);
+    if(row.source!==undefined&&!isRecord(row.source))throw new Error(`Builder project backup has an invalid source descriptor on row ${index+1}`);
+    if(row.sequence!==undefined&&(!Number.isInteger(row.sequence)||row.sequence<0))throw new Error(`Builder project backup has an invalid sequence on row ${index+1}`);
+  });
+  for(const key of ['features','policy','branding','mapping'])if(project[key]!==undefined&&!isRecord(project[key]))throw new Error(`Builder project backup has an invalid ${key} object`);
+  for(const [key,value] of Object.entries(project.features||{}))if(typeof value!=='boolean')throw new Error(`Builder project backup has an invalid feature flag ${key}`);
+  for(const [key,value] of Object.entries(project.policy||{}))if(typeof value!=='boolean')throw new Error(`Builder project backup has an invalid policy flag ${key}`);
+  const brandingEnums={defaultAppearance:['light','dark','system'],previewAppearance:['light','dark'],headingFont:['inter','source-sans-3','space-grotesk','ibm-plex-sans','ibm-plex-sans-condensed','noto-serif'],bodyFont:['inter','source-sans-3','space-grotesk','ibm-plex-sans','ibm-plex-sans-condensed','noto-serif'],brandMode:['text','logo','combined'],headerStyle:['text','logo','combined'],logoAlignment:['left','center','right']};
+  for(const [key,values] of Object.entries(brandingEnums))if(project.branding?.[key]!==undefined&&!values.includes(project.branding[key]))throw new Error(`Builder project backup has an invalid branding.${key}`);
+  for(const key of ['primary','secondary','accent','headerBackgroundLight','headerBackgroundDark','typography'])if(project.branding?.[key]!==undefined&&typeof project.branding[key]!=='string')throw new Error(`Builder project backup has an invalid branding.${key}`);
+  for(const [key,value] of Object.entries(project.mapping||{}))if(typeof value!=='string')throw new Error(`Builder project backup has an invalid mapping field ${key}`);
+  for(const key of ['sourceFiles','sourceState','extraPeople','extraLocations','announcements','deletedSourceIds','changelog','confirmedPublications','identityWarnings','reimportConflicts','sponsorFiles'])if(project[key]!==undefined&&!Array.isArray(project[key]))throw new Error(`Builder project backup has an invalid ${key} collection`);
+  for(const key of ['extraPeople','extraLocations','announcements'])for(const [index,item] of (project[key]||[]).entries())if(!isRecord(item))throw new Error(`Builder project backup has an invalid ${key} record ${index+1}`);
+  for(const key of ['sourceState','changelog','confirmedPublications'])for(const [index,item] of (project[key]||[]).entries())if(!isRecord(item))throw new Error(`Builder project backup has an invalid ${key} record ${index+1}`);
+  for(const [index,item] of (project.reimportConflicts||[]).entries())if(typeof item!=='string')throw new Error(`Builder project backup has an invalid reimport conflict ${index+1}`);
+  for(const key of ['peopleOverrides','locationOverrides','sessionOverrides','peoplePhotos'])validateMap(project[key],key,{records:key!=='peoplePhotos'});
+  validateMap(project.personIdAliases,'personIdAliases',{stringValues:true});
+  for(const key of ['logo','logoLight','logoDark','appIcon'])validateAssetDescriptor(project[key],key);
+  for(const [id,asset] of Object.entries(project.peoplePhotos||{}))validateAssetDescriptor(asset,`person photo ${id}`);
+  for(const [index,item] of (project.sponsorFiles||[]).entries()){
+    if(!isRecord(item))throw new Error(`Builder project backup has an invalid sponsor record ${index+1}`);
+    if(item.name!==undefined&&typeof item.name!=='string')throw new Error(`Builder project backup has an invalid sponsor name ${index+1}`);
+    if(item.id!==undefined&&typeof item.id!=='string')throw new Error(`Builder project backup has an invalid sponsor ID ${index+1}`);
+    if(item.height!==undefined&&(!Number.isFinite(Number(item.height))||Number(item.height)<0))throw new Error(`Builder project backup has an invalid sponsor size ${index+1}`);
+    if(item.bytes!==undefined||item.blob!==undefined)validateAssetDescriptor(item,`sponsor ${index+1}`,{required:true});
+    else for(const theme of ['light','dark'])validateAssetDescriptor(item[theme],`sponsor ${index+1} ${theme} variant`);
+  }
+  for(const [index,item] of (project.sourceFiles||[]).entries())validateAssetDescriptor(item,`source file ${index+1}`,{required:true});
+  const registry=project.identityRegistry;
+  if(registry!==undefined){
+    if(!isRecord(registry))throw new Error('Builder project backup has an invalid identityRegistry');
+    for(const key of ['people','locations','tracks'])validateMap(registry[key],`identityRegistry.${key}`,{stringValues:true});
+    validateMap(registry.personRecords,'identityRegistry.personRecords',{records:true});
+    const personRecords=registry.personRecords||{},aliases=project.personIdAliases||{};
+    for(const [identity,id] of Object.entries(registry.people||{})){
+      let canonical=id;const seen=new Set();while(aliases[canonical]&&!seen.has(canonical)){seen.add(canonical);canonical=aliases[canonical];}
+      if(seen.has(canonical))throw new Error(`Builder project backup has a cyclic person identity alias for ${identity}`);
+      if(Object.keys(personRecords).length&&!personRecords[canonical])throw new Error(`Builder project backup has a person index pointing to missing identity ${canonical}`);
+    }
+    for(const [id,person] of Object.entries(registry.personRecords||{})){
+      if(person.id!==undefined&&person.id!==id)throw new Error(`Builder project backup has inconsistent person identity ${id}`);
+      for(const key of ['names','affiliations','explicitIds'])if(person[key]!==undefined&&(!Array.isArray(person[key])||person[key].some(value=>typeof value!=='string')))throw new Error(`Builder project backup has an invalid person identity ${id} ${key}`);
+    }
+    if(registry.autoConsolidatedIds!==undefined&&(!Array.isArray(registry.autoConsolidatedIds)||registry.autoConsolidatedIds.some(value=>typeof value!=='string')))throw new Error('Builder project backup has invalid autoConsolidatedIds');
+  }
+  for(const key of ['dataVersion','lastPublishedVersion','lastExportedVersion'])if(project[key]!==undefined&&(!Number.isInteger(project[key])||project[key]<0))throw new Error(`Builder project backup has an invalid ${key}`);
+  for(const key of ['lastPublishedAt','lastExportedAt','releaseMessage'])if(project[key]!==undefined&&typeof project[key]!=='string')throw new Error(`Builder project backup has an invalid ${key}`);
+  return project;
+}
+
+/** Build a disposable package to catch structural/identity failures without rejecting incomplete drafts. */
+export async function validateBuilderProjectTrial(project){
+  validateBuilderProjectStructure(project);
+  let result;
+  try { result=await buildPackage(structuredClone(project)); }
+  catch(error) { throw new Error(`Builder project backup cannot build a trial package: ${error?.message||String(error)}`); }
+  const schemaErrors=result.report.errors.filter(message=>{
+    if(project.conference.startDate===''&&['conference.startDate: does not match required pattern','conference.startDate must be YYYY-MM-DD'].includes(message))return false;
+    if(project.conference.endDate===''&&['conference.endDate: does not match required pattern','conference.endDate must be YYYY-MM-DD'].includes(message))return false;
+    return /^(manifest|conference|programme|people|locations|branding)(\.|:)/.test(message);
+  });
+  if(schemaErrors.length)throw new Error(`Builder project backup has invalid package structure: ${schemaErrors.join('; ')}`);
+  return true;
+}
 
 export async function createBuilderProjectFile(project){
   const safe=structuredClone(project);
@@ -79,10 +182,10 @@ export async function createBuilderProjectFile(project){
 export async function readBuilderProjectFile(file){
   const entries=await readStoredZip(file),wrapper=JSON.parse(textEntry(entries,'project.json'));
   if(wrapper.format!=='conference-companion-builder-project')throw new Error('Not a Conference Companion Builder project');
-  const version=Number(wrapper.version||1);
-  if(!Number.isInteger(version)||version<1||version>1)throw new Error(`Unsupported Builder project backup version: ${wrapper.version}`);
+  const version=wrapper.version===undefined?1:wrapper.version;
+  if(!Number.isInteger(version)||version!==1)throw new Error(`Unsupported Builder project backup version: ${wrapper.version}`);
   const project=wrapper.project;
-  if(!project||typeof project!=='object'||Array.isArray(project))throw new Error('Builder project backup does not contain a valid project');
+  if(!isRecord(project))throw new Error('Builder project backup does not contain a valid project');
   const restoreAsset=(asset,label,area='assets')=>{
     if(asset==null)return asset;
     if(typeof asset!=='object'||Array.isArray(asset))throw new Error(`Invalid ${label} asset in Builder project backup`);
@@ -112,5 +215,5 @@ export async function readBuilderProjectFile(file){
     const bytes=restored.bytes;
     return {...restored,bytes:undefined,blob:new Blob([bytes],{type:src.type||'application/octet-stream'})};
   });
-  return project;
+  return validateBuilderProjectStructure(project);
 }

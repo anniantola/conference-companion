@@ -7,7 +7,7 @@ import * as qr from './src/qrcode.js';
 import * as backup from './src/backup.js';
 import {normalizeWebUrl} from './src/safe-url.js';
 
-const ENGINE_VERSION='1.2.4';
+const ENGINE_VERSION='1.2.5';
 const qs=new URLSearchParams(location.search);
 const builderPreview=qs.get('builderPreview')==='1'&&window.parent!==window;
 const base=(qs.get('conference')||'./conference').replace(/\/$/,'');
@@ -28,7 +28,7 @@ function fail(message){
   const source=document.createElement('p'),label=document.createTextNode('Conference package: '),code=document.createElement('code');
   code.textContent=String(base).split(/[?#]/,1)[0].slice(0,160)||'default conference';source.append(label,code);main.append(heading,detail,source);document.body.replaceChildren(main);
 }
-function resolvePackageUrl(value){if(!value)return value;if(builderPreview&&String(value).startsWith('blob:'))return value;const safe=normalizeWebUrl(value,{allowRelative:true});if(!safe)return '';if(/^https:/i.test(safe))return safe;return `${base}/${safe}`;}
+function resolvePackageUrl(value){if(!value)return value;if(builderPreview&&String(value).startsWith('blob:'))return value;const safe=normalizeWebUrl(value,{allowRelative:true});if(!safe)return '';if(/^https:/i.test(safe))return safe;return `${base}/${safe.replace(/^\/+/, '')}`;}
 function dateMeta(date,locale){const d=new Date(`${date}T12:00:00Z`);return{weekday:new Intl.DateTimeFormat(locale||'en-GB',{weekday:'long',timeZone:'UTC'}).format(d),dateLabel:new Intl.DateTimeFormat(locale||'en-GB',{day:'numeric',month:'long',timeZone:'UTC'}).format(d)};}
 
 function applyDocument(pkg,model,loadInfo){
@@ -65,7 +65,7 @@ function legacyFont(value){return value==='serif'?'noto-serif':value==='condense
     const model=createConferenceModel(pkg),userStore=createUserStore(pkg.conference.id);
     await userStore.ensureReady();
     const userState=await userStore.getState();
-    window.CONFERENCE_PACKAGE=pkg;window.CONFERENCE_MODEL=model;window.CONFERENCE_LOAD_INFO=loadInfo;window.CONFERENCE_CONFIG={...pkg,packageBase:base,engineVersion:ENGINE_VERSION,packageSource:loadInfo.source,packageWarnings:loadInfo.warnings||[],rollbackActive:!!loadInfo.rollbackActive,posterSessions:model.posterSessions};window.CONFERENCE_USER_STATE=userState;
+    window.CONFERENCE_PACKAGE=pkg;window.CONFERENCE_MODEL=model;window.CONFERENCE_LOAD_INFO=loadInfo;window.CONFERENCE_CONFIG={...pkg,packageBase:base,engineVersion:ENGINE_VERSION,packageSource:loadInfo.source,packageWarnings:loadInfo.warnings||[],rollbackActive:!!loadInfo.rollbackActive,builderPreview,posterSessions:model.posterSessions};window.CONFERENCE_USER_STATE=userState;
     window.CONFERENCE_SERVICES={userStore,calendar,vcard,qr,backup,getPackageDiagnostics:()=>getPackageDiagnostics(base),rollbackConferencePackage:()=>rollbackConferencePackage(base),resumeConferencePackageUpdates:()=>resumeConferencePackageUpdates(base)};
     applyDocument(pkg,model,loadInfo);
     await import('./app.js');

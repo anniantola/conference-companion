@@ -345,7 +345,15 @@ Builder projects retain legacy darkMode, typography, headerStyle, logo, and sing
 
 The attendee runtime resolves defaultAppearance before the deprecated boolean and applies theme logo/background variants whenever the actual theme changes. sponsorLogos carries each variant and display height; sponsorAssets remains for older readers. The Builder preview and deployment ZIP use the same branding package and paths. The generated ZIP and GitHub Pages artifact include 1.4 MB of local WOFF2 Unicode subsets, the font stylesheet, and six OFL notices. The service worker precaches these assets so every curated choice remains available offline. Contrast checks warn when a brand color is weak for white text; primary buttons choose black or white foregrounds automatically.
 
-## 19. Project backup and startup safety (v1.2.4)
+## 19. Project backup and startup safety (v1.2.5)
+
+Builder project archives are fully parsed and checked before replacement. Restore runs a disposable package build; structural/schema failures are rejected, while semantic draft warnings do not block restoring incomplete organizer work. Confirmed replacement first saves the current in-memory project, then uses the project's one-record IndexedDB transaction for the incoming state. Project data and its byte-backed assets are encoded together.
+
+Programme import parsing is isolated from the live project. CSV/XLSX/row-JSON data remains a mapping preview until applied; structured conference JSON and PDF extraction build a cloned next state. Source files, programme rows, identities, and metadata are persisted together in one project record after structural checks (structured conference JSON also passes full package schema and semantic validation). XLSX worksheet requests carry a generation token so stale parses cannot commit.
+
+Release package history is capped at five validated records per conference base, including the active release. Older release records are pruned in the same IndexedDB transaction that stores the new release and updates metadata. Rollback pins a retained release and blocks activation until updates are explicitly resumed. Attendee-owned records are stored separately and are unaffected.
+
+The shared JSON Schema validator implements the repository's used subset: type unions, enum, required, properties, additionalProperties, minimum/maximum, minLength, pattern, minItems/maxItems, and items. It is intentionally not described as full Draft 2020-12 support.
 
 Project archive validation is completed before the Builder drains pending
 autosaves or swaps the current project. The restore writes the complete staged

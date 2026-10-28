@@ -2,6 +2,7 @@ import {test,expect} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
 import {readStoredZip,textEntry} from '../../src/zip.js';
 import {createStoredZip} from '../../src/zip.js';
+import {createBuilderProjectFile} from '../../src/builder/project-file.js';
 import {synthetic91Csv} from '../../tools/synthetic-91-csv.js';
 
 async function importSynthetic(page){
@@ -176,7 +177,9 @@ test('Builder project ZIP round trip preserves wizard state and imported people'
   const download=await pending,buffer=await readFile(await download.path());
   page.once('dialog',dialog=>dialog.accept());await page.locator('#resetProject').click();
   await expect(page.locator('[data-step="1"]')).toBeVisible();
-  await page.locator('#builderProjectInput').setInputFiles({name:'previous-builder-project.zip',mimeType:'application/zip',buffer});
+  const cancelImport=page.waitForEvent('dialog');await page.locator('#builderProjectInput').setInputFiles({name:'previous-builder-project.zip',mimeType:'application/zip',buffer});await (await cancelImport).dismiss();
+  await expect(page.locator('[data-config="name"]')).toHaveValue('');
+  const acceptImport=page.waitForEvent('dialog');await page.locator('#builderProjectInput').setInputFiles({name:'previous-builder-project.zip',mimeType:'application/zip',buffer});await (await acceptImport).accept();
   await expect(page.locator('[data-step="4"]')).toBeVisible();
   await expect(page.locator('#peoplePreview .person-row')).toHaveCount(23);
   await page.locator('[data-goto-step="6"]').click();
@@ -211,12 +214,50 @@ test('invalid Builder project backup leaves the current autosave and assets unto
   await page.goto('/builder.html');
   await page.evaluate(async()=>{const {saveProject}=await import('/src/builder/project-store.js');await saveProject({conference:{name:'Keep this project',shortName:'KEEP'},rows:[{id:'keep-row',title:'Keep this row'}],logoLight:{name:'keep.svg',type:'image/svg+xml',bytes:new Uint8Array([11,22,33])},activeStep:6});});
   await page.reload();await expect(page.locator('[data-config="name"]')).toHaveValue('Keep this project');
-  const invalid=await createStoredZip([{name:'project.json',data:JSON.stringify({format:'conference-companion-builder-project',version:1,project:{conference:{name:'Replace me'},rows:[],logoLight:{name:'missing.svg',archivePath:'assets/missing.svg'}}})}]);
+  const invalid=await createStoredZip([{name:'project.json',data:JSON.stringify({format:'conference-companion-builder-project',version:1,project:{conference:{name:'Replace me'},rows:'not-rows'}})}]);
   await page.locator('#builderProjectInput').setInputFiles({name:'incomplete-backup.zip',mimeType:'application/zip',buffer:Buffer.from(await invalid.arrayBuffer())});
-  await expect(page.locator('#toast')).toContainText('missing or has an empty logoLight asset');
+  await expect(page.locator('#toast')).toContainText('rows collection');
   await expect(page.locator('[data-config="name"]')).toHaveValue('Keep this project');
   const stored=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return await loadProject();});
   expect(stored.conference.name).toBe('Keep this project');expect(stored.rows[0].id).toBe('keep-row');expect([...stored.logoLight.bytes]).toEqual([11,22,33]);
+});
+
+test('failed Builder backup persistence does not replace the saved project',async({page})=>{
+  await page.goto('/builder.html');
+  await page.evaluate(async()=>{const {saveProject}=await import('/src/builder/project-store.js');await saveProject({conference:{name:'Keep after write failure'},rows:[{id:'keep-entry',title:'Keep this entry'}],activeStep:3});});
+  await page.reload();await expect(page.locator('[data-config="name"]')).toHaveValue('Keep after write failure');
+  const archive=await createBuilderProjectFile({conference:{id:'replacement',name:'Replacement project',startDate:'2033-05-01',endDate:'2033-05-02',timezone:'UTC'},rows:[],branding:{},features:{}});
+  await page.evaluate(()=>{
+    const prototype=IDBObjectStore.prototype,original=prototype.put;let writes=0;
+    window.__restoreProjectPut=()=>{prototype.put=original;};
+    prototype.put=function(value,...args){const request=original.call(this,value,...args);if(this.transaction.db.name==='conferenceCompanionBuilder'&&this.name==='projects'&&++writes===2)this.transaction.abort();return request;};
+  });
+  page.once('dialog',dialog=>dialog.accept());
+  await page.locator('#builderProjectInput').setInputFiles({name:'replacement.zip',mimeType:'application/zip',buffer:Buffer.from(await archive.arrayBuffer())});
+  await expect(page.locator('#toast')).toContainText('Could not import Builder project');
+  await page.evaluate(()=>window.__restoreProjectPut());
+  const stored=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return loadProject();});
+  expect(stored.conference.name).toBe('Keep after write failure');expect(stored.rows[0].id).toBe('keep-entry');
+});
+
+test('failed programme parsing and IndexedDB writes preserve rows and previously imported source bytes',async({page})=>{
+  await page.goto('/builder.html');
+  await page.evaluate(async()=>{const {saveProject}=await import('/src/builder/project-store.js');await saveProject({conference:{name:'Keep import project'},rows:[{id:'keep-import',title:'Old programme row'}],sourceFiles:[{id:'source-old',name:'old.csv',type:'text/csv',blob:new Blob(['old source'])}]});});
+  await page.reload();
+  await page.locator('[data-goto-step="2"]').click();
+  await page.locator('#programmeFile').setInputFiles({name:'broken.csv',mimeType:'text/csv',buffer:Buffer.from('title,speaker\n"unterminated,Someone')});
+  await page.locator('#importProgramme').click();await expect(page.locator('#importStatus')).toContainText('existing project preserved');
+  let stored=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js'),project=await loadProject();return {...project,sourceText:await project.sourceFiles[0].blob.text()};});
+  expect(stored.rows[0].id).toBe('keep-import');expect(stored.sourceText).toBe('old source');
+
+  await page.locator('#programmeFile').setInputFiles({name:'new.csv',mimeType:'text/csv',buffer:Buffer.from('title,speaker\nNew title,New speaker')});
+  await page.locator('#importProgramme').click();await expect(page.locator('#mappingCard')).toBeVisible();
+  await page.evaluate(()=>{const prototype=IDBObjectStore.prototype,original=prototype.put;let writes=0;window.__restoreImportPut=()=>{prototype.put=original;};prototype.put=function(value,...args){const request=original.call(this,value,...args);if(this.transaction.db.name==='conferenceCompanionBuilder'&&this.name==='projects'&&++writes===2)this.transaction.abort();return request;};});
+  await page.locator('#applyMapping').click();await expect(page.locator('#builderSaveStatus')).toContainText('Import was not saved');
+  await expect(page.locator('#toast')).toContainText('Could not apply import mapping');
+  await page.evaluate(()=>window.__restoreImportPut());
+  stored=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js'),project=await loadProject();return {...project,sourceText:await project.sourceFiles[0].blob.text()};});
+  expect(stored.rows[0].id).toBe('keep-import');expect(stored.sourceFiles).toHaveLength(1);expect(stored.sourceText).toBe('old source');
 });
 
 test('ambiguous unaffiliated chair has a direct identity choice',async({page})=>{

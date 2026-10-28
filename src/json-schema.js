@@ -26,6 +26,10 @@ export function validateJsonSchema(value, schema, path = '$') {
     return errors;
   }
 
+  if (Object.hasOwn(schema, 'enum') && Array.isArray(schema.enum) && !schema.enum.some(candidate => JSON.stringify(candidate) === JSON.stringify(value))) {
+    errors.push(`${path}: must be one of the allowed values`);
+  }
+
   if (typeof value === 'number') {
     if (schema.minimum != null && value < schema.minimum) errors.push(`${path}: must be >= ${schema.minimum}`);
     if (schema.maximum != null && value > schema.maximum) errors.push(`${path}: must be <= ${schema.maximum}`);
@@ -51,6 +55,11 @@ export function validateJsonSchema(value, schema, path = '$') {
     }
     for (const [key, childSchema] of Object.entries(schema.properties || {})) {
       if (key in value) errors.push(...validateJsonSchema(value[key], childSchema, `${path}.${key}`));
+    }
+    for (const [key, child] of Object.entries(value)) {
+      if (Object.hasOwn(schema.properties || {}, key)) continue;
+      if (schema.additionalProperties === false) errors.push(`${path}.${key}: additional property is not allowed`);
+      else if (schema.additionalProperties && typeof schema.additionalProperties === 'object') errors.push(...validateJsonSchema(child, schema.additionalProperties, `${path}.${key}`));
     }
   }
   return errors;
