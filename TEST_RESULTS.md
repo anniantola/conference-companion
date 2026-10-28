@@ -14,8 +14,12 @@ The full configured browser matrix has **150** cases. WebKit's 50 cases could
 not launch on this host: Playwright's MiniBrowser exits before the test body
 because `libavif.so.16` is missing. This is an environment dependency failure,
 not an application assertion failure. No system-wide package was installed.
-The repository CI workflow installs Playwright browser dependencies; its
-three-engine result is required before calling WebKit verified.
+GitHub Actions run [40654711654](https://github.com/anniantola/conference-companion/actions/runs/40654711654)
+then passed the complete Node gate and all **150/150** Playwright tests across
+Chromium, Firefox and WebKit. It deployed commit `73e58b85e26cc458ef8d210c10ed9d27491cf046`.
+The Pages deployment status is successful; the live attendee `bootstrap.js`
+reports engine v1.2.4, the live Builder generator reports version/minimum engine
+1.2.4, and both the attendee and Builder pages return HTTP 200.
 
 The Builder's SheetJS, PDF.js and Tesseract.js paths remain lazy public-CDN
 imports. Their licenses and network requirement are documented in README and
