@@ -92,6 +92,16 @@ Conference programme updates are independent of app-engine updates.
 
 The service worker caches engine assets only. Conference JSON activation is owned by `package-store.js`, so there is one source of truth for official data.
 
+Rollback is a deliberate, persistent update pause stored with the package
+metadata. The selected validated release remains pinned across restarts and
+offline launches; package loading will not fetch the newer network manifest
+until the attendee chooses **Resume automatic updates**. Cached records are
+revalidated on every load and retained for recovery. Rollback does not change
+attendee stores or the app-engine version. If the pinned entry is damaged, the
+loader can select another validated cached record at or below the pinned data
+version. A candidate still downloading cannot activate after another client
+has set the rollback lock.
+
 ## 5. Attendee storage and privacy
 
 `localStorage` contains only small display/navigation preferences such as theme, compact mode, selected location/track and last view.
@@ -118,6 +128,24 @@ Supported sources:
 - XLS/XLSX: explicit worksheet selection plus deterministic column mapping;
 - CSV: deterministic column mapping;
 - structured JSON: bypasses extraction and preserves canonical IDs when supplied.
+
+CSV and structured JSON are parsed locally. XLS/XLSX loads SheetJS from the
+SheetJS CDN, PDF extraction loads PDF.js from jsDelivr, and OCR loads Tesseract.js
+plus its worker/runtime/language assets from jsDelivr. They are Apache-2.0
+licensed and loaded only when needed. These files are not included in the
+attendee engine or generated attendee ZIP. Builder import for those formats
+needs network access when the relevant parser is first used; offline Builder
+import is not guaranteed. Keeping the large optional parser/OCR runtime outside
+attendee deployments avoids increasing the PWA download and cache footprint.
+
+Builder project backups contain project state and imported source/branding
+assets. Each binary gets a unique archive path, independent of its filename.
+Restore stages and validates the complete ZIP and every referenced asset
+before writing one autosave record, so missing, corrupt, or colliding archive
+entries cannot replace the current project. Existing single-logo and flat
+sponsor formats remain supported. Shared IndexedDB serialization preserves
+typed-array bytes; old numeric-key byte objects are normalized during project
+load.
 
 Review tools include row editing, selection + bulk edits, a session-level editor, people/locations/tracks, warnings/conflicts, branding, features, announcements and a phone preview.
 
@@ -316,3 +344,17 @@ Step 8 loads `index.html` in a same-origin iframe with the current Builder packa
 Builder projects retain legacy darkMode, typography, headerStyle, logo, and single-file sponsor records. On load, old darkMode true maps to the dark attendee default and false maps to follow-device. A legacy logo remains the fallback for both theme variants. New branding stores defaultAppearance, independent previewAppearance, logoLight/logoDark, separate heading/body font IDs, theme-specific header backgrounds, logo alignment and size, and ordered sponsor records. Preview appearance is not serialized into conference branding.json.
 
 The attendee runtime resolves defaultAppearance before the deprecated boolean and applies theme logo/background variants whenever the actual theme changes. sponsorLogos carries each variant and display height; sponsorAssets remains for older readers. The Builder preview and deployment ZIP use the same branding package and paths. The generated ZIP and GitHub Pages artifact include 1.4 MB of local WOFF2 Unicode subsets, the font stylesheet, and six OFL notices. The service worker precaches these assets so every curated choice remains available offline. Contrast checks warn when a brand color is weak for white text; primary buttons choose black or white foregrounds automatically.
+
+## 19. Project backup and startup safety (v1.2.4)
+
+Project archive validation is completed before the Builder drains pending
+autosaves or swaps the current project. The restore writes the complete staged
+project in one IndexedDB record, then reloads the interface. Any parsing,
+integrity, missing-asset, or validation failure leaves the currently stored
+project as-is. Shared binary storage uses explicit byte markers and keeps
+ArrayBuffer/view contents intact across Builder reloads; legacy numeric-key
+objects are converted to byte arrays on project load.
+
+Bootstrap startup diagnostics use DOM elements and `textContent`, never HTML
+interpolation. The first error line is bounded, and only the conference path
+without query/fragment parameters is displayed.

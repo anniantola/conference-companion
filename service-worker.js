@@ -1,4 +1,4 @@
-const CACHE = "conference-companion-engine-1.2.3";
+const CACHE = "conference-companion-engine-1.2.4";
 const ENGINE_ASSETS = [
   "./",
   "./index.html",

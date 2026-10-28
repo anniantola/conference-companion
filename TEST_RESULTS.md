@@ -1,3 +1,29 @@
+# Reliability, backup, and rollback verification — 2026-10-28, engine v1.2.4
+
+The full Node.js unit gate passed, including all schemas and fixtures, release
+validation, importers, the 91-record/18-poster synthetic regression, Builder
+identity/trust checks, project ZIP backup tests, and all three extracted
+deployment-package validations. The new ZIP tests compare complete asset bytes
+for distinct light/dark logos, sponsor variants, icon, person image and source
+files; they also reject missing, corrupted and duplicate ZIP entries. Chromium
+and Firefox passed all **100/100** configured browser tests, including rollback
+online/offline reload behavior, explicit resume, attendee-data persistence,
+failed restore non-overwrite and startup XSS cases.
+
+The full configured browser matrix has **150** cases. WebKit's 50 cases could
+not launch on this host: Playwright's MiniBrowser exits before the test body
+because `libavif.so.16` is missing. This is an environment dependency failure,
+not an application assertion failure. No system-wide package was installed.
+The repository CI workflow installs Playwright browser dependencies; its
+three-engine result is required before calling WebKit verified.
+
+The Builder's SheetJS, PDF.js and Tesseract.js paths remain lazy public-CDN
+imports. Their licenses and network requirement are documented in README and
+ARCHITECTURE; offline Builder parsing for XLSX/PDF/OCR is not claimed. The
+attendee engine does not load these libraries.
+
+---
+
 # Builder trust and v1.2.1 verification — 2026-10-26
 
 The complete Node 22 unit/schema/importer/Builder/deployment suite passed after

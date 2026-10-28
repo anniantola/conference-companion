@@ -1,6 +1,6 @@
 # Conference Companion
 
-Current engine release: **v1.2.3**.
+Current engine release: **v1.2.4**.
 
 Conference Companion is a standalone, offline-first conference PWA plus a browser-based Conference Builder. The attendee engine is stable and conference content is published as a normalized, versioned data package rather than being hard-coded into the UI.
 
@@ -35,7 +35,7 @@ Conference Companion is a standalone, offline-first conference PWA plus a browse
 8. retains the previous validated release for local rollback;
 9. falls back to the last-known-good release when offline or when a candidate fails validation.
 
-A same-version release with changed checksums is treated as a mutated release and is not activated. Older network releases are ignored. The Settings page shows the active data release, changelog/notices and exposes rollback only when a previous validated release is available.
+A same-version release with changed checksums is treated as a mutated release and is not activated. Older network releases are ignored. The Settings page shows the active data release and changelog/notices. Choosing a previous validated release pins it across restarts and disables network package checks until **Resume automatic updates** is selected. Engine updates and conference `dataVersion` releases remain separate; rollback never deletes attendee data.
 
 ### Conference Builder
 
@@ -66,13 +66,15 @@ Open `builder.html` in the development repository. The Builder implements:
 - Builder project ZIP export/import, including source files and assets;
 - repository-ready deployment ZIP generation with the attendee engine, conference package, install assets, validator and GitHub Pages workflow.
 
+Builder project ZIPs are complete private backups: they include the full project, imported source files, app icon, legacy and light/dark logos, person photographs, ordered sponsor metadata and nested light/dark sponsor variants. Assets have unique archive paths and are checked for missing or damaged content. Import validates the whole archive before replacing the autosaved project; a failed import leaves the current project intact. Older single-logo and flat-sponsor projects remain supported. Keep project ZIPs private because they include source documents and organizer review data. The personal attendee backup is separate and replace-restores only the selected conference after its own validation.
+
 The Builder deliberately keeps source files, mappings, provenance, manual overrides and re-import metadata private. They are not published in attendee conference JSON.
 
 The live attendee preview uses the same generated package model and runtime as the deployment ZIP. Opening Step 8 builds it from the current project, and changes to settings, programme, features, and branding update it automatically. **Refresh preview** always rebuilds the iframe, even when the package fingerprint is unchanged; **Validate** also refreshes it. The status shows Loading, Up to date, or Failed independently of validation errors, so an incomplete project can still be inspected. Refresh keeps the selected date, room, and screen size. Each iframe load gets a temporary Builder-only conference ID for personal storage, so preview interactions cannot overwrite attendee-owned data for the actual conference. Refresh does not export a ZIP or change publication versions. Installation and service-worker registration are disabled in the preview. Uploaded logo, sponsor and profile images are shown from local object URLs; published URLs still use the ZIP assets. Review the deployed site on physical devices for PWA installation, camera, and platform-specific appearance.
 
 Step 6 configures the attendee default appearance (Light, Dark, or Follow device), separate light/dark preview appearance, theme-specific logos, header colors and layout, heading and body fonts, color presets, and sponsor order and variants. Existing darkMode projects migrate as true → Dark and false → Follow device; a legacy single logo remains the fallback for both themes. Six curated font families use local WOFF2 subsets cached by the service worker for offline use. Their Open Font License notices are included under assets/fonts/. Generated conference packages carry the branding fields and asset variants shown in Step 8. Preview appearance remains private Builder state and is not exported as the conference default.
 
-Step 6 configures the attendee default appearance (Light, Dark, or Follow device), separate light/dark preview appearance, theme-specific logos, header colors and layout, heading and body fonts, color presets, and sponsor order and variants. Existing darkMode projects migrate as true → Dark and false → Follow device; a legacy single logo remains the fallback for both themes. Six curated font families use local WOFF2 subsets cached by the service worker for offline use. Their Open Font License notices are included under assets/fonts/. Generated conference packages carry the branding fields and asset variants shown in Step 8. Preview appearance remains private Builder state and is not exported as the conference default.
+CSV and structured JSON imports work without external libraries. XLS/XLSX, PDF text extraction and OCR load SheetJS, PDF.js, and Tesseract.js lazily from their public CDNs when those formats/features are used. These Builder imports therefore need network access to fetch the library (and, for OCR, worker/runtime/language data); the attendee application and its offline operation do not depend on these libraries. The current versions use Apache-2.0-licensed packages. They are not bundled in the attendee deployment: vendoring their complete browser runtimes and OCR data would materially increase Builder payload and maintenance, while only a subset of the distribution is needed for each task. Offline Builder file import is not currently guaranteed.
 
 The synthetic 91-row regression contains 23 distinct person names and 18 posters. Before the chair identity fix it generated 45 profiles, including 22 accidental duplicate chair profiles; fresh imports now generate 23. Previously saved projects keep their existing person IDs until an organizer confirms a merge. A confirmed merge updates programme references and preserves the selected profile details, affiliations, papers and chosen photograph. Project ZIPs from earlier Builder versions remain importable.
 
@@ -171,8 +173,6 @@ Conference Builder:
 http://localhost:8080/builder.html
 ```
 
-PDF/XLSX parsing libraries are loaded lazily by the Builder when those import paths are used. The attendee PWA has no dependency on those libraries.
-
 ## Validation and tests
 
 ```bash
@@ -212,7 +212,7 @@ npx playwright install --with-deps chromium
 npm test
 ```
 
-`npm test` runs all Node checks and Playwright Chromium tests. `npm run test:unit`
+`npm test` runs all Node checks and Playwright Chromium, Firefox, and WebKit tests. `npm run test:unit`
 and `npm run test:browser` run them separately. Playwright starts its own local
 HTTP server on port 8080; stop any other server on that port first. Failed browser
 tests retain traces in `test-results/`. No API keys or hosted services are needed.
@@ -223,8 +223,12 @@ package activation/rollback, corrupt and incomplete releases, semantic rejection
 mutated and older releases, and preservation/isolation of attendee data. A real
 service-worker replacement verifies waiting activation and coherent cached engine
 scripts while a user edits. Generated deployment ZIPs are extracted and validated
-for both packages. Pages CI installs Chromium, runs the complete suite, and stages
-only public files into `_site`; dependencies and test traces are excluded.
+for all conference fixtures. Browser coverage includes project ZIP byte-level
+round trips, failed-restore non-overwrite, persistent online/offline rollback,
+resume behavior, attendee-data preservation, and inert startup error rendering.
+Pages CI installs all three browser engines and system dependencies, runs the
+complete suite, and stages only public files into `_site`; dependencies and test
+traces are excluded.
 
 PDF extraction separates large gutters and infers independent columns when at
 least two timed anchors recur in each column. Explicit `Track:`, `Room:` and

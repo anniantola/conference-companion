@@ -2,9 +2,19 @@ const DB_NAME = "conferenceCompanionUserData";
 const DB_VERSION = 2;
 const USER_SCHEMA_VERSION = 1;
 const STORED_BLOB = '__conferenceCompanionStoredBlobV1';
+const STORED_BYTES = '__conferenceCompanionStoredBytesV1';
+const BYTE_VIEW_TYPES=Object.fromEntries([
+  'Uint8Array','Uint8ClampedArray','Int8Array','Uint16Array','Int16Array','Uint32Array','Int32Array',
+  'Float32Array','Float64Array','BigInt64Array','BigUint64Array','DataView'
+].filter(name=>typeof globalThis[name]==='function').map(name=>[name,globalThis[name]]));
 
 export async function encodeStoredValue(value) {
   if (value instanceof Blob) return {[STORED_BLOB]:true,type:value.type,bytes:new Uint8Array(await value.arrayBuffer())};
+  if(value instanceof ArrayBuffer)return {[STORED_BYTES]:true,type:'ArrayBuffer',bytes:new Uint8Array(value.slice(0))};
+  if(ArrayBuffer.isView(value)){
+    const type=value.constructor?.name;
+    if(BYTE_VIEW_TYPES[type])return {[STORED_BYTES]:true,type,bytes:new Uint8Array(value.buffer.slice(value.byteOffset,value.byteOffset+value.byteLength))};
+  }
   if (Array.isArray(value)) return Promise.all(value.map(encodeStoredValue));
   if (value && typeof value === 'object') {
     const entries=await Promise.all(Object.entries(value).map(async([key,item])=>[key,await encodeStoredValue(item)]));
@@ -15,6 +25,11 @@ export async function encodeStoredValue(value) {
 
 export function decodeStoredValue(value) {
   if (value && typeof value === 'object' && value[STORED_BLOB] === true && value.bytes instanceof Uint8Array) return new Blob([value.bytes],{type:value.type||''});
+  if(value&&typeof value==='object'&&value[STORED_BYTES]===true&&value.bytes instanceof Uint8Array){
+    const data=value.bytes.slice().buffer;if(value.type==='ArrayBuffer')return data;
+    const View=BYTE_VIEW_TYPES[value.type];if(!View)return value.bytes.slice();
+    return value.type==='DataView'?new DataView(data):new View(data);
+  }
   if (typeof Blob !== 'undefined' && value instanceof Blob) return value;
   if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return value;
   if (Array.isArray(value)) return value.map(decodeStoredValue);

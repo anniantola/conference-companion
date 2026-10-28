@@ -1,5 +1,7 @@
 import {test,expect} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
+import {readStoredZip,textEntry} from '../../src/zip.js';
+import {createStoredZip} from '../../src/zip.js';
 import {synthetic91Csv} from '../../tools/synthetic-91-csv.js';
 
 async function importSynthetic(page){
@@ -144,18 +146,31 @@ test('Builder shows autosave failure and recovers when storage works again',asyn
 });
 
 test('Builder project ZIP round trip preserves wizard state and imported people',async({page})=>{
-  await page.goto('/builder.html');await importSynthetic(page);
+  await page.goto('/builder.html');
+  const conference={name:'Backup fixture',shortName:'BACKUP',startDate:'2031-06-10',endDate:'2031-06-11',timezone:'Europe/Helsinki',city:'Test city'};
+  for(const [field,value] of Object.entries(conference))await page.locator(`[data-config="${field}"]`).fill(value);
+  await importSynthetic(page);
   await page.locator('[data-goto-step="4"]').click();
   await expect(page.locator('#peoplePreview .person-row')).toHaveCount(23);
   await page.locator('[data-goto-step="6"]').click();
-  await page.locator('#defaultAppearance').selectOption('dark');
+  await page.locator('#defaultAppearance').selectOption('system');
   await page.locator('#brandingPreviewAppearance').selectOption('dark');
   await page.locator('#headingFont').selectOption('noto-serif');
-  await page.locator('#logoLightFile').setInputFiles({name:'backup-light.svg',mimeType:'image/svg+xml',buffer:Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2"><path fill="#112233" d="M0 0h2v2H0z"/></svg>')});
+  const lightSvg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2"><path fill="#112233" d="M0 0h2v2H0z"/></svg>',darkSvg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2"><path fill="#aabbcc" d="M0 0h2v2H0z"/></svg>';
+  await page.locator('#logoLightFile').setInputFiles({name:'backup-light.svg',mimeType:'image/svg+xml',buffer:Buffer.from(lightSvg)});
+  await page.locator('#logoDarkFile').setInputFiles({name:'backup-dark.svg',mimeType:'image/svg+xml',buffer:Buffer.from(darkSvg)});
+  await page.locator('#appIconFile').setInputFiles({name:'backup-icon.svg',mimeType:'image/svg+xml',buffer:Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2"><path fill="#778899" d="M0 0h2v2H0z"/></svg>')});
   await expect(page.locator('#logoLightStatus')).toContainText('backup-light.svg');
   await page.locator('#addSponsor').click();
-  await page.locator('[data-sponsor-name]').fill('Backup Sponsor');
-  await page.locator('[data-sponsor-height]').fill('66');
+  await page.locator('.sponsor-editor').nth(0).locator('[data-sponsor-name]').fill('Backup Alpha');
+  await page.locator('.sponsor-editor').nth(0).locator('[data-sponsor-height]').fill('66');
+  await page.locator('.sponsor-editor').nth(0).locator('[data-sponsor-file="light"]').setInputFiles({name:'same-sponsor.svg',mimeType:'image/svg+xml',buffer:Buffer.from(lightSvg)});
+  await page.locator('.sponsor-editor').nth(0).locator('[data-sponsor-file="dark"]').setInputFiles({name:'same-sponsor.svg',mimeType:'image/svg+xml',buffer:Buffer.from(darkSvg)});
+  await page.locator('#addSponsor').click();
+  await page.locator('.sponsor-editor').nth(1).locator('[data-sponsor-name]').fill('Backup Beta');
+  await page.locator('.sponsor-editor').nth(1).locator('[data-sponsor-height]').fill('52');
+  await page.locator('.sponsor-editor').nth(1).locator('[data-sponsor-file="light"]').setInputFiles({name:'same-sponsor.svg',mimeType:'image/svg+xml',buffer:Buffer.from(darkSvg)});
+  await page.locator('.sponsor-editor').nth(1).locator('[data-sponsor-file="dark"]').setInputFiles({name:'same-sponsor.svg',mimeType:'image/svg+xml',buffer:Buffer.from(lightSvg)});
   await page.locator('[data-goto-step="4"]').click();
   const pending=page.waitForEvent('download');await page.locator('#exportBuilderProject').click();
   const download=await pending,buffer=await readFile(await download.path());
@@ -165,14 +180,43 @@ test('Builder project ZIP round trip preserves wizard state and imported people'
   await expect(page.locator('[data-step="4"]')).toBeVisible();
   await expect(page.locator('#peoplePreview .person-row')).toHaveCount(23);
   await page.locator('[data-goto-step="6"]').click();
-  await expect(page.locator('#defaultAppearance')).toHaveValue('dark');
+  await expect(page.locator('#defaultAppearance')).toHaveValue('system');
   await expect(page.locator('#brandingPreviewAppearance')).toHaveValue('dark');
   await expect(page.locator('#headingFont')).toHaveValue('noto-serif');
   await expect(page.locator('#logoLightStatus')).toContainText('backup-light.svg');
-  await expect(page.locator('[data-sponsor-name]')).toHaveValue('Backup Sponsor');
-  await expect(page.locator('[data-sponsor-height]')).toHaveValue('66');
+  await expect(page.locator('#logoDarkStatus')).toContainText('backup-dark.svg');
+  await expect(page.locator('#appIconStatus')).toContainText('backup-icon.svg');
+  await expect(page.locator('.sponsor-editor')).toHaveCount(2);
+  await expect(page.locator('.sponsor-editor').nth(0).locator('[data-sponsor-name]')).toHaveValue('Backup Alpha');
+  await expect(page.locator('.sponsor-editor').nth(0).locator('[data-sponsor-height]')).toHaveValue('66');
+  await expect(page.locator('.sponsor-editor').nth(1).locator('[data-sponsor-name]')).toHaveValue('Backup Beta');
+  await expect(page.locator('.sponsor-editor').nth(1).locator('[data-sponsor-height]')).toHaveValue('52');
+  const previewAssets=await page.evaluate(async()=>{const images=[...document.querySelectorAll('#brandingPreviews [data-theme] .brand-theme-header img')];return Promise.all(images.map(async image=>await(await fetch(image.src)).text()));});
+  expect(previewAssets[0]).toBe(lightSvg);expect(previewAssets[1]).toBe(darkSvg);
+  await page.locator('[data-goto-step="8"]').click();
+  await expect(page.locator('#previewStatus')).toHaveText('Up to date');
+  const step8Logos={};for(const theme of ['light','dark']){await page.locator('#previewAppearance').selectOption(theme);await expect(page.locator('#previewStatus')).toHaveText('Up to date');step8Logos[theme]=await page.evaluate(async()=>{const frame=document.querySelector('#attendeePreview'),src=frame.contentDocument.querySelector('.conference-logo').src;return await(await fetch(src)).text();});}
+  expect(step8Logos.light).toBe(lightSvg);expect(step8Logos.dark).toBe(darkSvg);
+  const packagePending=page.waitForEvent('download');await page.locator('#downloadPackage').click();const packageDownload=await packagePending;
+  const generated=await readStoredZip(new Blob([await readFile(await packageDownload.path())])),branding=JSON.parse(textEntry(generated,'conference/branding.json'));
+  expect(branding.sponsorLogos.map(({name,height})=>({name,height}))).toEqual([{name:'Backup Alpha',height:66},{name:'Backup Beta',height:52}]);
+  expect(new TextDecoder().decode(generated.get(`conference/${branding.logoLight}`))).toBe(lightSvg);
+  expect(new TextDecoder().decode(generated.get(`conference/${branding.logoDark}`))).toBe(darkSvg);
+  for(const sponsor of branding.sponsorLogos){expect(new TextDecoder().decode(generated.get(`conference/${sponsor.light}`))).toBe(sponsor.name==='Backup Alpha'?lightSvg:darkSvg);expect(new TextDecoder().decode(generated.get(`conference/${sponsor.dark}`))).toBe(sponsor.name==='Backup Alpha'?darkSvg:lightSvg);}
   await page.locator('[data-goto-step="3"]').click();
   await expect(page.locator('#reviewTable tbody tr')).toHaveCount(91);
+});
+
+test('invalid Builder project backup leaves the current autosave and assets untouched',async({page})=>{
+  await page.goto('/builder.html');
+  await page.evaluate(async()=>{const {saveProject}=await import('/src/builder/project-store.js');await saveProject({conference:{name:'Keep this project',shortName:'KEEP'},rows:[{id:'keep-row',title:'Keep this row'}],logoLight:{name:'keep.svg',type:'image/svg+xml',bytes:new Uint8Array([11,22,33])},activeStep:6});});
+  await page.reload();await expect(page.locator('[data-config="name"]')).toHaveValue('Keep this project');
+  const invalid=await createStoredZip([{name:'project.json',data:JSON.stringify({format:'conference-companion-builder-project',version:1,project:{conference:{name:'Replace me'},rows:[],logoLight:{name:'missing.svg',archivePath:'assets/missing.svg'}}})}]);
+  await page.locator('#builderProjectInput').setInputFiles({name:'incomplete-backup.zip',mimeType:'application/zip',buffer:Buffer.from(await invalid.arrayBuffer())});
+  await expect(page.locator('#toast')).toContainText('missing or has an empty logoLight asset');
+  await expect(page.locator('[data-config="name"]')).toHaveValue('Keep this project');
+  const stored=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return await loadProject();});
+  expect(stored.conference.name).toBe('Keep this project');expect(stored.rows[0].id).toBe('keep-row');expect([...stored.logoLight.bytes]).toEqual([11,22,33]);
 });
 
 test('ambiguous unaffiliated chair has a direct identity choice',async({page})=>{

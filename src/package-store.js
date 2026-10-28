@@ -31,29 +31,61 @@ function getRecord(storeName, key) {
 
 async function activateRecord(base, record) {
   const db = await openDb();
-  await new Promise((resolve, reject) => {
+  return new Promise((resolve, reject) => {
     const tx = db.transaction(['packages','meta'], 'readwrite');
     const packages = tx.objectStore('packages');
     const meta = tx.objectStore('meta');
+    let activated=false;
     const getMeta = meta.get(base);
     getMeta.onsuccess = () => {
       const old = getMeta.result || {base, history:[]};
+      // A candidate download may finish after a rollback was selected in
+      // another page. Recheck the persisted lock inside the activation tx.
+      if(old.rollbackActive)return;
       packages.put(record);
-      const history = [record.key, ...(old.history || []).filter(x => x !== record.key)].slice(0, 2);
-      for (const key of old.history || []) if (!history.includes(key)) packages.delete(key);
-      meta.put({base, activeKey:record.key, history, updatedAt:Date.now()});
+      const history = [record.key, ...(old.history || []).filter(x => x !== record.key)];
+      meta.put({base, activeKey:record.key, history, rollbackActive:false, rollbackKey:null, rollbackDataVersion:null, updatedAt:Date.now()});
+      activated=true;
     };
     getMeta.onerror = () => reject(getMeta.error);
-    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.oncomplete = () => { db.close(); resolve(activated); };
     tx.onerror = () => { db.close(); reject(tx.error); };
     tx.onabort = () => { db.close(); reject(tx.error || new Error('Package activation aborted')); };
   });
 }
 
-async function activeRecord(base) {
-  const meta = await getRecord('meta', base);
-  if (!meta?.activeKey) return null;
-  return getRecord('packages', meta.activeKey);
+async function validateStoredRecord(record){
+  if(!record?.pkg||!record.pkg.manifest)return {ok:false,reason:'Cached conference release is incomplete.'};
+  if(Number(record.dataVersion)!==Number(record.pkg.manifest.dataVersion))return {ok:false,reason:'Cached conference release version metadata is inconsistent.'};
+  try{
+    const schemaErrors=await validatePackageSchemas(record.pkg);
+    if(schemaErrors.length)return {ok:false,reason:`Cached release failed schema validation: ${schemaErrors.join('; ')}`};
+    const report=validatePackage(record.pkg,{strictCalendarUid:true});
+    if(report.errors.length)return {ok:false,reason:`Cached release failed validation: ${report.errors.join('; ')}`};
+    return {ok:true,record,warnings:report.warnings||[]};
+  }catch(error){return {ok:false,reason:`Cached release could not be validated: ${error?.message||String(error)}`};}
+}
+
+async function cachedRecords(meta){
+  const keys=[meta?.activeKey,...(meta?.history||[])].filter((key,index,all)=>typeof key==='string'&&all.indexOf(key)===index);
+  const records=[];
+  for(const key of keys){
+    const record=await getRecord('packages',key).catch(()=>null);
+    records.push(record?{key,...await validateStoredRecord(record)}:{key,ok:false,reason:`Cached conference release ${key} is missing.`});
+  }
+  return records;
+}
+
+async function writeMeta(base,transform){
+  const db=await openDb();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction('meta','readwrite'),store=tx.objectStore('meta'),request=store.get(base);let output=null;
+    request.onsuccess=()=>{output=transform(request.result||{base,history:[]});if(output)store.put(output);};
+    request.onerror=()=>reject(request.error);
+    tx.oncomplete=()=>{db.close();resolve(output);};
+    tx.onerror=()=>{db.close();reject(tx.error);};
+    tx.onabort=()=>{db.close();reject(tx.error||new Error('Conference release metadata update aborted'));};
+  });
 }
 
 function versionParts(v) { return String(v || '0').split('.').map(x => Number(x) || 0); }
@@ -144,7 +176,25 @@ async function downloadCandidate(base, manifest, engineVersion) {
 
 export async function loadConferencePackage(base, engineVersion) {
   const normalizedBase = String(base || './conference').replace(/\/$/, '');
-  const cached = await activeRecord(normalizedBase).catch(() => null);
+  const meta=await getRecord('meta',normalizedBase).catch(()=>null);
+  const stored=await cachedRecords(meta).catch(()=>[]);
+  const cachedEntry=stored.find(row=>row.ok)||null;
+  const cached=cachedEntry?.record||null;
+  const cacheWarnings=stored.filter(row=>!row.ok).map(row=>row.reason);
+
+  // A rollback is a persistent user choice: do not even fetch the network
+  // manifest until the attendee explicitly resumes automatic updates.
+  if(meta?.rollbackActive){
+    const pinnedKey=meta.rollbackKey||meta.activeKey;
+    const pinned=stored.find(row=>row.key===pinnedKey&&row.ok)||null;
+    const targetVersion=Number(meta.rollbackDataVersion??pinned?.record?.dataVersion??0);
+    const safeFallback=stored.find(row=>row.ok&&Number(row.record.dataVersion)<=targetVersion)||null;
+    const selected=pinned||safeFallback;
+    if(!selected)throw new Error(`Automatic updates are paused, but no valid cached conference release is available. ${cacheWarnings.join(' ')}`.trim());
+    if(selected.key!==pinnedKey)await writeMeta(normalizedBase,current=>current.rollbackActive?{...current,activeKey:selected.key,rollbackKey:selected.key,rollbackDataVersion:selected.record.dataVersion,updatedAt:Date.now()}:current);
+    return {pkg:selected.record.pkg,source:'rollback-cache',updated:false,warnings:[...selected.warnings,...cacheWarnings,'Automatic updates are paused at this validated release.'],networkManifest:null,changes:[],rollbackActive:true};
+  }
+
   let networkError = null;
   try {
     const manifest = await fetchManifest(normalizedBase);
@@ -173,9 +223,17 @@ export async function loadConferencePackage(base, engineVersion) {
     const {pkg, warnings} = await downloadCandidate(normalizedBase, manifest, engineVersion);
     const key = `${normalizedBase}::${manifest.dataVersion}::${manifest.publishedAt || Date.now()}`;
     const record = {key, base:normalizedBase, dataVersion:manifest.dataVersion, pkg, warnings, storedAt:Date.now()};
-    await activateRecord(normalizedBase, record);
+    const activated=await activateRecord(normalizedBase, record);
+    if(!activated){
+      const lockedMeta=await getRecord('meta',normalizedBase).catch(()=>null);
+      const lockedRows=await cachedRecords(lockedMeta).catch(()=>[]);
+      const lockedKey=lockedMeta?.rollbackKey||lockedMeta?.activeKey;
+      const selected=lockedRows.find(row=>row.key===lockedKey&&row.ok)||lockedRows.find(row=>row.ok);
+      if(!selected)throw new Error('Conference package activation was blocked by a rollback selection, but no valid cached release remains.');
+      return {pkg:selected.record.pkg,source:'rollback-cache',updated:false,warnings:[...selected.warnings,'Automatic updates are paused at this validated release.'],networkManifest:manifest,changes:[],rollbackActive:true};
+    }
     return {
-      pkg, source:'network', updated:!!cached, warnings, networkManifest:manifest,
+      pkg, source:'network', updated:!!cached, warnings:[...warnings,...cacheWarnings], networkManifest:manifest,
       changes:releaseChanges(manifest, cachedVersion)
     };
   } catch (err) {
@@ -184,7 +242,7 @@ export async function loadConferencePackage(base, engineVersion) {
   if (cached?.pkg) {
     return {
       pkg:cached.pkg, source:'cache-fallback', updated:false,
-      warnings:[...(cached.warnings || []), networkError?.message ? `Network update not activated: ${networkError.message}` : 'Network update unavailable.'].filter(Boolean),
+      warnings:[...(cachedEntry?.warnings||[]),...cacheWarnings,networkError?.message ? `Network update not activated: ${networkError.message}` : 'Network update unavailable.'].filter(Boolean),
       networkError, changes:[]
     };
   }
@@ -194,27 +252,37 @@ export async function loadConferencePackage(base, engineVersion) {
 export async function rollbackConferencePackage(base) {
   const normalizedBase = String(base || './conference').replace(/\/$/, '');
   const meta = await getRecord('meta', normalizedBase);
-  if (!meta?.history?.[1]) throw new Error('No previous validated conference package is available');
-  const previous = await getRecord('packages', meta.history[1]);
-  if (!previous?.pkg) throw new Error('Previous conference package is unavailable');
-  const db = await openDb();
-  await new Promise((resolve, reject) => {
-    const tx = db.transaction('meta','readwrite');
-    tx.objectStore('meta').put({...meta, activeKey:previous.key, history:[previous.key, meta.history[0]], updatedAt:Date.now()});
-    tx.oncomplete = () => { db.close(); resolve(); };
-    tx.onerror = () => { db.close(); reject(tx.error); };
-  });
+  if(meta?.rollbackActive)throw new Error('Automatic updates are already paused at a rollback release.');
+  const candidateKeys=(meta?.history||[]).filter(key=>key!==meta?.activeKey);
+  if(!candidateKeys.length)throw new Error('No previous validated conference package is available');
+  let previous=null,lastReason='Previous conference package is unavailable';
+  for(const key of candidateKeys){
+    const candidate=await getRecord('packages',key),checked=await validateStoredRecord(candidate);
+    if(checked.ok){previous=candidate;break;}
+    lastReason=checked.reason||lastReason;
+  }
+  if(!previous)throw new Error(lastReason);
+  const updated=await writeMeta(normalizedBase,current=>current.activeKey===meta.activeKey&&!current.rollbackActive?{...current,activeKey:previous.key,rollbackActive:true,rollbackKey:previous.key,rollbackDataVersion:previous.dataVersion,updatedAt:Date.now()}:null);
+  if(!updated)throw new Error('Conference release changed while rollback was being prepared. Please try again.');
   return previous;
+}
+
+export async function resumeConferencePackageUpdates(base){
+  const normalizedBase=String(base||'./conference').replace(/\/$/,'');
+  const current=await getRecord('meta',normalizedBase);
+  if(!current?.rollbackActive)return false;
+  const updated=await writeMeta(normalizedBase,meta=>meta.rollbackActive?{...meta,rollbackActive:false,rollbackKey:null,rollbackDataVersion:null,updatedAt:Date.now()}:null);
+  return !!updated;
 }
 
 export async function getPackageDiagnostics(base) {
   const normalizedBase = String(base || './conference').replace(/\/$/, '');
   const meta = await getRecord('meta', normalizedBase).catch(() => null);
-  if (!meta) return {base:normalizedBase, activeKey:null, history:[]};
+  if (!meta) return {base:normalizedBase, activeKey:null, history:[],rollbackActive:false,records:[]};
   const records=[];
   for (const key of meta.history || []) {
     const row=await getRecord('packages',key).catch(()=>null);
-    if(row)records.push({key:row.key,dataVersion:row.dataVersion,publishedAt:row.pkg?.manifest?.publishedAt,storedAt:row.storedAt});
+    if(row)records.push({key:row.key,dataVersion:row.dataVersion,publishedAt:row.pkg?.manifest?.publishedAt,storedAt:row.storedAt,active:row.key===meta.activeKey,rollback:row.key===(meta.rollbackKey||'')});
   }
-  return {...meta,records};
+  return {...meta,rollbackActive:!!meta.rollbackActive,records};
 }

@@ -5,7 +5,7 @@
 3. Commit the generated deployment into that conference's dedicated repository.
 4. Confirm GitHub Actions validation passes and deployed PWA opens online and offline.
 5. Create a Git tag/release for the exact published package (`data-vN`).
-6. A **rollback is a new publish**, never a copied older `conference-manifest.json`: restore the last-good content into the Builder, set `dataVersion` to a number greater than every previously published release, update `publishedAt`, checksums and changelog, and publish/tag again. Preserve existing `calendarUid` for existing events; increase their `SEQUENCE` when calendar-visible fields change.
+6. A **new published rollback release** is a new publish, never a copied older `conference-manifest.json`: restore the last-good content into the Builder, set `dataVersion` to a number greater than every previously published release, update `publishedAt`, checksums and changelog, and publish/tag again. Preserve existing `calendarUid` for existing events; increase their `SEQUENCE` when calendar-visible fields change. Separately, an attendee can select a previous validated local package in Settings. That pins the cached release and pauses automatic conference updates across reloads until **Resume automatic updates** is chosen; it does not publish or change a conference data version.
 7. Never delete attendees' local data; use stable IDs.
 
 The Builder currently provides a downloadable repository ZIP, **not** authenticated GitHub commit/tag automation. Users must execute steps 3–5 in GitHub. The static pilot does not provide organizer accounts, cloud APIs, hosted vCards or push.

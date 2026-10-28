@@ -1,4 +1,4 @@
-import {loadConferencePackage,getPackageDiagnostics,rollbackConferencePackage} from './src/package-store.js';
+import {loadConferencePackage,getPackageDiagnostics,rollbackConferencePackage,resumeConferencePackageUpdates} from './src/package-store.js';
 import {createConferenceModel} from './src/model.js';
 import {createUserStore} from './src/user-store.js';
 import * as calendar from './src/calendar.js';
@@ -7,7 +7,7 @@ import * as qr from './src/qrcode.js';
 import * as backup from './src/backup.js';
 import {normalizeWebUrl} from './src/safe-url.js';
 
-const ENGINE_VERSION='1.2.3';
+const ENGINE_VERSION='1.2.4';
 const qs=new URLSearchParams(location.search);
 const builderPreview=qs.get('builderPreview')==='1'&&window.parent!==window;
 const base=(qs.get('conference')||'./conference').replace(/\/$/,'');
@@ -21,7 +21,13 @@ window.addEventListener('beforeinstallprompt',event=>{
   window.dispatchEvent(new CustomEvent('conferenceinstallprompt'));
 });
 
-function fail(message){document.body.innerHTML=`<main style="font-family:system-ui;padding:24px;max-width:760px;margin:auto"><h1>Conference app could not start</h1><p>${String(message||'Unknown error')}</p><p><code>${base}</code></p></main>`;}
+function fail(message){
+  const main=document.createElement('main');main.style.cssText='font-family:system-ui;padding:24px;max-width:760px;margin:auto';
+  const heading=document.createElement('h1');heading.textContent='Conference app could not start';
+  const detail=document.createElement('p');detail.textContent=String(message||'Unknown error').split(/\r?\n/,1)[0].slice(0,500);
+  const source=document.createElement('p'),label=document.createTextNode('Conference package: '),code=document.createElement('code');
+  code.textContent=String(base).split(/[?#]/,1)[0].slice(0,160)||'default conference';source.append(label,code);main.append(heading,detail,source);document.body.replaceChildren(main);
+}
 function resolvePackageUrl(value){if(!value)return value;if(builderPreview&&String(value).startsWith('blob:'))return value;const safe=normalizeWebUrl(value,{allowRelative:true});if(!safe)return '';if(/^https:/i.test(safe))return safe;return `${base}/${safe}`;}
 function dateMeta(date,locale){const d=new Date(`${date}T12:00:00Z`);return{weekday:new Intl.DateTimeFormat(locale||'en-GB',{weekday:'long',timeZone:'UTC'}).format(d),dateLabel:new Intl.DateTimeFormat(locale||'en-GB',{day:'numeric',month:'long',timeZone:'UTC'}).format(d)};}
 
@@ -59,9 +65,9 @@ function legacyFont(value){return value==='serif'?'noto-serif':value==='condense
     const model=createConferenceModel(pkg),userStore=createUserStore(pkg.conference.id);
     await userStore.ensureReady();
     const userState=await userStore.getState();
-    window.CONFERENCE_PACKAGE=pkg;window.CONFERENCE_MODEL=model;window.CONFERENCE_LOAD_INFO=loadInfo;window.CONFERENCE_CONFIG={...pkg,packageBase:base,engineVersion:ENGINE_VERSION,packageSource:loadInfo.source,packageWarnings:loadInfo.warnings||[],posterSessions:model.posterSessions};window.CONFERENCE_USER_STATE=userState;
-    window.CONFERENCE_SERVICES={userStore,calendar,vcard,qr,backup,getPackageDiagnostics:()=>getPackageDiagnostics(base),rollbackConferencePackage:()=>rollbackConferencePackage(base)};
+    window.CONFERENCE_PACKAGE=pkg;window.CONFERENCE_MODEL=model;window.CONFERENCE_LOAD_INFO=loadInfo;window.CONFERENCE_CONFIG={...pkg,packageBase:base,engineVersion:ENGINE_VERSION,packageSource:loadInfo.source,packageWarnings:loadInfo.warnings||[],rollbackActive:!!loadInfo.rollbackActive,posterSessions:model.posterSessions};window.CONFERENCE_USER_STATE=userState;
+    window.CONFERENCE_SERVICES={userStore,calendar,vcard,qr,backup,getPackageDiagnostics:()=>getPackageDiagnostics(base),rollbackConferencePackage:()=>rollbackConferencePackage(base),resumeConferencePackageUpdates:()=>resumeConferencePackageUpdates(base)};
     applyDocument(pkg,model,loadInfo);
     await import('./app.js');
-  }catch(err){console.error(err);fail(err?.message||String(err));}
+  }catch(err){console.error('Conference Companion startup failed:',err?.name||'Error');fail(err?.message||String(err));}
 })();

@@ -2761,14 +2761,14 @@ import {encodeStoredValue,decodeStoredValue} from './src/user-store.js';
     const status=$("#dataReleaseStatus"),changes=$("#dataReleaseChanges"),rollback=$("#rollbackDataBtn");
     const published=manifest.publishedAt?new Date(manifest.publishedAt):null;
     const publishedText=published&&!Number.isNaN(published.getTime())?published.toLocaleString(undefined,{dateStyle:"medium",timeStyle:"short"}):String(manifest.publishedAt||"");
-    if(status) status.textContent=`Data v${manifest.dataVersion ?? "?"} · schema ${manifest.schemaVersion ?? "?"}${publishedText?` · published ${publishedText}`:""} · ${CONFIG.packageSource||"validated package"}`;
+    let diagnostics=null;try{diagnostics=await SERVICES.getPackageDiagnostics?.();}catch{}
+    const rollbackActive=!!(CONFIG.rollbackActive||LOAD_INFO.rollbackActive||diagnostics?.rollbackActive);
+    if(status) status.textContent=`Data v${manifest.dataVersion ?? "?"} · schema ${manifest.schemaVersion ?? "?"}${publishedText?` · published ${publishedText}`:""} · ${CONFIG.packageSource||"validated package"}${rollbackActive?" · rollback active":""}`;
+    const notice=$("#rollbackNotice"),resume=$("#resumeDataUpdatesBtn");if(notice)notice.hidden=!rollbackActive;if(resume)resume.hidden=!rollbackActive;
     const releaseChanges=(LOAD_INFO.changes?.length?LOAD_INFO.changes:(manifest.changelog||[]).slice(-3)).slice(-5).reverse();
     const warnings=CONFIG.packageWarnings||[];
     if(changes) changes.innerHTML=[...releaseChanges.map(c=>`<div class="data-release-change"><strong>v${esc(c.version ?? "?")}</strong>${esc(c.message||"Conference data release")}</div>`),...warnings.map(w=>`<div class="data-release-change"><strong>Notice</strong>${esc(w)}</div>`)].join("");
-    if(rollback){
-      try{const diag=await SERVICES.getPackageDiagnostics?.();rollback.hidden=!(diag?.records?.length>1);}
-      catch{rollback.hidden=true;}
-    }
+    if(rollback)rollback.hidden=rollbackActive||!(diagnostics?.records?.length>1);
   }
 
   function syncSettings() {
@@ -2906,8 +2906,12 @@ import {encodeStoredValue,decodeStoredValue} from './src/user-store.js';
     $("#exportFullIcsBtn")?.addEventListener("click",exportFullCalendar);
     $("#rollbackDataBtn")?.addEventListener("click",async()=>{
       if(!SERVICES.rollbackConferencePackage)return;
-      if(!confirm("Switch to the previous locally validated conference-data release? You can return to the newest published release on the next successful online launch."))return;
+      if(!confirm("Switch to the previous locally validated conference-data release? Automatic updates will stay paused across reloads until you choose Resume automatic updates."))return;
       try{await SERVICES.rollbackConferencePackage();location.reload();}catch(err){console.error(err);toast(err?.message||"No previous release is available");}
+    });
+    $("#resumeDataUpdatesBtn")?.addEventListener("click",async()=>{
+      if(!SERVICES.resumeConferencePackageUpdates)return;
+      try{await SERVICES.resumeConferencePackageUpdates();location.reload();}catch(err){console.error(err);toast(err?.message||"Could not resume automatic updates");}
     });
 
     $("#editProfileBtn")?.addEventListener("click",beginProfileEdit);

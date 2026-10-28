@@ -68,6 +68,8 @@ const zip=createStoredZip([{name:'a.txt',data:'hello'},{name:'b.txt',data:'world
 const storedBinary=await encodeStoredValue({profile:{photoBlob:new Blob(['pilot-image'],{type:'image/png'})},photos:[new File(['thumb'],'thumb.png',{type:'image/png'})]});
 if(storedBinary.profile.photoBlob instanceof Blob||!(storedBinary.profile.photoBlob.bytes instanceof Uint8Array))throw new Error('IndexedDB storage must encode Blob content as bytes');
 const restoredBinary=decodeStoredValue(storedBinary);if(!(restoredBinary.profile.photoBlob instanceof Blob)||await restoredBinary.profile.photoBlob.text()!=='pilot-image'||!(restoredBinary.photos[0] instanceof Blob)||restoredBinary.photos[0].type!=='image/png')throw new Error('IndexedDB binary compatibility round trip failed');
+const binaryAsset=new Uint8Array([0,17,128,255]),storedAsset=await encodeStoredValue({logo:{bytes:binaryAsset},raw:new Uint8Array([4,5]).buffer});
+const restoredAsset=decodeStoredValue(storedAsset);if(!(restoredAsset.logo.bytes instanceof Uint8Array)||String([...restoredAsset.logo.bytes])!=='0,17,128,255'||!(restoredAsset.raw instanceof ArrayBuffer)||String([...new Uint8Array(restoredAsset.raw)])!=='4,5')throw new Error('Typed-array IndexedDB round trip failed');
 
 const png=Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=','base64'));
 const backupBlob=await createPersonalBackup({conferenceId:'demo',state:{favorites:['x'],notes:{}},profile:{name:'Ada',photoBlob:new Blob([png],{type:'image/png'})},friends:[],photos:[]});
