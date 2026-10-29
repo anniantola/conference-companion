@@ -261,6 +261,8 @@ test('complete Step 6 branding stays in sync with both themes and the exported d
 
   await page.locator('[data-goto-step="8"]').click();
   await expect(page.locator('#previewStatus')).toHaveText('Up to date');
+  await expect(page.locator('[data-config="name"]')).toHaveValue('Pilot Preview Conference');
+  await expect.poll(()=>page.evaluate(()=>document.querySelector('#attendeePreview')?.contentWindow.CONFERENCE_PACKAGE.conference.name)).toBe('Pilot Preview Conference');
   await page.locator('#previewAppearance').selectOption('dark');
   await expect(page.locator('#previewStatus')).toHaveText('Up to date');
   const darkState=await page.evaluate(()=>{const f=document.querySelector('#attendeePreview'),p=f.contentWindow.CONFERENCE_PACKAGE,r=f.contentDocument.documentElement;return {appearance:p.branding.defaultAppearance,theme:r.dataset.theme,logo:f.contentDocument.querySelector('.conference-logo').src,pLogo:p.branding.logoDark,body:r.dataset.bodyFont,heading:r.dataset.headingFont};});
@@ -278,6 +280,9 @@ test('complete Step 6 branding stays in sync with both themes and the exported d
   const currentLogo=await page.evaluate(async()=>{const f=document.querySelector('#attendeePreview'),src=f.contentDocument.querySelector('.conference-logo').src;return await(await fetch(src)).text();});
   expect(currentLogo).toContain('#654321');
 
+  await page.locator('#validateProject').click();
+  await expect(page.locator('#previewStatus')).toHaveText('Up to date');
+  await expect(page.locator('#validationReport .validation-error')).toHaveCount(0);
   const downloadPending=page.waitForEvent('download');await page.locator('#downloadPackage').click();
   const download=await downloadPending,zip=await readStoredZip(new Blob([await readFile(await download.path())]));
   const published=JSON.parse(textEntry(zip,'conference/branding.json'));

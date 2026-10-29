@@ -204,8 +204,11 @@ test('removing the last programme source updates rendered people, locations and 
   await page.reload();await expect(page.locator('[data-step="8"]')).toBeVisible();await page.locator('[data-goto-step="3"]').click();await expect(page.locator('#rowCount')).toHaveText('1 rows');await expect(page.locator('#reviewTable input[data-field="title"]')).toHaveValue('Manual event');
   await page.locator('[data-goto-step="8"]').click();await expect.poll(()=>page.evaluate(()=>document.querySelector('#attendeePreview')?.contentDocument?.querySelector('#programList')?.textContent||'')).toContain('Manual event');
   const backupPromise=page.waitForEvent('download');await page.locator('#exportBuilderProject').click();const backup=await backupPromise;
-  page.once('dialog',dialog=>dialog.accept());await page.locator('#resetProject').click();await expect(page.locator('[data-step="1"]')).toBeVisible();
-  page.once('dialog',dialog=>dialog.accept());const restoreNavigation=page.waitForNavigation({waitUntil:'load'});await page.locator('#builderProjectInput').setInputFiles(await backup.path());await restoreNavigation;await expect.poll(()=>page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return (await loadProject())?.rows?.[0]?.title;})).toBe('Manual event');
+  page.once('dialog',dialog=>dialog.accept());const resetNavigation=page.waitForNavigation({waitUntil:'load'});await page.locator('#resetProject').click();await resetNavigation;await expect(page.locator('[data-step="1"]')).toBeVisible();
+  page.once('dialog',dialog=>dialog.accept());const restoreNavigation=page.waitForNavigation({waitUntil:'load'});await page.locator('#builderProjectInput').setInputFiles(await backup.path());await restoreNavigation;
+  await expect.poll(()=>page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return (await loadProject())?.rows?.[0]?.title;})).toBe('Manual event');
+  // Assert the restored project is rendered after the import-triggered reload.
+  await expect(page.locator('#rowCount')).toHaveText('1 rows');
   await page.locator('[data-goto-step="3"]').click();await expect(page.locator('#rowCount')).toHaveText('1 rows');await expect(page.locator('#reviewTable input[data-field="title"]')).toHaveValue('Manual event');
   const restored=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return loadProject();});expect(restored.sourceFiles).toHaveLength(0);expect(restored.rows[0].source).toBeUndefined();
 });
@@ -279,7 +282,7 @@ test('PDF entries stay staged while unrecognized text and uncertain entries are 
 });
 
 test('source replacement previews removals, supports cancellation and keeps conference settings',async({page})=>{
-  await page.goto('/builder.html');await page.locator('[data-config="name"]').fill('Preserved Conference Details');await page.locator('[data-goto-step="2"]').click();
+  await page.goto('/builder.html');await expect(page.locator('body')).toHaveAttribute('data-builder-ready','true');await page.locator('[data-config="name"]').fill('Preserved Conference Details');await page.locator('[data-goto-step="2"]').click();
   await expect.poll(async()=>page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return (await loadProject())?.conference?.name;})).toBe('Preserved Conference Details');
   const original=`date,start,end,type,session,title,speaker,affiliation,room,track\n2032-06-01,09:00,09:30,talk,Methods,Alpha,Alex One,Lab,Hall A,North\n2032-06-01,10:00,10:30,talk,Methods,Beta,Bob Two,Lab,Hall B,South`;
   await page.locator('#programmeFile').setInputFiles({name:'schedule.csv',mimeType:'text/csv',buffer:Buffer.from(original)});await page.locator('#importProgramme').click();await page.locator('#applyMapping').click();await page.locator('#confirmImportChanges').click();

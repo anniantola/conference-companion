@@ -8,15 +8,15 @@
   <link rel="stylesheet" href="./assets/fonts/fonts.css">
   <link rel="stylesheet" href="./builder.css">
 </head>
-<body>
-  <header class="builder-topbar">
+<body aria-busy="true" data-builder-ready="false">
+  <header class="builder-topbar" inert>
     <div><div class="eyebrow">CONFERENCE COMPANION</div><h1>Conference Builder</h1><p>Import → review → validate → brand → export a conference data package.</p></div>
     <div class="top-actions"><a href="./" class="ghost-btn">Open attendee app</a><button id="exportBuilderProject" class="ghost-btn" type="button">Export project</button><button id="importBuilderProject" class="ghost-btn" type="button">Import project</button><input id="builderProjectInput" type="file" accept="application/zip,.zip" hidden><button id="resetProject" class="ghost-btn danger">Reset project</button></div>
   </header>
+  <p id="builderSaveStatus" class="save-status" role="status" aria-live="polite">Loading saved Builder project…</p>
 
-  <main class="builder-shell">
+  <main class="builder-shell" inert>
     <nav class="wizard-nav" aria-label="Builder steps"><div id="wizardSteps" class="wizard-steps"></div><p id="wizardProgress" class="wizard-progress" aria-live="polite"></p></nav>
-    <p id="builderSaveStatus" class="save-status" role="status" aria-live="polite">Project ready</p>
     <section class="panel" data-step="1">
       <div class="step-title"><span>1</span><div><h2>Conference details</h2><p>These fields become <code>conference.json</code>.</p></div></div>
       <div class="form-grid" id="conferenceForm">

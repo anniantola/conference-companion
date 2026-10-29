@@ -8,6 +8,8 @@ Unresolved appearance identities now block export and are not emitted as synthet
 
 The complete Node 22 `test:unit` suite passed after the v1.2.10 changes, including schema/semantic checks, all Builder suites, synthetic 91-record/18-poster coverage, backup restore, source removal, generated deployment validation, and branding. The full local Playwright run passed all 140 Chromium/Firefox cases (70 each); the final focused identity, failed-write, and project ZIP round-trip rerun passed 8/8 across those two browsers. The configured 70 WebKit cases could not launch locally: Playwright MiniBrowser exits before application code because this host lacks `libavif.so.16`. This is an environment dependency limitation; the deployment workflow installs WebKit system dependencies and remains the WebKit verification gate.
 
+The CI failure-injection regression now waits for the existing autosave to finish before aborting the next IndexedDB write, ensuring the simulated failure targets the identity-decision transaction. The source-removal/backup restore flow now waits for the reset reload before selecting the backup and verifies both the restored IndexedDB record and rendered programme. Builder startup gates editing until the saved project, initial package and handlers are ready; the source-replacement regression confirms the readiness signal before editing.
+
 The new identity tests cover first-selected primary order,
 four-profile merge and primary promotion, consolidated affiliations/papers,
 programme-reference remapping, preservation of alternate photos, explicitly
