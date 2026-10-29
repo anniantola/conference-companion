@@ -1,5 +1,9 @@
 # Release protocol (static GitHub Pages pilot)
 
+## v1.2.10 identity validation update
+
+Step 4's confirmed-different decision is only a statement about the selected profile pair. Review remaining blocking **Person assignment needs review** errors in Step 8; use **Review assignment** to choose the specific speaker, chair, or poster author in Step 3. The selection is persisted with the programme row and role slot, and remains attached through re-import when that same name and role slot are present. If the source changes a name or role, review the new assignment rather than relying on an old selection. Unresolved assignments are not emitted as people in the deployment package, and export remains blocked until they are resolved.
+
 ## v1.2.9 identity merge update
 
 Step 4 duplicate review uses one checkbox per profile. Check profiles in the order you want them combined: the first checked profile is the surviving primary. To change it, uncheck the primary; the earliest still checked profile becomes primary. Review the merge preview and choose values for any conflicting single-value fields, then confirm. Each duplicate-name group keeps its own selection. **Mark selected as different people** records explicit pairwise distinctions; reopen a confirmed distinction before attempting to merge those two identities. The merge is staged and read-back verified before its success message appears. Export a Builder project backup after substantial identity cleanup.

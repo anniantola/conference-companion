@@ -121,6 +121,27 @@ export function mergeImportedRows(existingRows, incomingRows, deletedSourceIds =
       speakerEntityIds:[...(incoming.speakerEntityIds?.length?incoming.speakerEntityIds:(old.speakerEntityIds||[]))],
       chairEntityIds:[...(incoming.chairEntityIds?.length?incoming.chairEntityIds:(old.chairEntityIds||[]))]
     };
+    // Programme-level identity decisions belong to the appearance, not to a
+    // particular source row. Keep a confirmed assignment across re-import only
+    // when the same name remains in the same role slot. A new explicit ID wins.
+    const splitPeople=value=>String(value||'').split(/\s*(?:;|\band\b)\s*/i).map(name=>name.trim()).filter(Boolean);
+    merged.personIdentityAssignments={};
+    for(const [role,idField] of [['speaker','speakerEntityIds'],['chair','chairEntityIds'],['author','authorEntityIds']]){
+      const priorNames=splitPeople(old[role]),nextNames=splitPeople(incoming[role]);
+      const priorAssignments=old.personIdentityAssignments?.[role]||{},nextAssignments=incoming.personIdentityAssignments?.[role]||{};
+      const ids=[...(merged[idField]||[])];
+      for(let index=0;index<nextNames.length;index++){
+        const supplied=nextAssignments[index],prior=priorAssignments[index];
+        if(supplied?.status==='confirmed'){
+          (merged.personIdentityAssignments[role]||={})[index]={...supplied};
+        }else if(prior?.status==='confirmed'&&priorNames[index]?.toLocaleLowerCase()===nextNames[index].toLocaleLowerCase()){
+          (merged.personIdentityAssignments[role]||={})[index]={...prior};
+          if(!ids[index])ids[index]=prior.personId||prior.id||old[idField]?.[index]||'';
+        }
+      }
+      merged[idField]=ids;
+    }
+    if(!Object.keys(merged.personIdentityAssignments).length)delete merged.personIdentityAssignments;
     const sourceRefs=[...provenance(old.source),...provenance(incoming.source)],sourcesByRecord=new Map();
     for(const source of sourceRefs){const key=source.id||`${source.fileId}|${source.sheet||''}|${source.row||source.page||''}`;sourcesByRecord.set(key,source);}
     const sources=[...sourcesByRecord.values()],contributors=[...new Set(sources.map(source=>source.fileId).filter(Boolean))];

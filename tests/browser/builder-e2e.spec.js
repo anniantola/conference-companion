@@ -74,19 +74,17 @@ test('Builder keeps same-name people distinct until an organizer resolves the id
   await page.goto('/builder.html');
   await page.locator('[data-goto-step="2"]').click();
   const csv=`date,start,end,type,session,title,speaker,affiliation,room,track
-2028-04-10,09:00,09:30,talk,Methods,First talk,Alex Example,,Hall A,Methods
-2028-04-10,10:00,10:30,talk,Methods,Second talk,Alex Example,,Hall A,Methods`;
+2028-04-10,09:00,09:30,talk,North,North talk,Alex Example,North University,Hall A,North
+2028-04-10,10:00,10:30,talk,South,South talk,Alex Example,South University,Hall B,South
+2028-04-10,11:00,11:30,talk,Methods,Unassigned talk,Alex Example,,Hall C,Methods`;
   await page.locator('#programmeFile').setInputFiles({name:'ambiguous-people.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
   await page.locator('#importProgramme').click();await page.locator('#applyMapping').click();await expect(page.locator('#importReview')).toBeVisible();await page.locator('#confirmImportChanges').click();await page.locator('[data-goto-step="3"]').click();
-  const identities=page.locator('#reviewTable select[data-person-identity]');await expect(identities).toHaveCount(2);
+  const identities=page.locator('#reviewTable select[data-person-identity]');await expect(identities).toHaveCount(1);
   const firstChoices=identities.nth(0).locator('option').evaluateAll(options=>options.map(o=>o.value).filter(Boolean));
-  const secondChoices=identities.nth(1).locator('option').evaluateAll(options=>options.map(o=>o.value).filter(Boolean));
-  const [first,second]=await Promise.all([firstChoices,secondChoices]);expect(first).toHaveLength(2);expect(second).toEqual(first);
+  const first=await firstChoices;expect(first).toHaveLength(2);
   await identities.nth(0).selectOption(first[1]);
-  await expect(page.locator('#reviewTable select[data-person-identity]')).toHaveCount(1);
-  await page.locator('#reviewTable select[data-person-identity]').selectOption(first[1]);
   await expect(page.locator('#reviewTable select[data-person-identity]')).toHaveCount(0);
-  await page.locator('[data-goto-step="8"]').click();await expect(page.locator('#validationReport')).not.toContainText('Ambiguous person identity');
+  await page.locator('[data-goto-step="8"]').click();await expect(page.locator('#validationReport')).not.toContainText('Person assignment needs review');
 });
 
 test('identity review shows programme context and persists an explicit different-people decision',async({page})=>{
@@ -101,11 +99,50 @@ test('identity review shows programme context and persists an explicit different
   const profiles=group.locator('[data-merge-profile]');await expect(profiles).toHaveCount(2);
   await profiles.nth(1).check();await profiles.nth(0).check();await expect(group.locator('.is-primary')).toHaveAttribute('data-profile-id',await profiles.nth(1).getAttribute('value'));
   await group.locator('[data-mark-different]').click();
-  await expect(group.locator('.identity-state')).toHaveText('Decisions saved');
+  await expect(group.locator('.identity-state')).toHaveText('Confirmed different people');
   const saved=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return loadProject();});
   expect(Object.values(saved.identityDecisions.pairs)).toContain('different');
   await page.reload();await expect(page.locator('[data-step="4"]')).toBeVisible();await expect(page.locator('#duplicateCount')).toHaveText('');
-  await page.locator('[data-goto-step="8"]').click();await expect(page.locator('#validationReport')).not.toContainText('Ambiguous person identity');
+  await page.locator('[data-goto-step="8"]').click();await expect(page.locator('#validationReport')).not.toContainText('Person assignment needs review');
+});
+
+test('different-person decisions persist while ambiguous programme assignments resolve independently',async({page})=>{
+  await page.goto('/builder.html');await page.locator('[data-goto-step="2"]').click();
+  const csv=`date,start,end,type,session,title,speaker,chair,affiliation,room,track\n2033-04-10,09:00,09:30,talk,North,North appearance,Alex Smith,,North University,Hall A,North\n2033-04-10,10:00,10:30,talk,South,South appearance,Alex Smith,,South University,Hall B,South\n2033-04-10,11:00,11:30,talk,Methods,Unassigned talk,Alex Smith,, ,Hall C,Methods\n2033-04-10,12:00,12:30,talk,Chair session,Chair ambiguity,Other Person,Alex Smith,Other University,Hall D,Chair`;
+  await page.locator('#programmeFile').setInputFiles({name:'identity-assignments.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
+  await page.locator('#importProgramme').click();await page.locator('#applyMapping').click();await expect(page.locator('#importReview')).toBeVisible();await page.locator('#confirmImportChanges').click();
+  await page.locator('[data-goto-step="4"]').click();
+  const group=page.locator('[data-duplicate-group]').filter({hasText:'Alex Smith'}).first();await expect(group.locator('[data-merge-profile]')).toHaveCount(2);
+  const ids=await group.locator('[data-merge-profile]').evaluateAll(boxes=>boxes.map(box=>box.value));
+  await group.locator('[data-merge-profile]').nth(1).check();await group.locator('[data-merge-profile]').nth(0).check();
+  await page.evaluate(()=>{const original=IDBDatabase.prototype.transaction;window.__identityDecisionTransaction=original;IDBDatabase.prototype.transaction=function(...args){const tx=original.apply(this,args);if(window.__failIdentityDecisionWrite&&args[0]==='projects'&&args[1]==='readwrite'){window.__failIdentityDecisionWrite=false;queueMicrotask(()=>{try{tx.abort();}catch{}});}return tx;};window.__failIdentityDecisionWrite=true;});
+  await group.locator('[data-mark-different]').click();await expect(page.locator('#builderSaveStatus')).toContainText('Identity decisions were not saved');
+  let saved=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return loadProject();});
+  expect(Object.values(saved.identityDecisions?.pairs||{})).not.toContain('different');
+  await page.evaluate(()=>{IDBDatabase.prototype.transaction=window.__identityDecisionTransaction;});
+  await group.locator('[data-mark-different]').click();
+  await expect(group.locator('.identity-state')).toHaveText('Confirmed different people');
+  await expect(page.locator('#toast')).toContainText('2 programme appearances still need person assignments');
+  saved=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return loadProject();});
+  expect(Object.values(saved.identityDecisions.pairs)).toContain('different');
+  await page.reload();await page.locator('[data-goto-step="4"]').click();await page.locator('#reviewDuplicates').click();
+  await expect(page.locator('[data-duplicate-group]').filter({hasText:'Alex Smith'}).first().locator('.identity-state')).toHaveText('Confirmed different people');
+  await page.locator('[data-goto-step="8"]').click();
+  const assignmentError=page.locator('#validationReport .validation-error').filter({hasText:'Unassigned talk'});
+  await expect(assignmentError).toContainText('Two or more different profiles share this name');
+  const reviewButton=assignmentError.getByRole('button',{name:'Review assignment'});await reviewButton.click();
+  const row=page.locator('#reviewTable tbody tr').filter({has:page.locator('[data-field="title"]')}).filter({hasText:'Unassigned talk'});
+  await expect(row).toHaveClass(/identity-target-highlight/);
+  const speaker=row.locator('[data-person-identity][data-person-role="speaker"]');await expect(speaker).toBeFocused();
+  expect(await speaker.locator('option').evaluateAll(options=>options.map(option=>option.value).filter(Boolean))).toEqual(ids);
+  await speaker.selectOption(ids[1]);await expect(row.locator('[data-person-identity][data-person-role="speaker"]')).toHaveCount(0);
+  await expect(page.locator('#toast')).toContainText('assignment saved');
+  await page.locator('[data-goto-step="8"]').click();await expect(page.locator('#validationReport')).toContainText('Chair: Alex Smith');
+  await expect(page.locator('#validationReport')).not.toContainText('Unassigned talk');
+  await page.reload();await page.locator('[data-goto-step="8"]').click();await expect(page.locator('#validationReport')).not.toContainText('Unassigned talk');
+  saved=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return loadProject();});
+  const assigned=saved.rows.find(item=>item.title==='Unassigned talk');expect(assigned.personIdentityAssignments.speaker[0]).toEqual({personId:ids[1],status:'confirmed'});
+  expect(saved.rows.find(item=>item.title==='Chair ambiguity').personIdentityIssues.map(issue=>issue.role)).toContain('chair');
 });
 
 test('multiple programme sources preview cross-file matches, preserve edits, and can be removed safely',async({page})=>{

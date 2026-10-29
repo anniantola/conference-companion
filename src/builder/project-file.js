@@ -74,7 +74,18 @@ export function validateBuilderProjectStructure(project){
   project.rows.forEach((row,index)=>{
     if(!isRecord(row))throw new Error(`Builder project backup has an invalid programme row ${index+1}`);
     for(const key of rowStrings)if(row[key]!==undefined&&typeof row[key]!=='string')throw new Error(`Builder project backup has an invalid row ${index+1} field ${key}`);
-    for(const key of ['speakerEntityIds','chairEntityIds','personIdentityCandidates','importWarnings'])if(row[key]!==undefined&&(!Array.isArray(row[key])||row[key].some(item=>typeof item!=='string')))throw new Error(`Builder project backup has an invalid row ${index+1} collection ${key}`);
+    for(const key of ['speakerEntityIds','chairEntityIds','authorEntityIds','personIdentityCandidates','importWarnings'])if(row[key]!==undefined&&(!Array.isArray(row[key])||row[key].some(item=>typeof item!=='string')))throw new Error(`Builder project backup has an invalid row ${index+1} collection ${key}`);
+    for(const key of ['personIdentityConflict','personIdentityResolved'])if(row[key]!==undefined&&typeof row[key]!=='boolean')throw new Error(`Builder project backup has an invalid row ${index+1} identity flag ${key}`);
+    if(row.personIdentityAssignments!==undefined){
+      if(!isRecord(row.personIdentityAssignments))throw new Error(`Builder project backup has invalid row ${index+1} personIdentityAssignments`);
+      for(const [role,assignments] of Object.entries(row.personIdentityAssignments)){
+        if(!['speaker','chair','author'].includes(role)||!isRecord(assignments))throw new Error(`Builder project backup has invalid row ${index+1} ${role} identity assignments`);
+        for(const [position,assignment] of Object.entries(assignments))if(!/^\d+$/.test(position)||!isRecord(assignment)||typeof(assignment.personId||assignment.id)!=='string'||!['automatic','confirmed'].includes(assignment.status))throw new Error(`Builder project backup has invalid row ${index+1} ${role} assignment ${position}`);
+      }
+    }
+    if(row.personIdentityIssues!==undefined&&(!Array.isArray(row.personIdentityIssues)||row.personIdentityIssues.some(issue=>!isRecord(issue)||!['speaker','chair','author'].includes(issue.role)||!Number.isInteger(issue.index)||issue.index<0||typeof issue.name!=='string'||!Array.isArray(issue.candidateIds)||issue.candidateIds.some(id=>typeof id!=='string'))))throw new Error(`Builder project backup has invalid row ${index+1} personIdentityIssues`);
+    if(row.personIdentityCandidatesByName!==undefined&&(!isRecord(row.personIdentityCandidatesByName)||Object.values(row.personIdentityCandidatesByName).some(ids=>!Array.isArray(ids)||ids.some(id=>typeof id!=='string'))))throw new Error(`Builder project backup has invalid row ${index+1} personIdentityCandidatesByName`);
+    if(row.personIdentityResolvedNames!==undefined&&(!isRecord(row.personIdentityResolvedNames)||Object.values(row.personIdentityResolvedNames).some(value=>typeof value!=='boolean')))throw new Error(`Builder project backup has invalid row ${index+1} personIdentityResolvedNames`);
     if(row.manualFields!==undefined&&(!isRecord(row.manualFields)||Object.values(row.manualFields).some(value=>typeof value!=='boolean')))throw new Error(`Builder project backup has invalid row ${index+1} manual field markers`);
     if(row.source!==undefined&&!isRecord(row.source))throw new Error(`Builder project backup has an invalid source descriptor on row ${index+1}`);
     if(row.sequence!==undefined&&(!Number.isInteger(row.sequence)||row.sequence<0))throw new Error(`Builder project backup has an invalid sequence on row ${index+1}`);

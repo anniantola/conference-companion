@@ -1,4 +1,12 @@
-# Conference Companion v1.2.9 verification — 2026-10-29
+# Conference Companion test results
+
+## v1.2.10 identity synchronization update — 2026-10-29
+
+Added identity regressions for explicit imported person IDs, separate same-name profiles, independent speaker and chair assignments, stable row-targeted diagnostics at source rows 42/43/44/81/82/83 in a 100-entry programme, repeated package builds, re-import, and project ZIP backup/restore. The Chromium Builder workflow persists **Different people**, simulates a failed IndexedDB write without changing saved decisions, reloads the project, navigates from the contextual validation error to the exact Step 3 assignment control, and verifies the error is gone after assignment while a separate chair issue remains.
+
+Unresolved appearance identities now block export and are not emitted as synthetic profiles. Confirmation persistence now validates the nested assignment shape during backup restoration.
+
+The complete Node 22 `test:unit` suite passed after the v1.2.10 changes, including schema/semantic checks, all Builder suites, synthetic 91-record/18-poster coverage, backup restore, source removal, generated deployment validation, and branding. The full local Playwright run passed all 140 Chromium/Firefox cases (70 each); the final focused identity, failed-write, and project ZIP round-trip rerun passed 8/8 across those two browsers. The configured 70 WebKit cases could not launch locally: Playwright MiniBrowser exits before application code because this host lacks `libavif.so.16`. This is an environment dependency limitation; the deployment workflow installs WebKit system dependencies and remains the WebKit verification gate.
 
 The new identity tests cover first-selected primary order,
 four-profile merge and primary promotion, consolidated affiliations/papers,

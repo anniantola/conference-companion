@@ -52,14 +52,20 @@ export function guessMapping(headers){
 
 export function rowsFromMapping(raw,mapping){
   const val=(row,key)=>mapping[key]?String(row[mapping[key]]??'').trim():'';
-  return raw.map((row,i)=>({
+  return raw.map((row,i)=>{
+    const speakerEntityIds=val(row,'speakerId').split(';').map(x=>x.trim()).filter(Boolean),chairEntityIds=val(row,'chairId').split(';').map(x=>x.trim()).filter(Boolean);
+    const personIdentityAssignments={};
+    if(speakerEntityIds.length)personIdentityAssignments.speaker=Object.fromEntries(speakerEntityIds.map((personId,index)=>[index,{personId,status:'confirmed'}]));
+    if(chairEntityIds.length)personIdentityAssignments.chair=Object.fromEntries(chairEntityIds.map((personId,index)=>[index,{personId,status:'confirmed'}]));
+    return ({
     id:row.id||crypto.randomUUID(), date:val(row,'date'), start:val(row,'start'), end:val(row,'end'), type:val(row,'type')||'talk',
     session:val(row,'session'), title:val(row,'title'), speaker:val(row,'speaker'), chair:val(row,'chair'), affiliation:val(row,'affiliation'), location:val(row,'location'),
     track:val(row,'track'), abstract:val(row,'abstract'), doi:val(row,'doi'), posterNumber:val(row,'posterNumber'),
-    speakerEntityIds:val(row,'speakerId').split(';').map(x=>x.trim()).filter(Boolean),chairEntityIds:val(row,'chairId').split(';').map(x=>x.trim()).filter(Boolean),
+    speakerEntityIds,chairEntityIds,personIdentityAssignments,
     source:{id:`${row.__sourceFileId||'source'}:${row.__sheet||'source'}:${row.__sourceRow??i+1}`,fileId:row.__sourceFileId||'',contributors:[row.__sourceFileId||'source'],row:row.__sourceRow??i+1,sheet:row.__sheet||'',raw:row,
       matchData:Object.fromEntries(['date','start','end','type','session','title','speaker','chair','affiliation','location','track','posterNumber'].map(k=>[k,val(row,k)]))}
-  }));
+    });
+  });
 }
 
 async function readWorkbook(file){

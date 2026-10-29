@@ -142,7 +142,7 @@ test('duplicate checkbox groups keep independent selection order; confirmed diff
   await first.locator('[data-clear-selection]').click();await expect(first.locator('[data-merge-selected]')).toBeDisabled();
   await second.locator(`[data-merge-profile][value="${mariaA}"]`).check();await second.locator('[data-mark-different]').click();
   await first.locator(`[data-merge-profile][value="${alexB}"]`).check();await first.locator(`[data-merge-profile][value="${alexA}"]`).check();await first.locator('[data-mark-different]').click();
-  await expect(page.locator('#toast')).toContainText('different-person decisions saved');
+  await expect(page.locator('#toast')).toContainText('profiles confirmed as different people');
   await first.locator('[data-merge-selected]').click();await expect(page.locator('#personMergeDialog')).not.toBeVisible();await expect(page.locator('#toast')).toContainText('confirmed as different people');
   await expect(first.locator('.is-primary')).toHaveAttribute('data-profile-id',alexB);
   await expect(second.locator('.is-primary')).toHaveAttribute('data-profile-id',mariaB);

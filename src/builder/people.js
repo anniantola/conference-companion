@@ -30,7 +30,8 @@ export function identityReviewGroups(project,people=[],{includeResolved=false}={
       const first=candidates[i],second=candidates[j],decision=decisions[canonicalPair(first.id,second.id)]||'unresolved';
       pairStates.push(decision);pairDecisions.push({firstId:first.id,secondId:second.id,decision});
     }
-    return {name:candidates[0]?.name||'',candidates,appearances,pairStates,pairDecisions,unresolved:pairStates.some(state=>state==='unresolved')};
+    const unresolved=pairStates.some(state=>state!=='different');
+    return {name:candidates[0]?.name||'',candidates,appearances,pairStates,pairDecisions,unresolved,status:unresolved?'needs-review':'confirmed-different'};
   }).filter(group=>includeResolved||group.unresolved);
 }
 
@@ -143,13 +144,14 @@ function mergeProfilesInPlace(project,people,ids,choices={}){
   }
   for(const row of project.rows||[]){
     for(const field of ['speakerEntityIds','chairEntityIds','authorEntityIds','personEntityIds'])if(Array.isArray(row[field]))row[field]=row[field].map(id=>selected.includes(id)?primaryId:id);
+    for(const role of ['speaker','chair','author'])for(const assignment of Object.values(row.personIdentityAssignments?.[role]||{})){const id=assignment?.personId||assignment?.id;if(id&&selected.includes(id)){assignment.personId=primaryId;delete assignment.id;}}
     if(Array.isArray(row.personIdentityCandidates))row.personIdentityCandidates=[...new Set(row.personIdentityCandidates.map(id=>selected.includes(id)?primaryId:id))];
     if(row.personIdentityCandidatesByName)for(const [name,candidates] of Object.entries(row.personIdentityCandidatesByName))row.personIdentityCandidatesByName[name]=[...new Set(candidates.map(id=>selected.includes(id)?primaryId:id))];
     const remainingCandidates=Object.values(row.personIdentityCandidatesByName||{}).flat();
     if(row.personIdentityConflict&&new Set([...(row.personIdentityCandidates||[]),...remainingCandidates]).size<2){row.personIdentityConflict=false;row.personIdentityResolved=true;row.personIdentityCandidates=[];row.personIdentityCandidatesByName={};}
   }
   project.identityWarnings=(project.identityWarnings||[]).filter(warning=>!profiles.some(person=>String(warning).toLocaleLowerCase().includes(key(person.name))));
-  for(const id of selected.slice(1))project.personMergeHistory=[...(project.personMergeHistory||[]),{keptId:primaryId,removedId:id,at:new Date().toISOString()}];
+  for(const id of selected.slice(1)){const removed=lookup.get(id);project.personMergeHistory=[...(project.personMergeHistory||[]),{keptId:primaryId,removedId:id,keptName:result.name,removedName:removed?.name||'',at:new Date().toISOString()}];}
   return result;
 }
 

@@ -7,6 +7,7 @@ import {buildPackage,packageZip} from '../src/builder/package.js';
 import {possiblePersonDuplicates,mergePersonProfiles,mergePersonProfilesMany,identityReviewGroups,decidePersonIdentity,applyIdentityResolutions,applyPersonIdentityDecision} from '../src/builder/people.js';
 import {createBuilderProjectFile,readBuilderProjectFile} from '../src/builder/project-file.js';
 import {synthetic91Csv,synthetic91Headers} from './synthetic-91-csv.js';
+import {describeValidationMessage} from '../src/builder/validation-ui.js';
 
 function importedRows(){const raw=parseCSV(synthetic91Csv()).map(row=>({...row,__sourceFileId:'people-synthetic'}));return rowsFromMapping(raw,guessMapping(synthetic91Headers));}
 function project(rows){return {conference:{id:'synthetic-people',name:'Synthetic People Conference',shortName:'Synthetic',startDate:'2031-06-10',endDate:'2031-06-11',timezone:'Europe/Helsinki',venueName:'Main venue'},rows,features:{},branding:{},identityRegistry:{people:{},locations:{},tracks:{}},peopleOverrides:{},peoplePhotos:{},extraPeople:[],dataVersion:1};}
@@ -26,6 +27,10 @@ assert.equal(first.report.errors.length,0,first.report.errors.join('\n'));
 const originalFetch=globalThis.fetch;
 globalThis.fetch=async path=>{if(String(path).endsWith('.nojekyll'))return new Response('',{status:404});try{return new Response(await readFile(String(path).replace(/^\.\//,'')));}catch{return new Response('',{status:404});}};
 try{await packageZip(initial);}finally{globalThis.fetch=originalFetch;}
+
+const explicitIdRows=rowsFromMapping([{presenter:'Ada Example',presenter_key:'person-ada',__sourceFileId:'explicit-id.csv',__sourceRow:7}],{speaker:'presenter',speakerId:'presenter_key'});
+assert.deepEqual(explicitIdRows[0].speakerEntityIds,['person-ada']);
+assert.deepEqual(explicitIdRows[0].personIdentityAssignments.speaker[0],{personId:'person-ada',status:'confirmed'},'Structured spreadsheet IDs become explicit assignments');
 
 // A saved project can already contain a separate, manually edited chair profile.
 // Show it for review and merge it only after an explicit organizer decision.
@@ -100,6 +105,81 @@ assert.equal(missing.rows[2].personIdentityConflict,true,'Missing affiliation re
 const ambiguousChair=project([...distinct.rows,{id:'chair-row',date:'2031-06-10',start:'12:00',end:'12:30',type:'talk',session:'D',title:'D',speaker:'Other Speaker',affiliation:'Other Institute',chair:'Alex Same',location:'Room D',track:'D'}]);
 await buildPackage(ambiguousChair);
 assert.equal(ambiguousChair.rows[2].personIdentityConflict,true,'An unaffiliated chair is not assigned to either same-name researcher automatically');
+
+const posterIdentity=project([
+  {id:'poster-north',date:'2031-06-10',start:'09:00',end:'09:30',type:'talk',session:'North',title:'North talk',speaker:'Poster Author',affiliation:'North Institute',location:'Hall A',track:'A'},
+  {id:'poster-south',date:'2031-06-10',start:'10:00',end:'10:30',type:'talk',session:'South',title:'South talk',speaker:'Poster Author',affiliation:'South Institute',location:'Hall B',track:'B'},
+  {id:'poster-unassigned',date:'2031-06-10',start:'15:00',end:'16:00',type:'poster',session:'Poster Session',title:'Unassigned poster',speaker:'Poster Author',affiliation:'',posterNumber:'P1',location:'Poster Hall',track:'Posters'}
+]);
+const posterIdentityBuild=await buildPackage(posterIdentity),posterIssue=posterIdentity.rows.find(row=>row.id==='poster-unassigned').personIdentityIssues[0];
+assert.deepEqual([posterIssue.role,posterIssue.index],['speaker',0]);
+assert.deepEqual(posterIdentityBuild.pkg.programme.posters[0].authorIds,[],'An unresolved poster author is not replaced with a placeholder profile');
+const posterMessage=posterIdentityBuild.report.errors.find(message=>message.includes('identity-assignment:poster-unassigned'));
+assert.match(describeValidationMessage(posterMessage,posterIdentityBuild.pkg,posterIdentity).text,/Poster author: Poster Author/);
+
+// Profile-level decisions and programme appearance assignments are independent.
+const identityState=project([
+  {id:'identity-north',date:'2031-06-10',start:'09:00',end:'09:30',type:'talk',session:'North',title:'North appearance',speaker:'Alex Smith',affiliation:'North University',location:'Hall A',track:'A'},
+  {id:'identity-south',date:'2031-06-10',start:'10:00',end:'10:30',type:'talk',session:'South',title:'South appearance',speaker:'Alex Smith',affiliation:'South University',location:'Hall B',track:'B'},
+  {id:'identity-ambiguous',source:{row:42,fileId:'identity.csv',id:'identity.csv:42'},date:'2031-06-10',start:'11:00',end:'11:30',type:'talk',session:'Methods',title:'Unassigned appearance',speaker:'Alex Smith',affiliation:'',location:'Hall C',track:'C'},
+  {id:'identity-chair',date:'2031-06-10',start:'12:00',end:'12:30',type:'talk',session:'Chairs',title:'Chair appearance',speaker:'Other Person',affiliation:'Other University',chair:'Alex Smith',location:'Hall D',track:'D'}
+]);
+const identityBuilt=await buildPackage(identityState),alexProfiles=identityBuilt.pkg.people.people.filter(person=>person.name==='Alex Smith');
+assert.equal(alexProfiles.length,2,'An ambiguous appearance does not create a third ghost profile');
+const alexIds=alexProfiles.map(person=>person.id);
+identityState.identityDecisions={pairs:{[[...alexIds].sort().join('::')]:'different'}};
+for(let iteration=0;iteration<3;iteration++){
+  const rebuilt=await buildPackage(identityState);
+  assert.equal(rebuilt.pkg.people.people.filter(person=>person.name==='Alex Smith').length,2,'Repeated package builds do not create extra profiles');
+  assert.equal(rebuilt.report.warnings.filter(warning=>warning.startsWith('Possible duplicate profiles named "Alex Smith"')).length,0,'Confirmed different profiles do not retain profile-level duplicate warnings');
+  assert.deepEqual(identityState.rows.find(row=>row.id==='identity-ambiguous').personIdentityIssues.map(issue=>[issue.role,issue.index]),[['speaker',0]],'The unaffiliated speaker appearance remains independently unresolved');
+  assert.deepEqual(identityState.rows.find(row=>row.id==='identity-chair').personIdentityIssues.map(issue=>[issue.role,issue.index]),[['chair',0]],'Resolving one role does not resolve the same name in another role');
+  const token=rebuilt.report.errors.find(warning=>warning.startsWith('Person assignment needs review'));
+  assert.ok(token?.includes('identity-assignment:identity-ambiguous:speaker:0'),'Blocking validation targets stable row IDs and role slots');
+  const described=describeValidationMessage(token,rebuilt.pkg,identityState);
+  assert.match(described.text,/Programme row 42: Unassigned appearance/);
+  assert.match(described.text,/North University/);
+  assert.deepEqual(described.target,{type:'identity-assignment',id:'identity-ambiguous',role:'speaker',index:0});
+}
+const sourceRows=[];for(let sourceRow=1;sourceRow<=100;sourceRow++){
+  const ambiguous=[42,43,44,81,82,83].includes(sourceRow);
+  sourceRows.push({id:`large-row-${sourceRow}`,source:{id:`large.csv:${sourceRow}`,fileId:'large.csv',row:sourceRow},date:'2031-06-10',start:`${String(Math.floor((sourceRow-1)/4)+8).padStart(2,'0')}:${['00','15','30','45'][(sourceRow-1)%4]}`,end:`${String(Math.floor((sourceRow-1)/4)+8).padStart(2,'0')}:${['15','30','45','00'][(sourceRow-1)%4]}`,type:'talk',session:`Session ${sourceRow}`,title:`Entry ${sourceRow}`,speaker:ambiguous?'Alex Smith':`Researcher ${sourceRow}`,affiliation:ambiguous?'':`Institute ${sourceRow}`,location:`Hall ${sourceRow%5}`,track:`Track ${sourceRow%4}`});
+}
+const largeIdentities=project(sourceRows);largeIdentities.extraPeople=[{id:'alex-north',name:'Alex Smith',affiliation:'North University'},{id:'alex-south',name:'Alex Smith',affiliation:'South University'}];
+const largeBuilt=await buildPackage(largeIdentities),expectedIssues=[42,43,44,81,82,83].map(sourceRow=>`identity-assignment:large-row-${sourceRow}:speaker:0`);
+const identityErrorTokens=largeBuilt.report.errors.filter(message=>message.startsWith('Person assignment needs review')).map(message=>message.match(/\[([^\]]+)\]/)?.[1]);
+assert.deepEqual(identityErrorTokens,expectedIssues,'All six source rows are independently identified by stable Builder row IDs');
+for(const sourceRow of [42,43,44,81,82,83]){
+  const row=largeIdentities.rows.find(item=>item.source.row===sourceRow),message=`Person assignment needs review [identity-assignment:${encodeURIComponent(row.id)}:speaker:0]`,described=describeValidationMessage(message,largeBuilt.pkg,largeIdentities);
+  assert.equal(described.target.id,row.id);assert.match(described.text,new RegExp(`Programme row ${sourceRow}: Entry ${sourceRow}`));
+}
+largeIdentities.rows.find(row=>row.source.row===43).speakerEntityIds=['alex-north'];largeIdentities.rows.find(row=>row.source.row===43).personIdentityAssignments={speaker:{0:{personId:'alex-north',status:'confirmed'}}};
+assert.equal((await buildPackage(largeIdentities)).report.errors.filter(message=>message.startsWith('Person assignment needs review')).length,5,'Resolving one of many ambiguous rows leaves only the other five');
+identityState.rows.find(row=>row.id==='identity-ambiguous').speakerEntityIds=[alexIds[1]];
+identityState.rows.find(row=>row.id==='identity-ambiguous').personIdentityAssignments={speaker:{0:{personId:alexIds[1],status:'confirmed'}}};
+const explicitlyResolved=await buildPackage(identityState);
+assert.equal(identityState.rows.find(row=>row.id==='identity-ambiguous').personIdentityIssues.length,0);
+assert.equal(explicitlyResolved.report.errors.filter(warning=>warning.startsWith('Person assignment needs review')).length,1,'Only the separate chair assignment remains unresolved');
+identityState.rows.find(row=>row.id==='identity-chair').chairEntityIds=[alexIds[0]];
+identityState.rows.find(row=>row.id==='identity-chair').personIdentityAssignments.chair={0:{personId:alexIds[0],status:'confirmed'}};
+for(let iteration=0;iteration<3;iteration++){
+  const rebuilt=await buildPackage(identityState);
+  assert.equal(rebuilt.report.errors.filter(warning=>warning.startsWith('Person assignment needs review')).length,0,'Confirmed row assignments stay resolved on every rebuild');
+  assert.equal(identityState.rows.find(row=>row.id==='identity-ambiguous').speakerEntityIds[0],alexIds[1]);
+}
+const identityBackup=await readBuilderProjectFile(await createBuilderProjectFile(identityState));
+const restoredIdentity=await buildPackage(identityBackup);
+assert.equal(identityReviewGroups(identityBackup,restoredIdentity.pkg.people.people).length,0,'Confirmed profile distinctions survive Builder backup restoration');
+assert.equal(identityBackup.rows.find(row=>row.id==='identity-ambiguous').personIdentityAssignments.speaker[0].personId,alexIds[1],'Confirmed programme assignments survive Builder backup restoration');
+const malformedAssignment=structuredClone(identityState);malformedAssignment.rows.find(row=>row.id==='identity-ambiguous').personIdentityAssignments.speaker[0].status='guessed';
+await assert.rejects(async()=>readBuilderProjectFile(await createBuilderProjectFile(malformedAssignment)),/invalid row .* speaker assignment/,'Malformed persisted assignment state is rejected instead of silently restored');
+
+// A confirmed appearance assignment remains attached to the same matching row after re-import.
+const assignmentRow={id:'stable-assignment',title:'Stable assignment',date:'2031-06-10',start:'13:00',end:'13:30',type:'talk',session:'Stable',speaker:'Alex Smith',speakerEntityIds:[alexIds[1]],personIdentityAssignments:{speaker:{0:{personId:alexIds[1],status:'confirmed'}}},source:{id:'first.csv:2',fileId:'first.csv',row:2,raw:{title:'Stable assignment',date:'2031-06-10',start:'13:00',end:'13:30',type:'talk',session:'Stable',speaker:'Alex Smith',location:'Hall E',track:'E'}}};
+const revisedAssignment={...structuredClone(assignmentRow),source:{id:'second.xlsx:3',fileId:'second.xlsx',row:3,raw:{title:'Stable assignment',date:'2031-06-10',start:'13:00',end:'13:30',type:'talk',session:'Stable',speaker:'Alex Smith',location:'Hall E',track:'E'}},speakerEntityIds:[],personIdentityAssignments:{}};
+const reconciledAssignment=mergeImportedRows([assignmentRow],[revisedAssignment]).rows[0];
+assert.equal(reconciledAssignment.personIdentityAssignments.speaker[0].personId,alexIds[1]);
+assert.equal((await buildPackage(project([reconciledAssignment]))).pkg.programme.presentations[0].speakerIds[0],alexIds[1]);
 
 const bulkProject=project([]);bulkProject.extraPeople=[{id:'a',name:'Pat One',affiliations:['Institute A']},{id:'b',name:'Pat One',affiliations:['Institute B']},{id:'c',name:'Rae Two',affiliations:['Institute C']},{id:'d',name:'Rae Two',affiliations:['Institute D']}];bulkProject.peoplePhotos={a:{name:'a.jpg',type:'image/jpeg',bytes:new Uint8Array([1,2])},b:{name:'b.jpg',type:'image/jpeg',bytes:new Uint8Array([3,4])}};bulkProject.rows=[{id:'r1',speaker:'Pat One',speakerEntityIds:['b'],chair:'Rae Two',chairEntityIds:['d']}];
 assert.throws(()=>applyIdentityResolutions(bulkProject,bulkProject.extraPeople,[{firstId:'a',secondId:'b',decision:'same',keepId:'a'},{firstId:'a',secondId:'b',decision:'different'}]),/conflict/,'Conflicting simultaneous resolutions are rejected before mutation');

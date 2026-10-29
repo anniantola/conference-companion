@@ -57,14 +57,8 @@ export function ensureProjectIdentities(project){
   const registry=project.identityRegistry;
   const canonicalPersonId=id=>{const seen=new Set();while(project.personIdAliases?.[id]&&!seen.has(id)){seen.add(id);id=project.personIdAliases[id];}return id;};
   const norm=value=>String(value||'').trim().toLocaleLowerCase();
-  const confirmedDifferent=(ids)=>{
-    const distinct=[...new Set(ids.map(canonicalPersonId))];if(distinct.length<2)return false;
-    const decisions=project.identityDecisions?.pairs||{};
-    for(let i=0;i<distinct.length;i++)for(let j=i+1;j<distinct.length;j++){
-      if(decisions[[distinct[i],distinct[j]].sort().join('::')]!=='different')return false;
-    }
-    return true;
-  };
+  const decisions=project.identityDecisions?.pairs||{};
+  const decisionFor=(a,b)=>decisions[[canonicalPersonId(a),canonicalPersonId(b)].sort().join('::')]||'unresolved';
   // Migrate the legacy name|affiliation index without changing any existing ID.
   for(const [key,id] of Object.entries(registry.people)){
     const canonical=canonicalPersonId(id),separator=key.indexOf('|');
@@ -75,8 +69,43 @@ export function ensureProjectIdentities(project){
     if(affiliation&&!record.affiliations.includes(affiliation))record.affiliations.push(affiliation);
   }
   const stats={automaticallyConsolidated:0,linkedAppearances:0,requiresReview:0},autoLinkedIds=new Set((registry.autoConsolidatedIds||[]).map(canonicalPersonId));
-  project.identityWarnings=[];
-  const rows=project.rows||[];
+  const rows=project.rows||[],records=registry.personRecords,activeIds=new Set(),provisionalIds=new Set();
+  const parseRoleNames=value=>parseNames(value);
+  const roleFields={speaker:'speakerEntityIds',chair:'chairEntityIds',author:'authorEntityIds'};
+  const legacyConflict=(row,role,index)=>row.personIdentityConflict===true&&(!row.personIdentityAssignments||(row.personIdentityIssues||[]).some(issue=>issue.role===role&&issue.index===index));
+  // Only identities represented in the current programme or explicitly added
+  // by the organizer are candidates. Old registry entries remain available for
+  // stable ID reuse, but cannot create ghost profiles or fresh warnings alone.
+  for(const person of project.extraPeople||[])if(person?.id&&person?.name){const id=canonicalPersonId(person.id);activeIds.add(id);const record=records[id]||={names:[],affiliations:[],explicitIds:[]};const name=norm(person.name),aff=String(person.affiliation||'').split(';').map(norm).filter(Boolean);if(name&&!record.names.includes(name))record.names.push(name);for(const value of aff)if(!record.affiliations.includes(value))record.affiliations.push(value);}
+  const programmeNames=new Set(rows.flatMap(row=>Object.keys(roleFields).flatMap(role=>parseRoleNames(row[role]).map(norm))));
+  for(const [id,record] of Object.entries(records))if((record.names||[]).some(name=>programmeNames.has(norm(name))))activeIds.add(canonicalPersonId(id));
+  for(const row of rows){
+    const legacyNames=row.personIdentityResolvedNames||{};
+    for(const [role,field] of Object.entries(roleFields)){
+      const names=parseRoleNames(row[role]);
+      for(let index=0;index<names.length;index++){
+        const saved=row.personIdentityAssignments?.[role]?.[index],savedId=saved?.personId||saved?.id||'',rowId=row[field]?.[index]||'';
+        const hasRowProfile=!!rowId&&(!!project.peopleOverrides?.[rowId]||!!project.peoplePhotos?.[rowId]||!!(project.extraPeople||[]).some(person=>person.id===rowId)||!!records[canonicalPersonId(rowId)]);
+        const explicitLegacyRowId=!!rowId&&rowId!==savedId&&!/^person-[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(rowId)&&!rowId.startsWith('pending-');
+        const id=saved?.status==='confirmed'&&(!rowId||savedId===rowId)?savedId:(hasRowProfile||explicitLegacyRowId)?rowId:(savedId||rowId);
+        const legacyExplicit=!!legacyNames[norm(names[index])]&&Object.entries(roleFields).flatMap(([r])=>parseRoleNames(row[r]).map(n=>norm(n))).filter(n=>n===norm(names[index])).length===1;
+        // Older projects kept edited profiles in overrides/photos while row
+        // references held the only ID-to-name link. Migrate that evidence
+        // before resolution; a row ID by itself is never treated as proof.
+        const hasSavedProfile=!!id&&(!!project.peopleOverrides?.[id]||!!project.peoplePhotos?.[id]||!!(project.extraPeople||[]).some(person=>person.id===id)||!!records[canonicalPersonId(id)]);
+        if(id&&(saved?.status==='confirmed'||legacyExplicit||hasSavedProfile||explicitLegacyRowId||String(row.source?.id||'').includes(':package:'))){
+          const canonical=canonicalPersonId(id),record=records[canonical]||={names:[],affiliations:[],explicitIds:[]},name=norm(names[index]);
+          if(name&&!record.names.includes(name))record.names.push(name);
+          const override=project.peopleOverrides?.[id]||{},extra=(project.extraPeople||[]).find(person=>person.id===id)||{};
+          const profileAffiliation=override.affiliation||extra.affiliation||(role==='speaker'?row.affiliation:'');
+          for(const affiliation of String(profileAffiliation||'').split(';').map(norm).filter(Boolean))if(!record.affiliations.includes(affiliation))record.affiliations.push(affiliation);
+          if((saved?.status!=='confirmed'||savedId!==rowId)&&(legacyExplicit||hasSavedProfile||explicitLegacyRowId||String(row.source?.id||'').includes(':package:'))){row.personIdentityAssignments||={};row.personIdentityAssignments[role]||={};row.personIdentityAssignments[role][index]={personId:canonical,status:'confirmed'};}
+          activeIds.add(canonical);
+        }
+        if(id&&(!legacyConflict(row,role,index)||saved?.status==='confirmed'||legacyExplicit||String(row.source?.id||'').includes(':package:')))activeIds.add(canonicalPersonId(id));
+      }
+    }
+  }
   // One title can represent several separate sessions in the same day.
   // Assign by location AND temporal continuity, never by title alone.
   const groupsByKey=new Map();
@@ -121,27 +150,38 @@ export function ensureProjectIdentities(project){
     registerGroup(key,id,row);
     return id;
   };
-  const personId=(name,affiliation='',preferred='',role='speaker')=>{
-    const n=norm(name),a=norm(affiliation);if(!n)return '';
-    const records=registry.personRecords;
-    const candidates=[...new Set(Object.entries(records).filter(([,r])=>r.names.includes(n)).map(([id])=>canonicalPersonId(id)))];
-    const exact=a?candidates.filter(id=>(records[id]?.affiliations||[]).includes(a)):[];
-    let id=preferred?canonicalPersonId(preferred):'';
-    if(!id&&exact.length===1){id=exact[0];autoLinkedIds.add(id);stats.linkedAppearances++;}
-    if(!id&&!a&&candidates.length===1&&(records[candidates[0]]?.affiliations?.length||records[candidates[0]]?.explicitIds?.length||role==='chair')){id=candidates[0];autoLinkedIds.add(id);stats.linkedAppearances++;}
-    // A name alone cannot choose between two confirmed people, and a new
-    // affiliation cannot prove that two same-name records are the same person.
-    if(!id&&((a&&exact.length>1)||(!a&&candidates.length>1))&&!confirmedDifferent(a?exact:candidates)){
-      stats.requiresReview++;
-      project.identityWarnings.push(`Ambiguous person "${name}"${a?` at ${affiliation}`:''}: choose an existing profile in Review & fix.`);
+  const occurrencesOnRow=(row,name)=>Object.entries(roleFields).flatMap(([role])=>parseRoleNames(row[role]).map((value,index)=>({role,index,name:norm(value)}))).filter(item=>item.name===norm(name));
+  const explicitAssignment=(row,role,index,name)=>{
+    const saved=row.personIdentityAssignments?.[role]?.[index],savedId=saved?.personId||saved?.id;
+    if(savedId&&saved.status==='confirmed')return canonicalPersonId(savedId);
+    const legacyId=row[roleFields[role]]?.[index],legacyExplicit=!!row.personIdentityResolvedNames?.[norm(name)]&&occurrencesOnRow(row,name).length===1;
+    if(legacyId&&legacyExplicit)return canonicalPersonId(legacyId);
+    if(legacyId&&String(row.source?.id||'').includes(':package:'))return canonicalPersonId(legacyId);
+    return '';
+  };
+  const resolvePerson=(row,role,index,name,affiliation='')=>{
+    const n=norm(name),affiliations=String(affiliation||'').split(';').map(norm).filter(Boolean);if(!n)return {id:'',issue:null};
+    const field=roleFields[role],prior=row[field]?.[index]||'',explicit=explicitAssignment(row,role,index,name);
+    const candidates=[...new Set([...activeIds].filter(id=>records[id]?.names?.includes(n)))];
+    const exact=affiliations.length?candidates.filter(id=>affiliations.some(aff=>records[id]?.affiliations?.includes(aff))):[];
+    let id=explicit;
+    if(!id&&exact.length===1)id=exact[0];
+    else if(!id&&exact.length>1)return {id:'',issue:{role,index,name,candidateIds:exact,reason:'Several confirmed profiles match this affiliation'}};
+    else if(!id&&!affiliations.length&&candidates.length===1)id=candidates[0];
+    else if(!id&&!affiliations.length&&candidates.length>1)return {id:'',issue:{role,index,name,candidateIds:candidates,reason:'Two or more different profiles share this name'}};
+    else if(!id&&prior&&!legacyConflict(row,role,index)&&records[canonicalPersonId(prior)]?.names?.includes(n))id=canonicalPersonId(prior);
+    else if(!id&&affiliations.length){const indexed=registry.people[`${n}|${affiliations[0]}`],canonical=indexed&&canonicalPersonId(indexed);if(canonical&&records[canonical]?.names?.includes(n))id=canonical;}
+    if(!id&&candidates.length&&affiliations.length){
+      // A new affiliation must not silently overwrite or inherit another
+      // same-name profile. Keep the appearance as its own reviewable identity.
+      id=`person-${crypto.randomUUID()}`;
     }
-    if(!id)id=`person-${crypto.randomUUID()}`;
-    const record=records[id] ||= {names:[],affiliations:[],explicitIds:[]};
-    if(!record.names.includes(n))record.names.push(n);
-    if(a&&!record.affiliations.includes(a))record.affiliations.push(a);
-    const key=`${n}|${a}`;
-    if(!registry.people[key]||canonicalPersonId(registry.people[key])===id)registry.people[key]=id;
-    return id;
+    if(!id){id=prior&&!legacyConflict(row,role,index)?canonicalPersonId(prior):`person-${crypto.randomUUID()}`;if(!affiliations.length&&!candidates.length)provisionalIds.add(id);}
+    const record=records[id]||={names:[],affiliations:[],explicitIds:[]};if(!record.names.includes(n))record.names.push(n);for(const aff of affiliations)if(!record.affiliations.includes(aff))record.affiliations.push(aff);
+    activeIds.add(id);const key=`${n}|${affiliations[0]||''}`;if(!registry.people[key]||canonicalPersonId(registry.people[key])===id)registry.people[key]=id;
+    const assignments=row.personIdentityAssignments||={};assignments[role]||={};assignments[role][index]={personId:id,status:explicit?'confirmed':'automatic'};
+    if(!explicit&&candidates.length&&id===candidates[0]){autoLinkedIds.add(id);stats.linkedAppearances++;}
+    return {id,issue:null};
   };
   const locationId=(name,preferred='')=>{if(preferred)return preferred;const k=String(name||'').trim().toLowerCase();if(!k)return 'venue-main';return registry.locations[k]||(registry.locations[k]=`loc-${crypto.randomUUID()}`);};
   const trackId=(name,preferred='')=>{if(preferred)return preferred;const k=String(name||'Common').trim().toLowerCase()||'common';if(k==='common')return registry.tracks[k]||(registry.tracks[k]='common');return registry.tracks[k]||(registry.tracks[k]=`track-${crypto.randomUUID()}`);};
@@ -152,30 +192,30 @@ export function ensureProjectIdentities(project){
     (timeValue(a.start)??Infinity)-(timeValue(b.start)??Infinity) ||
     String(a.id||'').localeCompare(String(b.id||''))
   );
-  // Register affiliated speakers before resolving name-only chair references.
-  // Their row order must not decide whether a chair gets a duplicate identity.
-  for(const row of orderedRows){
-    if(!String(row.affiliation||'').trim())continue;
-    const names=parseNames(row.speaker);
-    row.speakerEntityIds=names.map((name,i)=>personId(name,row.affiliation,(row.speakerEntityIds||[])[i]));
-  }
   for(const row of orderedRows){
     if(!row.id)row.id=crypto.randomUUID();
+    const oldFlags={conflict:row.personIdentityConflict===true,resolvedNames:{...(row.personIdentityResolvedNames||{})}};
+    row.personIdentityIssues=[];
     const type=String(row.type||'talk').toLowerCase();
     if(!row.entityId)row.entityId=stableEntityId(row,type==='poster'?'poster':'presentation');
     if(!Number.isFinite(Number(row.sequence)))row.sequence=0;
     row.locationEntityId=locationId(row.location,row.locationEntityId);
     row.trackEntityId=trackId(row.track||'Common',row.trackEntityId);
-    const speakerNames=parseNames(row.speaker),chairNames=parseNames(row.chair);
-    row.speakerEntityIds=speakerNames.map((name,i)=>personId(name,row.affiliation,(row.speakerEntityIds||[])[i]));
-    row.chairEntityIds=chairNames.map((name,i)=>personId(name,'',(row.chairEntityIds||[])[i],'chair'));
-    if(!String(row.affiliation||'').trim()){
-      for(const [index,name] of speakerNames.entries()){
-        if(row.personIdentityResolved||row.personIdentityResolvedNames?.[name.toLowerCase()]||(row.speakerEntityIds?.[index]&&row.source?.id?.includes(':package:')))continue;
-        const key=name.toLowerCase(),known=[...new Set(Object.entries(registry.people).filter(([k])=>k.startsWith(`${key}|`)).map(([,id])=>canonicalPersonId(id)))];
-        if(known.length>1&&!confirmedDifferent(known)){row.personIdentityConflict=true;row.personIdentityCandidates=[...new Set([...known,...(row.speakerEntityIds||[])])];}
+    const roleInputs={speaker:parseNames(row.speaker),chair:parseNames(row.chair),author:parseNames(row.author)};
+    for(const [role,names] of Object.entries(roleInputs)){
+      const ids=[];for(const [index,name] of names.entries()){
+        const resolved=resolvePerson(row,role,index,name,role==='speaker'?row.affiliation:'');ids[index]=resolved.id;
+        if(resolved.issue)row.personIdentityIssues.push({...resolved.issue,rowId:row.id});
       }
+      row[roleFields[role]]=ids;
     }
+    // Backward-compatible migration for the old name-only resolution marker
+    // is intentionally conservative when the name occurs in multiple roles.
+    for(const [name,value] of Object.entries(oldFlags.resolvedNames))if(value&&occurrencesOnRow(row,name).length===1){const [{role,index}]=occurrencesOnRow(row,name),id=row[roleFields[role]]?.[index];if(id)row.personIdentityAssignments[role][index]={personId:id,status:'confirmed'};}
+    row.personIdentityConflict=row.personIdentityIssues.length>0;
+    row.personIdentityResolved=!row.personIdentityConflict;
+    row.personIdentityCandidates=[...new Set(row.personIdentityIssues.flatMap(issue=>issue.candidateIds))];
+    row.personIdentityCandidatesByName={};for(const issue of row.personIdentityIssues)row.personIdentityCandidatesByName[`${issue.role}:${issue.index}`]=issue.candidateIds;
 
     if(type==='poster'){
       const key=`poster|${row.date||project.conference?.startDate||''}|${String(row.session||'Poster session').trim().toLowerCase()}|${row.locationEntityId}|${row.trackEntityId}`;
@@ -198,27 +238,38 @@ export function ensureProjectIdentities(project){
     row.sessionId=assignGroup(key,row);
     if(!row.calendarUid)row.calendarUid=calendarUidForEntity(row.entityId,project.conference);
   }
-  const noAffByName=new Map();
+  // An unaffiliated first appearance may have looked unique until later rows
+  // exposed multiple same-name profiles. Drop that provisional identity, then
+  // recompute automatic row assignments against the complete current project.
+  for(const id of provisionalIds){const names=records[id]?.names||[],competing=[...activeIds].filter(other=>other!==id&&names.some(name=>records[other]?.names?.includes(name)));if(!competing.length)continue;activeIds.delete(id);delete records[id];for(const [key,value] of Object.entries(registry.people))if(canonicalPersonId(value)===id)delete registry.people[key];}
   for(const row of rows){
-    for(const [role,field] of [['speaker','speakerEntityIds'],['chair','chairEntityIds']]){
-      if(role==='speaker'&&String(row.affiliation||'').trim())continue;
-      const names=parseNames(row[role]);for(const [index,name] of names.entries()){
-        const key=name.toLowerCase(),ids=row[field]||[];if(!noAffByName.has(key))noAffByName.set(key,[]);
-        noAffByName.get(key).push({row,name,id:ids[index]});
+    row.personIdentityIssues=[];
+    for(const [role,field] of Object.entries(roleFields)){
+      const names=parseRoleNames(row[role]),ids=row[field]||[];
+      for(const [index,name] of names.entries()){
+        const assignment=row.personIdentityAssignments?.[role]?.[index],id=assignment?.personId||assignment?.id||ids[index]||'';
+        if(assignment?.status==='confirmed')continue;
+        const normalized=norm(name),candidates=[...new Set([...activeIds].filter(candidate=>records[candidate]?.names?.includes(normalized)))],affiliations=role==='speaker'?String(row.affiliation||'').split(';').map(norm).filter(Boolean):[],exact=affiliations.length?candidates.filter(candidate=>affiliations.some(aff=>records[candidate]?.affiliations?.includes(aff))):[];
+        let issue=null,resolvedId=id;
+        if(exact.length===1)resolvedId=exact[0];
+        else if(exact.length>1)issue={role,index,name,candidateIds:exact,reason:'Several confirmed profiles match this affiliation'};
+        else if(!affiliations.length&&candidates.length>1)issue={role,index,name,candidateIds:candidates,reason:'Two or more different profiles share this name'};
+        else if(!affiliations.length&&candidates.length===1)resolvedId=candidates[0];
+        if(issue){resolvedId='';row.personIdentityIssues.push({...issue,rowId:row.id});}
+        ids[index]=resolvedId;
+        if(resolvedId){row.personIdentityAssignments||={};row.personIdentityAssignments[role]||={};row.personIdentityAssignments[role][index]={personId:resolvedId,status:'automatic'};}
       }
+      row[field]=ids;
     }
+    row.personIdentityConflict=row.personIdentityIssues.length>0;row.personIdentityResolved=!row.personIdentityConflict;
+    row.personIdentityCandidates=[...new Set(row.personIdentityIssues.flatMap(issue=>issue.candidateIds))];
+    row.personIdentityCandidatesByName={};for(const issue of row.personIdentityIssues)row.personIdentityCandidatesByName[`${issue.role}:${issue.index}`]=issue.candidateIds;
   }
-  for(const [name,occurrences] of noAffByName){
-    const known=Object.entries(registry.people).filter(([identity])=>identity.startsWith(`${name}|`)).map(([,id])=>id);
-    const candidates=[...new Set([...occurrences.map(x=>x.id),...known].filter(Boolean).map(canonicalPersonId))];
-    if(candidates.length>1&&!confirmedDifferent(known.length>1?known:candidates))for(const item of occurrences){
-      if(item.row.personIdentityResolved||item.row.personIdentityResolvedNames?.[name])continue;
-      item.row.personIdentityConflict=true;
-      item.row.personIdentityCandidates=[...new Set([...(item.row.personIdentityCandidates||[]),...candidates])];
-      item.row.personIdentityCandidatesByName={...(item.row.personIdentityCandidatesByName||{}),[name]:candidates};
-    }
-  }
-  stats.requiresReview=rows.filter(row=>row.personIdentityConflict&&!row.personIdentityResolved).length;
+  for(const row of rows)for(const field of Object.values(roleFields))for(const id of row[field]||[])if(id)activeIds.add(canonicalPersonId(id));
+  const grouped=new Map();for(const id of activeIds){const record=records[id];for(const name of record?.names||[]){if(!grouped.has(name))grouped.set(name,new Set());grouped.get(name).add(id);}}
+  project.identityWarnings=[];
+  for(const [name,idsSet] of grouped){const ids=[...idsSet];if(ids.length<2)continue;let unresolved=false;for(let i=0;i<ids.length;i++)for(let j=i+1;j<ids.length;j++)if(decisionFor(ids[i],ids[j])!=='different')unresolved=true;if(unresolved)project.identityWarnings.push(`Possible duplicate profiles named "${records[ids[0]]?.names?.[0]||name}": confirm whether these are the same or different people in Step 4.`);}
+  stats.requiresReview=rows.reduce((sum,row)=>sum+(row.personIdentityIssues||[]).length,0);
   registry.autoConsolidatedIds=[...autoLinkedIds];
   stats.automaticallyConsolidated=autoLinkedIds.size;
   project.identityStats=stats;
@@ -254,6 +305,16 @@ export async function buildPackage(project){
     if(usedPeople.has(id))id=ensureUnique(id,usedPeople);else usedPeople.add(id);
     const p={id,name:cleanName,affiliations:cleanAff.split(';').map(x=>x.trim()).filter(Boolean)};people.push(p);personById.set(id,p);peopleKey.set(key,id);if(!peopleNameKey.has(nameKey))peopleNameKey.set(nameKey,id);return id;
   };
+  const personReference=(row,role,index,name,affiliation='')=>{
+    const issue=(row.personIdentityIssues||[]).find(item=>item.role===role&&item.index===index);
+    // Keep unresolved assignments out of the package people directory. A
+    // synthetic placeholder would look like a real attendee profile and could
+    // otherwise leave a convincing but incorrectly attributed programme.
+    if(issue)return '';
+    const field={speaker:'speakerEntityIds',chair:'chairEntityIds',author:'authorEntityIds'}[role];
+    const preferred=(row[field]||[])[index]||'';
+    return ensurePerson(name,affiliation,preferred);
+  };
 
   const venueId='venue-main';
   locations.push({id:venueId,type:'venue',name:config.venueName||'Main venue',...(config.venueAddress?{address:config.venueAddress}:{})});usedLocations.add(venueId);locationKey.set(String(config.venueName||'Main venue').trim().toLowerCase(),venueId);
@@ -279,7 +340,7 @@ export async function buildPackage(project){
     let id=String(group.id||'').trim();if(!id||usedSessions.has(id))id=ensureUnique(`session-${slug(group.title,'session')}`,usedSessions);else usedSessions.add(id);
     const standalone=group.type!=='session';
     const start=minTime(group.rows.map(r=>r.start)),end=maxTime(group.rows.map(r=>r.end));
-    const chairIds=[...new Set(group.rows.flatMap(r=>parseNames(r.chair).map((n,i)=>ensurePerson(n,'',(r.chairEntityIds||[])[i])).filter(Boolean)))];
+    const chairIds=[...new Set(group.rows.flatMap(r=>parseNames(r.chair).map((n,i)=>personReference(r,'chair',i,n)).filter(Boolean)))];
     const distinctLocations=new Set(group.rows.map(r=>r.locationEntityId||'').filter(Boolean));
     const distinctTracks=new Set(group.rows.map(r=>r.trackEntityId||'').filter(Boolean));
     const distinctDates=new Set(group.rows.map(r=>r.date||'').filter(Boolean));
@@ -305,7 +366,7 @@ export async function buildPackage(project){
     else {
       for(const row of group.rows){
         let pid=stableEntityId(row,'presentation');if(usedPresentations.has(pid))pid=ensureUnique(pid,usedPresentations);else usedPresentations.add(pid);
-        const speakerIds=parseNames(row.speaker).map((n,i)=>ensurePerson(n,row.affiliation,(row.speakerEntityIds||[])[i])).filter(Boolean);
+        const speakerIds=parseNames(row.speaker).map((n,i)=>personReference(row,'speaker',i,n,row.affiliation)).filter(Boolean);
         const p={id:pid,sessionId:id,type:presentationType(row.type),start:row.start||start,end:row.end||end,title:row.title||'',speakerIds,abstract:row.abstract||'',keywords:[],links:[],calendarUid:row.calendarUid,sequence:Number(row.sequence||0)+sequenceBump};
         if(row.doi)p.links.push({label:'DOI / link',url:row.doi});
         presentations.push(p);session.presentationIds.push(pid);
@@ -330,11 +391,20 @@ export async function buildPackage(project){
       if(rowTracks.size>1&&!psOverride.trackId)builderErrors.push(`poster session ${psId}: source rows disagree on track; choose one in Session-level edits`);
       if(rowSessions.size>1&&!psOverride.title)builderErrors.push(`poster session ${psId}: source rows disagree on session title; choose one in Session-level edits`);
       sessions.push({id:psId,type:'poster-session',title:psOverride.title??groupRows[0].session??'',date:psOverride.date??date,start:psOverride.start??start,end:psOverride.end??end,locationId:psOverride.locationId??loc,trackId:psOverride.trackId??track,chairIds:[],presentationIds:[],calendarUid:psUid,sequence:Math.max(...groupRows.map(r=>Number(r.sequence||0)),0)+psBump});
-      groupRows.forEach((row,i)=>{const authorIds=parseNames(row.speaker).map((n,i)=>ensurePerson(n,row.affiliation,(row.speakerEntityIds||[])[i])).filter(Boolean);let posterId=stableEntityId(row,'poster');if(usedPosters.has(posterId))posterId=ensureUnique(posterId,usedPosters);else usedPosters.add(posterId);posters.push({id:posterId,posterSessionId:psId,number:row.posterNumber||String(i+1),title:row.title||'',authorIds,abstract:row.abstract||'',keywords:[],links:row.doi?[{label:'DOI / link',url:row.doi}]:[],calendarUid:row.calendarUid,sequence:Number(row.sequence||0)+psBump});});
+      groupRows.forEach((row,i)=>{const authorIds=parseNames(row.speaker).map((n,i)=>personReference(row,'speaker',i,n,row.affiliation)).filter(Boolean);let posterId=stableEntityId(row,'poster');if(usedPosters.has(posterId))posterId=ensureUnique(posterId,usedPosters);else usedPosters.add(posterId);posters.push({id:posterId,posterSessionId:psId,number:row.posterNumber||String(i+1),title:row.title||'',authorIds,abstract:row.abstract||'',keywords:[],links:row.doi?[{label:'DOI / link',url:row.doi}]:[],calendarUid:row.calendarUid,sequence:Number(row.sequence||0)+psBump});});
     }
   }
 
   tracks.sort((a,b)=>a.order-b.order);
+  // Existing registry identities that are offered as candidates for an
+  // unresolved appearance must be present in the directory so the organizer
+  // can compare and select them. These are registered profiles, not synthetic
+  // placeholder people for the unresolved row itself.
+  for(const id of new Set(rows.flatMap(row=>(row.personIdentityIssues||[]).flatMap(issue=>issue.candidateIds||[])))){
+    if(personById.has(id))continue;
+    const record=project.identityRegistry?.personRecords?.[id],name=record?.names?.[0];
+    if(name)ensurePerson(name,(record.affiliations||[]).join('; '),id);
+  }
   const peopleOverrides=project.peopleOverrides||{};
   for(const person of people){const o=peopleOverrides[person.id];if(!o)continue;Object.assign(person,o);if(o.affiliation!==undefined)person.affiliations=String(o.affiliation||'').split(';').map(x=>x.trim()).filter(Boolean);normalizePersonLinks(person,o);delete person.affiliation;}
   for(const extra of project.extraPeople||[]){if(!extra?.name)continue;let id=extra.id||`person-${crypto.randomUUID()}`;if(usedPeople.has(id))id=ensureUnique(id,usedPeople);else usedPeople.add(id);const person={id,name:extra.name,position:extra.position||'',affiliations:String(extra.affiliation||'').split(';').map(x=>x.trim()).filter(Boolean),publicEmail:extra.publicEmail||'',orcid:extra.orcid||'',photoUrl:extra.photoUrl||'',papers:Array.isArray(extra.papers)?extra.papers:[],links:[]};normalizePersonLinks(person,extra);people.push(person);}
@@ -376,7 +446,7 @@ export async function buildPackage(project){
   const now=new Date().toISOString();
   const version=Number(project.dataVersion||1);
   const changelog=[...(project.changelog||[])];
-  const manifest={schemaVersion:CURRENT_SCHEMA_VERSION,dataVersion:version,minimumEngineVersion:'1.2.9',publishedAt:now,files:['conference.json','programme.json','people.json','locations.json','branding.json'],checksums:{},changelog};
+  const manifest={schemaVersion:CURRENT_SCHEMA_VERSION,dataVersion:version,minimumEngineVersion:'1.2.10',publishedAt:now,files:['conference.json','programme.json','people.json','locations.json','branding.json'],checksums:{},changelog};
   const pkg={manifest,conference,programme,people:peopleJson,locations:locationsJson,branding};
   const report=validatePackage(pkg,{strictCalendarUid:true,policy:project.policy||{}});
   report.errors.push(...builderErrors);
@@ -395,7 +465,7 @@ export async function buildPackage(project){
   }
   report.warnings.push(...builderWarnings);
   report.warnings.push(...(project.identityWarnings||[]));
-  for(const row of rows)if(row.personIdentityConflict&&!row.personIdentityResolved)report.warnings.push(`Ambiguous person identity in programme row ${row.source?.row||row.source?.line||row.id}: select a person ID or provide an affiliation`);
+  for(const row of rows)for(const issue of row.personIdentityIssues||[])report.errors.push(`Person assignment needs review [identity-assignment:${encodeURIComponent(row.id)}:${issue.role}:${issue.index}]`);
   const lastPublished=Number(project.lastPublishedVersion||0);
   const fingerprint=await packageContentFingerprint(pkg);
   const confirmed=(project.confirmedPublications||[]).find(x=>Number(x.version)===version);
@@ -455,7 +525,7 @@ async function fetchBytes(path){const r=await fetch(path,{cache:'no-store'});if(
 function manifestText(pkg){return JSON.stringify({name:pkg.conference.name,short_name:pkg.conference.shortName||pkg.conference.name,id:'./',start_url:'./',scope:'./',display:'standalone',background_color:'#000000',theme_color:pkg.branding.primary||'#000000',icons:[{src:'./icon-192.png',sizes:'192x192',type:'image/png',purpose:'any'},{src:'./icon-512.png',sizes:'512x512',type:'image/png',purpose:'any maskable'}]},null,2)+'\n';}
 function sharePreviewSvg(pkg){const title=String(pkg.conference.shortName||pkg.conference.name||'Conference').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630"><rect width="1200" height="630" fill="${pkg.branding.primary||'#000'}"/><rect x="60" y="60" width="1080" height="510" rx="44" fill="#fff" opacity=".96"/><text x="110" y="285" font-family="system-ui,sans-serif" font-weight="700" font-size="78" fill="#111">${title}</text><text x="110" y="370" font-family="system-ui,sans-serif" font-size="38" fill="#444">Conference Companion</text></svg>`;}
 export function workflowText(){return `name: Validate and deploy Conference Companion\n\non:\n  push:\n    branches: ["main"]\n  workflow_dispatch:\n\npermissions:\n  contents: read\n  pages: write\n  id-token: write\n\nconcurrency:\n  group: "pages"\n  cancel-in-progress: false\n\njobs:\n  deploy:\n    environment:\n      name: github-pages\n      url: \${{ steps.deployment.outputs.page_url }}\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@v6\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n      - name: Validate conference package\n        run: npm test\n      - name: Stage public application files\n        run: |\n          mkdir _site\n          cp -r index.html app.js bootstrap.js styles.css service-worker.js manifest.webmanifest icon-*.png share-preview.svg assets src schemas conference tools _site/\n      - uses: actions/configure-pages@v5\n      - uses: actions/upload-pages-artifact@v4\n        with:\n          path: "_site"\n      - name: Deploy to GitHub Pages\n        id: deployment\n        uses: actions/deploy-pages@v4\n`;}
-function generatedPackageJson(){return JSON.stringify({name:'conference-companion-deployment',version:'1.2.9',private:true,type:'module',scripts:{schema:'node tools/schema-check.mjs conference',validate:'node tools/validate-conference.mjs conference',test:'npm run schema && npm run validate'}},null,2)+'\n';}
+function generatedPackageJson(){return JSON.stringify({name:'conference-companion-deployment',version:'1.2.10',private:true,type:'module',scripts:{schema:'node tools/schema-check.mjs conference',validate:'node tools/validate-conference.mjs conference',test:'npm run schema && npm run validate'}},null,2)+'\n';}
 
 /** A repository-ready static deployment ZIP: stable engine + generated package + branded install assets. */
 export async function packageZip(project){

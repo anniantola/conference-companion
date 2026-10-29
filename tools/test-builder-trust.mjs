@@ -102,9 +102,10 @@ const sameName=project([
 const namesA=await buildPackage(sameName),personIdsA=namesA.pkg.people.people.filter(p=>p.name==='Alex Example').map(p=>p.id);
 assert.equal(new Set(personIdsA).size,2,'Same name with different affiliations stays distinct');
 const unresolved=project([{...base,id:'ambiguous-known',speaker:'Alex Example',affiliation:'',title:'Unassigned affiliation'}],{identityRegistry:{people:{'alex example|university north':'person-north','alex example|institute south':'person-south'},locations:{},tracks:{}}});
-await buildPackage(unresolved);
+const unresolvedBuild=await buildPackage(unresolved);
 assert.equal(unresolved.rows[0].personIdentityConflict,true,'Name-only matches against known people require organizer resolution');
 assert.ok(unresolved.rows[0].personIdentityCandidates.includes('person-north')&&unresolved.rows[0].personIdentityCandidates.includes('person-south'));
+assert.deepEqual(new Set(unresolvedBuild.pkg.people.people.map(person=>person.id)),new Set(['person-north','person-south']),'Registered candidate profiles remain available for the organizer without inventing an assignment');
 const stablePerson=namesA.pkg.programme.presentations[0].speakerIds[0];
 sameName.rows[0].speakerEntityIds=[stablePerson];sameName.rows[0].affiliation='Corrected University';
 const corrected=await buildPackage(sameName);

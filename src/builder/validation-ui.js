@@ -1,5 +1,17 @@
 /** Human-readable Builder diagnostics with a direct target in the review UI. */
 export function describeValidationMessage(message,pkg,project){
+  const assignment=String(message).match(/^Person assignment needs review \[identity-assignment:([^:]+):(speaker|chair|author):(\d+)\]$/);
+  if(assignment){
+    const rowId=decodeURIComponent(assignment[1]),role=assignment[2],index=Number(assignment[3]),row=(project.rows||[]).find(item=>String(item.id)===rowId);
+    if(row){
+      const names=String(row[role]||'').split(/\s*(?:;|\band\b)\s*/i).filter(Boolean),name=names[index]||'Unnamed person',issue=(row.personIdentityIssues||[]).find(item=>item.role===role&&item.index===index),ids=issue?.candidateIds||[],people=new Map((pkg.people.people||[]).map(person=>[person.id,person]));
+      const candidates=ids.map(id=>people.get(id)).filter(Boolean).map(person=>`${person.name} — ${(person.affiliations||[]).join('; ')||'affiliation unknown'}`);
+      const sourceRow=row.source?.row||row.source?.line||((project.rows||[]).indexOf(row)+1),roleLabel=role==='speaker'?(String(row.type||'').toLowerCase()==='poster'?'Poster author':'Speaker'):role==='chair'?'Chair':'Author';
+      const context=[row.date,[row.start,row.end].filter(Boolean).join('–'),row.location,row.track].filter(Boolean).join(' · ');
+      const detail=candidates.length?` Candidates: ${[...new Set(candidates)].join('; ')}.`:' Add or select a profile in Step 4.';
+      return {text:`Person assignment needs review — Programme row ${sourceRow}: ${row.title||row.session||'Untitled programme entry'}${context?` · ${context}`:''} · ${roleLabel}: ${name}. ${issue?.reason||'More than one profile may match this name.'} Choose which profile is associated with this programme appearance.${detail}`,target:{type:'identity-assignment',id:row.id,role,index}};
+    }
+  }
   const sessions=pkg.programme.sessions||[],presentations=pkg.programme.presentations||[],posters=pkg.programme.posters||[];
   const locations=new Map((pkg.locations.locations||[]).map(x=>[x.id,x.name]));
   const tracks=new Map((pkg.programme.tracks||[]).map(x=>[x.id,x.name]));
