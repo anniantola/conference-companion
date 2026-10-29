@@ -240,6 +240,7 @@ test('PDF entries stay staged while unrecognized text and uncertain entries are 
 
 test('source replacement previews removals, supports cancellation and keeps conference settings',async({page})=>{
   await page.goto('/builder.html');await page.locator('[data-config="name"]').fill('Preserved Conference Details');await page.locator('[data-goto-step="2"]').click();
+  await expect.poll(async()=>page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return (await loadProject())?.conference?.name;})).toBe('Preserved Conference Details');
   const original=`date,start,end,type,session,title,speaker,affiliation,room,track\n2032-06-01,09:00,09:30,talk,Methods,Alpha,Alex One,Lab,Hall A,North\n2032-06-01,10:00,10:30,talk,Methods,Beta,Bob Two,Lab,Hall B,South`;
   await page.locator('#programmeFile').setInputFiles({name:'schedule.csv',mimeType:'text/csv',buffer:Buffer.from(original)});await page.locator('#importProgramme').click();await page.locator('#applyMapping').click();await page.locator('#confirmImportChanges').click();
   await page.locator('[data-goto-step="3"]').click();await page.locator('[data-field="title"]').first().fill('Organizer correction');await expect(page.locator('#builderSaveStatus')).toHaveText('Project saved locally');await page.locator('[data-goto-step="2"]').click();

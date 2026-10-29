@@ -131,30 +131,31 @@ test('four-profile selection preserves interaction order, promotes next primary,
 });
 
 test('duplicate checkbox groups keep independent selection order; confirmed different pairs block merge',async({page})=>{
-  await page.goto('/builder.html');await importSynthetic(page);
-  await page.evaluate(async()=>{const {loadProject,saveProject}=await import('/src/builder/project-store.js');const p=await loadProject();for(const number of ['08','09']){p.rows.find(row=>row.chair===`Researcher ${number}`).chairEntityIds=[`separate-${number}`];p.extraPeople=[...(p.extraPeople||[]),{id:`separate-${number}`,name:`Researcher ${number}`,affiliation:`Second institute ${number}`}];}p.activeStep=4;await saveProject(p);});
+  await page.goto('/builder.html');await expect(page.locator('#builderSaveStatus')).toHaveText('Project saved locally');
+  await page.evaluate(async()=>{const {loadProject,saveProject}=await import('/src/builder/project-store.js');const project={conference:{id:'group-selection',name:'Identity Group Test',startDate:'2033-06-01',endDate:'2033-06-01',timezone:'Europe/Helsinki'},rows:[],extraPeople:[{id:'alex-a',name:'Alex Example',affiliation:'Institute 8 A'},{id:'alex-b',name:'Alex Example',affiliation:'Institute 8 B'},{id:'maria-a',name:'Maria Example',affiliation:'Institute 9 A'},{id:'maria-b',name:'Maria Example',affiliation:'Institute 9 B'}],activeStep:4};await saveProject(project);const saved=await loadProject();if(saved.extraPeople.length!==4||saved.activeStep!==4)throw new Error('The isolated identity fixture was not persisted');});
   await page.reload();const groups=page.locator('[data-duplicate-group]');await expect(groups).toHaveCount(2);
-  const first=groups.filter({hasText:'Researcher 08'}),second=groups.filter({hasText:'Researcher 09'});
-  const base08=await first.locator('.duplicate-profile').filter({hasText:'Institute 8'}).getAttribute('data-profile-id'),base09=await second.locator('.duplicate-profile').filter({hasText:'Institute 9'}).getAttribute('data-profile-id');
-  await first.locator(`[data-merge-profile][value="${base08}"]`).check();await second.locator('[data-merge-profile][value="separate-09"]').check();
+  const first=groups.filter({hasText:'Alex Example'}),second=groups.filter({hasText:'Maria Example'});
+  const alexA='alex-a',alexB='alex-b',mariaA='maria-a',mariaB='maria-b';
+  await first.locator(`[data-merge-profile][value="${alexA}"]`).check();await second.locator(`[data-merge-profile][value="${mariaB}"]`).check();
   await page.locator('#reviewDuplicates').click();await expect(page.locator('#duplicateReview')).toBeHidden();await page.locator('#reviewDuplicates').click();
-  await expect(first.locator('.is-primary')).toHaveAttribute('data-profile-id',base08);await expect(second.locator('.is-primary')).toHaveAttribute('data-profile-id','separate-09');
+  await expect(first.locator('.is-primary')).toHaveAttribute('data-profile-id',alexA);await expect(second.locator('.is-primary')).toHaveAttribute('data-profile-id',mariaB);
   await first.locator('[data-clear-selection]').click();await expect(first.locator('[data-merge-selected]')).toBeDisabled();
-  await second.locator(`[data-merge-profile][value="${base09}"]`).check();
-  await first.locator(`[data-merge-profile][value="separate-08"]`).check();await first.locator(`[data-merge-profile][value="${base08}"]`).check();await first.locator('[data-mark-different]').click();
+  await second.locator(`[data-merge-profile][value="${mariaA}"]`).check();await second.locator('[data-mark-different]').click();
+  await first.locator(`[data-merge-profile][value="${alexB}"]`).check();await first.locator(`[data-merge-profile][value="${alexA}"]`).check();await first.locator('[data-mark-different]').click();
   await expect(page.locator('#toast')).toContainText('different-person decisions saved');
   await first.locator('[data-merge-selected]').click();await expect(page.locator('#personMergeDialog')).not.toBeVisible();await expect(page.locator('#toast')).toContainText('confirmed as different people');
-  await expect(first.locator('.is-primary')).toHaveAttribute('data-profile-id','separate-08');
-  await expect(second.locator('.is-primary')).toHaveAttribute('data-profile-id','separate-09');
+  await expect(first.locator('.is-primary')).toHaveAttribute('data-profile-id',alexB);
+  await expect(second.locator('.is-primary')).toHaveAttribute('data-profile-id',mariaB);
   await first.locator('.confirmed-distinct summary').click();await first.locator('[data-clear-selection]').click();await first.locator('[data-reopen-pair]').click();
   await expect(first.locator('[data-reopen-pair]')).toHaveCount(0);
+  const saved=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return loadProject();});expect(saved.extraPeople.map(person=>person.id).sort()).toEqual(['alex-a','alex-b','maria-a','maria-b']);
 });
 
 test('failed IndexedDB write keeps every original profile and reference',async({page})=>{
   await page.goto('/builder.html');
   await page.evaluate(async()=>{const {saveProject}=await import('/src/builder/project-store.js');await saveProject({conference:{id:'merge-failure',name:'Merge Failure Test',startDate:'2031-06-10',endDate:'2031-06-10',timezone:'Europe/Helsinki'},rows:[],extraPeople:[{id:'failure-a',name:'Failure Example',affiliation:'Institute A'},{id:'failure-b',name:'Failure Example',affiliation:'Institute B'}],activeStep:4});});
   await page.reload();const group=page.locator('[data-duplicate-group]').first();await group.locator('[data-merge-profile][value="failure-b"]').check();await group.locator('[data-merge-profile][value="failure-a"]').check();await group.locator('[data-merge-selected]').click();
-  await page.evaluate(()=>{const original=IDBDatabase.prototype.transaction;let rejectNextWrite=true;IDBDatabase.prototype.transaction=function(...args){const tx=original.apply(this,args);if(rejectNextWrite&&args[0]==='projects'&&args[1]==='readwrite'){rejectNextWrite=false;queueMicrotask(()=>{try{tx.abort();}catch{}});}return tx;};});
+  await page.evaluate(()=>{const original=IDBDatabase.prototype.transaction;window.__rejectIdentityMergeWrite=false;IDBDatabase.prototype.transaction=function(...args){const tx=original.apply(this,args);if(window.__rejectIdentityMergeWrite&&args[0]==='projects'&&args[1]==='readwrite'){window.__rejectIdentityMergeWrite=false;queueMicrotask(()=>{try{tx.abort();}catch{}});}return tx;};document.querySelector('#personMergeConfirm').addEventListener('click',()=>{window.__rejectIdentityMergeWrite=true;},{capture:true,once:true});});
   await page.locator('#personMergeConfirm').click();await expect(page.locator('#builderSaveStatus')).toContainText('Identity merge was not saved');
   const unchanged=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');const p=await loadProject();return {ids:p.extraPeople.map(person=>person.id).sort(),aliases:p.personIdAliases||{},rows:p.rows};});
   expect(unchanged.ids).toEqual(['failure-a','failure-b']);expect(unchanged.aliases).toEqual({});expect(unchanged.rows).toEqual([]);

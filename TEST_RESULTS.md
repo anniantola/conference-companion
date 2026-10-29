@@ -21,6 +21,23 @@ Firefox runs. WebKit could not launch locally because this host lacks
 installs WebKit with system dependencies, so CI remains the complete WebKit
 verification gate.
 
+### v1.2.9 final regression rerun — 2026-10-29
+
+The complete Node 22 `test:unit` suite passed again. All 138 locally runnable
+Playwright cases passed on the final test changes: Chromium 69/69 and Firefox
+69/69. The duplicate-group selection test passed five consecutive Chromium
+runs and three Firefox runs; source-replacement persistence passed three
+consecutive Firefox runs. The simulated failed-write test now arms its IndexedDB
+abort on the merge confirmation action, so an unrelated autosave cannot consume
+the injected failure. The source-replacement fixture waits until the conference
+name is present in IndexedDB before continuing, preventing a navigation/save
+race in Firefox.
+
+WebKit remains unavailable on this local host because Playwright MiniBrowser
+cannot load `libavif.so.16`; this is a browser-launch dependency failure before
+test code, not a test assertion. GitHub Actions installs browser dependencies
+and is the required WebKit and deployment verification gate.
+
 ## Previous release results
 
 The v1.2.8 run results are retained in git history for audit; current release
