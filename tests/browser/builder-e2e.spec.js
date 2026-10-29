@@ -115,6 +115,9 @@ test('different-person decisions persist while ambiguous programme assignments r
   const group=page.locator('[data-duplicate-group]').filter({hasText:'Alex Smith'}).first();await expect(group.locator('[data-merge-profile]')).toHaveCount(2);
   const ids=await group.locator('[data-merge-profile]').evaluateAll(boxes=>boxes.map(box=>box.value));
   await group.locator('[data-merge-profile]').nth(1).check();await group.locator('[data-merge-profile]').nth(0).check();
+  // Ensure navigation/import autosaves have settled so the injected abort targets
+  // the identity decision transaction itself, not an unrelated background save.
+  await expect(page.locator('#builderSaveStatus')).toHaveText('Project saved locally');
   await page.evaluate(()=>{const original=IDBDatabase.prototype.transaction;window.__identityDecisionTransaction=original;IDBDatabase.prototype.transaction=function(...args){const tx=original.apply(this,args);if(window.__failIdentityDecisionWrite&&args[0]==='projects'&&args[1]==='readwrite'){window.__failIdentityDecisionWrite=false;queueMicrotask(()=>{try{tx.abort();}catch{}});}return tx;};window.__failIdentityDecisionWrite=true;});
   await group.locator('[data-mark-different]').click();await expect(page.locator('#builderSaveStatus')).toContainText('Identity decisions were not saved');
   let saved=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return loadProject();});
