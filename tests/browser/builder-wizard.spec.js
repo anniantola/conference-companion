@@ -222,11 +222,13 @@ test('Builder project ZIP round trip preserves wizard state and imported people'
   await page.locator('[data-goto-step="4"]').click();
   const pending=page.waitForEvent('download');await page.locator('#exportBuilderProject').click();
   const download=await pending,buffer=await readFile(await download.path());
-  page.once('dialog',dialog=>dialog.accept());await page.locator('#resetProject').click();
+  const resetNavigation=page.waitForNavigation();page.once('dialog',dialog=>dialog.accept());await page.locator('#resetProject').click();await resetNavigation;
+  await expect(page.locator('body')).toHaveAttribute('data-builder-ready','true');
   await expect(page.locator('[data-step="1"]')).toBeVisible();
   const cancelImport=page.waitForEvent('dialog');await page.locator('#builderProjectInput').setInputFiles({name:'previous-builder-project.zip',mimeType:'application/zip',buffer});await (await cancelImport).dismiss();
   await expect(page.locator('[data-config="name"]')).toHaveValue('');
-  const acceptImport=page.waitForEvent('dialog');await page.locator('#builderProjectInput').setInputFiles({name:'previous-builder-project.zip',mimeType:'application/zip',buffer});await (await acceptImport).accept();
+  const acceptNavigation=page.waitForNavigation();const acceptImport=page.waitForEvent('dialog');await page.locator('#builderProjectInput').setInputFiles({name:'previous-builder-project.zip',mimeType:'application/zip',buffer});await (await acceptImport).accept();await acceptNavigation;
+  await expect(page.locator('body')).toHaveAttribute('data-builder-ready','true');
   await expect(page.locator('[data-step="4"]')).toBeVisible();
   await expect(page.locator('#peoplePreview .person-row')).toHaveCount(23);
   await page.locator('[data-goto-step="6"]').click();

@@ -4,6 +4,8 @@
 
 Regression coverage now checks automatic identity status across repeated package builds, name edits and reordered appearances, reimport identity reconciliation, keyed legacy source journals, and HTML-like attendee timezone labels. The full Node 22 unit suite passed locally. The complete local Playwright run passed 142 tests: 71 Chromium and 71 Firefox. WebKit requires the CI runner's browser system dependencies on this host.
 
+The first CI run (40906210477) passed 212 of 213 browser cases; its WebKit Builder ZIP test raced the page reload after Reset. The test now waits for navigation and Builder readiness before importing. The corrected scenario passed three consecutive Chromium and three consecutive Firefox repetitions locally. A new full CI run is the WebKit gate.
+
 ## v1.2.10 identity synchronization update — 2026-10-29
 
 Added identity regressions for explicit imported person IDs, separate same-name profiles, independent speaker and chair assignments, stable row-targeted diagnostics at source rows 42/43/44/81/82/83 in a 100-entry programme, repeated package builds, re-import, and project ZIP backup/restore. The Chromium Builder workflow persists **Different people**, simulates a failed IndexedDB write without changing saved decisions, reloads the project, navigates from the contextual validation error to the exact Step 3 assignment control, and verifies the error is gone after assignment while a separate chair issue remains.
