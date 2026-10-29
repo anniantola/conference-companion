@@ -1,12 +1,14 @@
 # Conference Companion
 
-Current engine release: **v1.2.8**.
+Current engine release: **v1.2.9**.
 
 Conference Companion is a standalone, offline-first conference PWA plus a browser-based Conference Builder. The attendee engine is stable and conference content is published as a normalized, versioned data package rather than being hard-coded into the UI.
 
 ## What is implemented
 
 Builder project backups are restored only after archive, project structure, binary assets, and a disposable package build pass validation; an organizer confirms replacement before saving. Incomplete drafts remain restorable. CSV/XLSX/row-JSON imports stay as mapping previews until applied, and failed parsing or storage writes preserve the existing project and previous source files. The attendee release cache keeps five validated releases (active plus four recent); an explicitly selected rollback remains pinned until updates are resumed.
+
+In Step 4, each possible duplicate profile has its own checkbox. The first profile checked is the primary that survives; additional checked profiles are merged into it. Unchecking the primary promotes the earliest remaining selection, and each name group maintains an independent selection order. The confirmation preview shows retained profile information and offers choices for conflicting single-value fields. A merge updates all programme references in one staged operation and preserves alternate profile photographs in the Builder backup. A confirmed **Different people** decision blocks an incompatible merge until it is explicitly reopened.
 
 Builder Step 2 now provides a source manager, explicit merge/replace-source/replace-programme modes, and a before-commit comparison of additions, updates, unchanged entries, conflicts, and removals. Source removal recovers historical provenance from legacy identifiers and import journals. **Clear imported programme data** removes imported rows even if the source registry is damaged; rows whose origin is genuinely uncertain require an individual keep/delete decision. Deletion is staged, validated, persisted, read back, and compared with the rebuilt attendee package before the Builder reports success. Corrected source-backed entries can be explicitly retained as manual records; shared entries and independent manual records remain. Step 4 presents ambiguous identities with programme and source context, and supports persistent pair decisions (same, different, or unresolved) plus atomic bulk profile resolution. PDF extraction is staged separately: confident entries, entries needing review, and unrecognized text are distinct; uncertain entries are opt-in and large extractions require acknowledgement. This remains heuristic extraction, not a guarantee for arbitrary PDF layouts; organizers must review every entry and the specific real programme PDF has not been verified.
 

@@ -421,3 +421,9 @@ last imported programme also exposed a runtime status-card assumption that at
 least one date exists; the attendee runtime now renders an explicit empty
 programme state instead of failing startup. Historical source journals stored
 as either arrays or keyed objects are normalized before recovery and removal.
+
+## 23. Organizer-confirmed multi-profile identity merges (v1.2.9)
+
+Step 4's duplicate review is built from `identityReviewGroups()`, which combines candidate profiles, programme appearances, source references and each saved pairwise identity decision. Each profile is an independent checkbox. UI selection order is stored per duplicate group, so the first checked profile is the canonical ID; deselecting it promotes the next selected ID without relying on display order. Groups may be merged independently, and rerendering the panel preserves each selection order.
+
+`mergePersonProfilesMany()` applies a whole selection to a cloned project. It rejects stale IDs, duplicate selections, confirmed-different pairs and conflicting outside decisions before the result is exposed. A valid merge remaps every role/reference array, aliases and registry records; combines affiliations, papers and links; keeps the first selected profile's stable ID; stores alternate photos; and removes duplicate profile records. The Builder validates and package-builds this candidate, saves it as one IndexedDB project update, reads it back, and verifies removed identities and references are absent before updating the live interface. A failed save or verification restores the prior project. A merge preview lets organizers choose among conflicting single-value fields; the primary's value is preferred otherwise. Explicit different-person decisions remain separate from merge selection and must be reopened before a conflicting merge.

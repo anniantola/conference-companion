@@ -5,7 +5,7 @@ import {createBuilderProjectFile,readBuilderProjectFile,normalizeBuilderProjectA
 import {mergeImportedRows as mergeProgrammeRows} from './merge.js';
 import {prepareSourceRemoval,prepareClearImportedProgramme} from './source-removal.js';
 import {classifyProgrammeRows,resolveRowProvenance,sourceStateRecords} from './source-provenance.js';
-import {possiblePersonDuplicates,mergePersonProfiles,identityReviewGroups,applyIdentityResolutions} from './people.js';
+import {mergePersonProfilesMany,identityReviewGroups,applyPersonIdentityDecision} from './people.js';
 import {describeValidationMessage} from './validation-ui.js';
 import {validatePackage} from '../validation.js';
 import {validatePackageSchemas} from '../json-schema.js';
@@ -32,14 +32,15 @@ function normalizeBranding(source={}){
 function normalizeSponsorFiles(files=[]){return files.map((item,index)=>item?.bytes?{id:'sponsor-'+(index+1),name:item.name||'Sponsor '+(index+1),light:item,dark:null,height:48}:{id:item?.id||'sponsor-'+(index+1),name:item?.name||'Sponsor '+(index+1),light:item?.light||null,dark:item?.dark||null,height:Math.max(20,Math.min(120,Number(item?.height)||48))});}
 let project=structuredClone(defaults),rawRows=[],rawHeaders=[],saveTimer=null,pdfPages=[],pendingXlsxFile=null,pendingXlsxSourceId='',pendingSourceFile=null,pendingMappedRows=[],pendingPdfAnalysis=null,pendingStructuredPackage=null,loadedWorksheetName='',worksheetLoading=false,selectedRows=new Set(),importRevision=0,commitRevision=0,worksheetRevision=0,importCommitInProgress=false,sourceRemovalPlans=null,sourceRemovalBusy=false;
 const STEP_NAMES=['Conference details','Programme import','Review & fix','People','Locations & tracks','Branding','Features & announcements','Preview, validate & publish'];
-let activeStep=1,latestPackage=null,pendingSave=Promise.resolve(),saveRevision=0,openPersonId='',peopleListSignature='',previewTimer=null,previewAssets=[],pendingPreviewAssets=0,renderRevision=0,appliedRevision=0,previewGeneration=0,previewRequestRevision=0,previewLaunchedRequestRevision=0,previewStatusTimer=null,previewForceRequested=false,assetIdleResolvers=[];
+let activeStep=1,latestPackage=null,pendingSave=Promise.resolve(),saveRevision=0,openPersonId='',peopleListSignature='',duplicateSelections=new Map(),pendingPersonMerge=null,duplicatePhotoUrls=[],previewTimer=null,previewAssets=[],pendingPreviewAssets=0,renderRevision=0,appliedRevision=0,previewGeneration=0,previewRequestRevision=0,previewLaunchedRequestRevision=0,previewStatusTimer=null,previewForceRequested=false,assetIdleResolvers=[];
 const previewIdentity=`builder-preview-${crypto.randomUUID()}`;
 
 function toast(msg){const el=$('#toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),1800);}
 function setSaveStatus(message,error=false){const el=$('#builderSaveStatus');if(!el)return;el.textContent=message;el.classList.toggle('error',error);}
 function scheduleSave(){const revision=++saveRevision;setSaveStatus('Saving project…');clearTimeout(saveTimer);saveTimer=setTimeout(()=>{const snapshot=structuredClone(project);pendingSave=pendingSave.catch(()=>{}).then(()=>saveProject(snapshot)).then(()=>{if(revision===saveRevision)setSaveStatus('Project saved locally');}).catch(error=>{console.error(error);setSaveStatus('Autosave failed. Your changes are still open; export a project backup.',true);});},200);}
 function setStep(step,{focus=false}={}){
-  activeStep=Math.max(1,Math.min(8,Number(step)||1));project.activeStep=activeStep;
+  const previousStep=activeStep;activeStep=Math.max(1,Math.min(8,Number(step)||1));project.activeStep=activeStep;
+  if(previousStep===4&&activeStep!==4){for(const url of duplicatePhotoUrls)URL.revokeObjectURL(url);duplicatePhotoUrls=[];}
   $$('[data-step]').forEach(panel=>{panel.hidden=Number(panel.dataset.step)!==activeStep;});
   $$('#wizardSteps button').forEach(button=>{if(Number(button.dataset.gotoStep)===activeStep)button.setAttribute('aria-current','step');else button.removeAttribute('aria-current');});
   const progress=`Step ${activeStep} of 8 · ${STEP_NAMES[activeStep-1]}`;
@@ -423,7 +424,7 @@ function personRoles(pkg){
 }
 function renderPeopleDirectory(pkg){
   if(activeStep!==4)return;
-  const people=pkg.people.people||[],reviewGroups=identityReviewGroups(project,people),duplicates=possiblePersonDuplicates(people),duplicateIds=new Set(reviewGroups.flatMap(group=>group.candidates.map(p=>p.id)));
+  const people=pkg.people.people||[],allGroups=identityReviewGroups(project,people,{includeResolved:true}),reviewGroups=allGroups.filter(group=>group.unresolved),duplicateIds=new Set(reviewGroups.flatMap(group=>group.candidates.map(p=>p.id)));
   const stats=project.identityStats||{};$('#identityStats').textContent=`${stats.automaticallyConsolidated||0} appearances linked automatically · ${reviewGroups.length} identity groups need organizer review.`;
   const {roles,entries}=personRoles(pkg),search=$('#peopleSearch').value.trim().toLocaleLowerCase(),role=$('#peopleRole').value;
   const visible=people.filter(p=>`${p.name} ${(p.affiliations||[]).join(' ')}`.toLocaleLowerCase().includes(search)&&
@@ -433,10 +434,9 @@ function renderPeopleDirectory(pkg){
     $('#peoplePreview').innerHTML=visible.map(p=>`<button type="button" class="person-row" data-open-person="${escapeHtml(p.id)}" aria-label="Edit ${escapeHtml(p.name)}"><strong>${escapeHtml(p.name)}</strong><span>${escapeHtml((p.affiliations||[]).join('; ')||'Affiliation not specified')}</span><span>${escapeHtml([...(roles.get(p.id)||[])].join(' · ')||'No programme role')} · ${entries.get(p.id)?.size||0} entries</span>${duplicateIds.has(p.id)?'<span class="duplicate-badge">Review match</span>':'<span aria-hidden="true">›</span>'}</button>`).join('')||'<p class="muted">No people match these filters.</p>';
     peopleListSignature=signature;
   }
-  $('#duplicateCount').textContent=duplicates.length?`(${duplicates.length})`:'';
   $('#duplicateCount').textContent=reviewGroups.length?`(${reviewGroups.length})`:'';
   if(reviewGroups.length)$('#duplicateReview').hidden=false;
-  if(!$('#duplicateReview').hidden)renderDuplicateReview(reviewGroups);
+  if(!$('#duplicateReview').hidden)renderDuplicateReview(allGroups);
 }
 function openPersonEditor(id){
   const person=latestPackage?.people.people.find(p=>p.id===id);if(!person)return;
@@ -445,42 +445,110 @@ function openPersonEditor(id){
   $('#personEditor').innerHTML=`<form id="personEditForm"><h3>Edit ${escapeHtml(person.name)}</h3><p class="muted">Person ID: ${escapeHtml(id)}</p><div class="entity-editor-grid">${input('name','Name')}${input('affiliation','Affiliation(s), separated by semicolons','text',(person.affiliations||[]).join('; '))}</div><details><summary>Additional details</summary><div class="entity-editor-grid">${input('position','Position')}${input('publicEmail','Public email','email')}${input('orcid','ORCID')}${input('website','Website','url',(person.links||[]).find(x=>x.label==='Website')?.url||'')}${input('photoUrl','Photo URL or asset path')}<label>Upload profile photograph<input id="personPhotoDraft" type="file" accept="image/png,image/jpeg,image/webp"><span class="muted">${escapeHtml(asset?.name||'No uploaded photograph')}</span></label></div></details><div class="person-editor-actions"><button class="primary-btn" type="submit">Save person</button><button class="secondary-btn" type="button" id="cancelPersonEdit">Cancel</button>${extra?'<button class="secondary-btn" type="button" id="removeExtraPerson">Delete added person</button>':''}</div></form>`;
   $('#personEditor').hidden=false;$('#personEditor').scrollIntoView({block:'nearest'});$('#personEditor [data-edit-field="name"]').focus();
 }
+const duplicateGroupKey=group=>JSON.stringify(group.candidates.map(person=>person.id).sort());
+function personSourceContext(row){
+  const source=row.source||{},references=[source.fileId,source.sourceId,...(source.contributors||[]),...(source.sources||[]),...(source.sourceRecords||[]),...(row.sources||[]),row.sourceFileId,row.fileId,source.id].filter(Boolean),ids=references.map(item=>typeof item==='string'?item:item.fileId||item.sourceId||item.id||'').filter(Boolean);
+  const names=[...new Set(ids)].map(id=>project.sourceFiles?.find(item=>item.id===id||item.legacyId===id||item.fileId===id)?.name||id);
+  if(source.row)return `${names.join(', ')||'source file'} · row ${source.row}${source.sheet?` · ${source.sheet}`:''}`;
+  if(source.page)return `${names.join(', ')||'source file'} · page ${source.page}`;
+  return names.join(', ')||'manual or restored record';
+}
+function personAppearances(group,person){
+  return group.appearances.filter(item=>item.ids?.includes(person.id)||item.row.speakerEntityIds?.includes(person.id)||item.row.chairEntityIds?.includes(person.id)||item.row.authorEntityIds?.includes(person.id));
+}
 function renderDuplicateReview(groups){
-  const value=(person,field)=>field==='website'?(person.links||[]).find(x=>x.label==='Website')?.url||'':person[field]||'';
-  const fields=['position','publicEmail','orcid','website','photoUrl'];
-  const context=(row,role)=>{const sourceName=project.sourceFiles?.find(source=>source.id===row.source?.fileId)?.name||row.source?.fileId||'manual entry';return `${role}: ${row.title||row.session||'Untitled programme item'} · ${row.session||'Session not specified'} · ${row.date||'Date unknown'} ${row.start||''}${row.end?'–'+row.end:''} · ${row.location||'Room unknown'}${row.track?' · '+row.track:''} · ${sourceName}${row.source?.row?` row ${row.source.row}`:row.source?.page?` page ${row.source.page}`:''}`;};
-  const groupHtml=groups.map((group,index)=>{
-    const pair=group.candidates.slice(0,2),labels=group.candidates.map(p=>`${p.name} — ${(p.affiliations||[]).join('; ')||'affiliation unavailable'} (${group.appearances.filter(x=>x.row.speakerEntityIds?.includes(p.id)||x.row.chairEntityIds?.includes(p.id)).length} linked appearances)`);
-    const options=group.candidates.map((p,i)=>`<option value="${escapeHtml(p.id)}" ${i===0?'selected':''}>${escapeHtml(labels[i])}</option>`).join('');
-    const secondOptions=group.candidates.map((p,i)=>`<option value="${escapeHtml(p.id)}" ${i===1?'selected':''}>${escapeHtml(labels[i])}</option>`).join('');
-    const cards=group.candidates.map(person=>`<article class="duplicate-profile"><h4>${escapeHtml(person.name)}</h4><p><strong>Affiliations:</strong> ${escapeHtml((person.affiliations||[]).join('; ')||'Not provided')}</p>${fields.filter(field=>value(person,field)).map(field=>`<p><strong>${escapeHtml(field)}:</strong> ${escapeHtml(value(person,field))}</p>`).join('')}<h5>Programme appearances</h5><ul>${group.appearances.filter(x=>x.row.speakerEntityIds?.includes(person.id)||x.row.chairEntityIds?.includes(person.id)).map(x=>`<li>${escapeHtml(context(x.row,x.role))}</li>`).join('')||'<li>Assignment is not yet linked to this profile.</li>'}</ul><p class="muted">Profile reference: ${escapeHtml(person.id)}</p></article>`).join('');
-    const choices=fields.map(field=>{const first=group.candidates[0],second=group.candidates[1],chooseOther=!value(first,field)&&value(second,field);return `<label>${escapeHtml(field)} from<select data-merge-choice="${field}"><option value="keep">Surviving profile</option><option value="remove" ${chooseOther?'selected':''}>Other selected profile</option></select></label>`;}).join('');
-    return `<section class="duplicate-group" data-duplicate-group="${index}"><label><input type="checkbox" data-bulk-resolution> Include in bulk resolution</label><h3>${escapeHtml(group.name)} · ${group.candidates.length} candidate profiles</h3><p class="muted">Compare programme appearances and source references. Missing affiliations or similar schedules are context, not proof.</p><div class="merge-grid">${cards}</div>${group.candidates.length>2?`<p>Group decisions apply to the selected pair; review remaining candidates individually.</p>`:''}<div class="identity-decision-controls"><label>First profile<select data-identity-first>${options}</select></label><label>Second profile<select data-identity-second>${secondOptions}</select></label><label>Decision<select data-identity-decision><option value="same">Same person — merge</option><option value="different">Different people — keep separate</option><option value="unresolved">Leave unresolved</option></select></label><label data-keep-wrap>Keep profile<select data-identity-keep>${options}</select></label>${choices}<button class="secondary-btn" type="button" data-apply-identity>Save this decision</button></div><p class="muted">Affiliations, papers, programme references and photos are preserved. Profile fields use the surviving profile unless you choose the other profile above. Current decision: ${escapeHtml(group.pairStates.join(', '))}</p></section>`;
+  for(const url of duplicatePhotoUrls)URL.revokeObjectURL(url);duplicatePhotoUrls=[];
+  const allKeys=new Set(groups.map(duplicateGroupKey));for(const key of duplicateSelections.keys())if(!allKeys.has(key))duplicateSelections.delete(key);
+  const groupHtml=groups.map(group=>{
+    const key=duplicateGroupKey(group),selected=duplicateSelections.get(key)||[],primary=selected[0]||'';
+    const cards=group.candidates.map(person=>{
+      const appearances=personAppearances(group,person),checked=selected.includes(person.id),isPrimary=person.id===primary;
+      const photo=project.peoplePhotos?.[person.id];let photoMarkup='';
+      if(photo?.bytes){const url=URL.createObjectURL(new Blob([photo.bytes],{type:photo.type||'image/png'}));duplicatePhotoUrls.push(url);photoMarkup=`<img class="duplicate-profile-photo" src="${escapeHtml(url)}" alt="Profile photograph of ${escapeHtml(person.name)}">`;}
+      else if(person.photoUrl)photoMarkup=`<p class="duplicate-photo-note">${escapeHtml(photo?.name||'Profile photograph available')}</p>`;
+      return `<article class="duplicate-profile ${isPrimary?'is-primary':''} ${checked&&!isPrimary?'is-merge-target':''}" data-profile-id="${escapeHtml(person.id)}"><label class="duplicate-profile-select"><input type="checkbox" data-merge-profile value="${escapeHtml(person.id)}" ${checked?'checked':''}><span><strong>${escapeHtml(person.name)}</strong><span class="duplicate-profile-affiliation">${escapeHtml((person.affiliations||[]).join('; ')||'Affiliation unknown')}</span></span>${isPrimary?'<b class="primary-profile-badge">Primary</b>':''}</label>${photoMarkup}<div class="duplicate-profile-meta">${person.position?`<p><strong>Position:</strong> ${escapeHtml(person.position)}</p>`:''}${person.publicEmail?`<p><strong>Email:</strong> ${escapeHtml(person.publicEmail)}</p>`:''}${person.orcid?`<p><strong>ORCID:</strong> ${escapeHtml(person.orcid)}</p>`:''}${(person.links||[]).map(link=>`<p><strong>${escapeHtml(link.label||'Link')}:</strong> ${escapeHtml(link.url||'')}</p>`).join('')}</div><h5>Programme appearances</h5><ul>${appearances.map(item=>`<li><strong>${escapeHtml(item.role)}:</strong> ${escapeHtml(item.row.title||item.row.session||'Untitled programme item')} · ${escapeHtml(item.row.session||'Session not specified')} · ${escapeHtml(item.row.date||'Date unknown')} ${escapeHtml(item.row.start||'')}${item.row.end?`–${escapeHtml(item.row.end)}`:''} · ${escapeHtml(item.row.location||'Room unknown')}${item.row.track?` · ${escapeHtml(item.row.track)}`:''} · ${escapeHtml(personSourceContext(item.row))}</li>`).join('')||'<li>No linked programme appearances.</li>'}</ul></article>`;
+    }).join('');
+    const selectedProfiles=selected.map(id=>group.candidates.find(person=>person.id===id)).filter(Boolean),survivor=selectedProfiles[0];
+    const selectionSummary=selectedProfiles.length?`${selectedProfiles.length} selected · primary: ${survivor.name} (${(survivor.affiliations||[]).join('; ')||'Affiliation unknown'})`:'No profiles selected. The first profile you check becomes primary.';
+    const pairs=group.pairDecisions.filter(pair=>pair.decision==='different').map(pair=>[group.candidates.find(person=>person.id===pair.firstId),group.candidates.find(person=>person.id===pair.secondId)]);
+    const distinctDecisions=pairs.map(([first,second])=>`<li>${escapeHtml(first.name)} — ${escapeHtml((first.affiliations||[]).join('; ')||'Affiliation unknown')} and ${escapeHtml(second.name)} — ${escapeHtml((second.affiliations||[]).join('; ')||'Affiliation unknown')} <button class="text-btn" type="button" data-reopen-pair="${escapeHtml(JSON.stringify([first.id,second.id]))}">Reopen this decision</button></li>`).join('');
+    return `<section class="duplicate-group" data-duplicate-group="${escapeHtml(key)}" data-unresolved="${group.unresolved}"><header class="duplicate-group-heading"><div><h3>${escapeHtml(group.name)} · ${group.candidates.length} possible profiles</h3><p class="muted">Compare affiliations and programme context. Similar names or schedules are clues, not proof.</p></div><span class="identity-state ${group.unresolved?'needs-review':'resolved'}">${group.unresolved?'Needs review':'Decisions saved'}</span></header><div class="merge-grid">${cards}</div><div class="duplicate-selection-controls"><p data-selection-summary aria-live="polite">${escapeHtml(selectionSummary)}</p><div class="duplicate-selection-actions"><button class="secondary-btn" type="button" data-clear-selection ${selected.length?'':'disabled'}>Clear selection</button><button class="secondary-btn" type="button" data-mark-different ${selected.length>=2?'':'disabled'}>Mark selected as different people</button><button class="primary-btn" type="button" data-merge-selected ${selected.length>=2?'':'disabled'}>${selected.length>=2?`Merge ${selected.length} selected → Keep ${escapeHtml(survivor.name)} (${escapeHtml((survivor.affiliations||[]).join('; ')||'Affiliation unknown')})`:'Select at least two profiles to merge'}</button></div></div>${distinctDecisions?`<details class="confirmed-distinct"><summary>${pairs.length} confirmed different-person decision${pairs.length===1?'':'s'}</summary><ul>${distinctDecisions}</ul></details>`:''}</section>`;
   }).join('');
-  $('#duplicateReview').innerHTML=`<h3>Identity resolution</h3><p class="muted">A decision is saved with the Builder project and reused after rebuilding or reimporting. Programme context helps compare profiles but never proves identity.</p>${groups.length?'<button class="secondary-btn" type="button" data-preview-bulk-resolution>Preview selected decisions</button><div id="bulkResolutionPreview" hidden></div><button class="primary-btn" type="button" data-confirm-bulk-resolution hidden>Confirm all selected decisions</button>':''}${groupHtml||'<p class="muted">No unresolved same-name identity groups.</p>'}`;
+  $('#duplicateReview').innerHTML=`<h3>Review possible duplicates</h3><p class="muted">Check the profiles you want to combine. The first checked profile survives; selections and decisions are saved independently for each name group.</p>${groupHtml||'<p class="muted">No possible duplicate profiles are currently available.</p>'}`;
+}
+function duplicateFieldValue(person,field){return field==='website'?(person.links||[]).find(link=>link.label==='Website')?.url||person.website||'':person[field]||'';}
+function selectedGroupProfiles(groupElement){const groupKey=groupElement.dataset.duplicateGroup;return duplicateSelections.get(groupKey)||[];}
+function updateDuplicateSelection(groupElement){
+  const groupKey=groupElement.dataset.duplicateGroup,selected=selectedGroupProfiles(groupElement),primaryId=selected[0],people=latestPackage?.people.people||[],primary=people.find(person=>person.id===primaryId);
+  for(const card of groupElement.querySelectorAll('[data-profile-id]')){const id=card.dataset.profileId,isSelected=selected.includes(id),isPrimary=id===primaryId;card.classList.toggle('is-primary',isPrimary);card.classList.toggle('is-merge-target',isSelected&&!isPrimary);card.querySelector('.primary-profile-badge')?.remove();if(isPrimary){const badge=document.createElement('b');badge.className='primary-profile-badge';badge.textContent='Primary';card.querySelector('.duplicate-profile-select')?.append(badge);}}
+  groupElement.querySelector('[data-selection-summary]').textContent=primary?`${selected.length} selected · primary: ${primary.name} (${(primary.affiliations||[]).join('; ')||'Affiliation unknown'})`:'No profiles selected. The first profile you check becomes primary.';
+  const clear=groupElement.querySelector('[data-clear-selection]'),different=groupElement.querySelector('[data-mark-different]'),merge=groupElement.querySelector('[data-merge-selected]');clear.disabled=selected.length===0;different.disabled=selected.length<2;merge.disabled=selected.length<2;merge.textContent=selected.length>=2?`Merge ${selected.length} selected → Keep ${primary.name} (${(primary.affiliations||[]).join('; ')||'Affiliation unknown'})`:'Select at least two profiles to merge';
+}
+function renderPersonMergePreview(groupElement){
+  const ids=selectedGroupProfiles(groupElement),groupKey=groupElement.dataset.duplicateGroup,people=latestPackage?.people.people||[],profiles=ids.map(id=>people.find(person=>person.id===id)).filter(Boolean),primary=profiles[0];
+  if(profiles.length<2||profiles.length!==ids.length)throw new Error('Select at least two current profiles in this duplicate group');
+  mergePersonProfilesMany(project,people,ids); // Fail early when the group contains a confirmed different-person pair.
+  const fields=[['position','Position'],['publicEmail','Public email'],['orcid','ORCID'],['website','Website'],['photoUrl','Profile photo']];
+  const conflictChoices=fields.map(([field,label])=>{
+    const available=profiles.map(person=>({person,value:duplicateFieldValue(person,field)})).filter(item=>item.value),distinct=[...new Set(available.map(item=>String(item.value).trim().toLocaleLowerCase()))];
+    if(distinct.length<2)return '';
+    const preferred=available.find(item=>item.person.id===primary.id)||available[0];
+    return `<label class="merge-field-choice">${escapeHtml(label)} differs between profiles<select data-merge-field="${field}">${available.map(item=>`<option value="${escapeHtml(item.person.id)}" ${item.person.id===preferred.person.id?'selected':''}>${escapeHtml(item.person.name)} — ${escapeHtml((item.person.affiliations||[]).join('; ')||'Affiliation unknown')} · ${escapeHtml(item.value)}</option>`).join('')}</select></label>`;
+  }).filter(Boolean).join('');
+  const removed=ids.slice(1),references=(project.rows||[]).reduce((sum,row)=>sum+['speakerEntityIds','chairEntityIds','authorEntityIds','personEntityIds'].reduce((n,field)=>n+(row[field]||[]).filter(id=>removed.includes(id)).length,0),0);
+  const dialog=$('#personMergeDialog');pendingPersonMerge={groupKey,ids};
+  $('#personMergePreview').innerHTML=`<h3>Merge ${profiles.length} profiles</h3><section class="merge-preview-primary"><h4>Primary profile</h4><p><strong>${escapeHtml(primary.name)}</strong> — ${escapeHtml((primary.affiliations||[]).join('; ')||'Affiliation unknown')}</p></section><section><h4>Profiles to merge</h4><ul>${profiles.slice(1).map(person=>`<li>${escapeHtml(person.name)} — ${escapeHtml((person.affiliations||[]).join('; ')||'Affiliation unknown')}</li>`).join('')}</ul></section><section class="merge-expected-result"><h4>Expected result</h4><ul><li>${profiles.length} profiles become 1; ${removed.length} redundant profiles are removed.</li><li>${references} programme references transfer to the primary identity.</li><li>Affiliations, associated papers, and role assignments are consolidated.</li><li>Uploaded photographs and existing metadata are preserved; the primary profile is preferred when a field is already populated.</li></ul></section>${conflictChoices?`<section class="merge-conflicting-fields"><h4>Choose values for conflicting fields</h4><p>Pick which selected profile supplies each single-value field. Other profile details remain available in this Builder project.</p>${conflictChoices}</section>`:''}`;
+  dialog.showModal();
+}
+async function persistIdentityProject(next,{removedIds=[],expectedPrimaryId='',decisionCount=0}={}){
+  const previous=structuredClone(project);let saved=false;
+  try{
+    validateBuilderProjectStructure(next);await buildPackage(next);
+    clearTimeout(saveTimer);saveRevision++;await pendingSave.catch(()=>{});
+    await saveProject(next);saved=true;
+    const persisted=await loadProject();if(!persisted)throw new Error('The saved identity changes could not be read back from IndexedDB');
+    const rebuilt=await buildPackage(persisted),remaining=new Set((rebuilt.pkg.people.people||[]).map(person=>person.id));
+    if(removedIds.some(id=>remaining.has(id)))throw new Error('A merged profile still appears in the rebuilt people directory');
+    if(expectedPrimaryId&&!remaining.has(expectedPrimaryId))throw new Error('The selected primary profile is missing from the rebuilt people directory');
+    for(const row of persisted.rows||[])for(const field of ['speakerEntityIds','chairEntityIds','authorEntityIds','personEntityIds'])if((row[field]||[]).some(id=>removedIds.includes(id)))throw new Error('A programme entry still refers to a merged profile');
+    project=next;openPersonId='';$('#personEditor').hidden=true;peopleListSignature='';
+    return {rebuilt,referenceCount:decisionCount};
+  }catch(error){
+    if(saved){try{await saveProject(previous);}catch(restoreError){throw new Error(`Identity save verification failed (${error.message}); restoring the previous project also failed (${restoreError.message})`);}}
+    throw error;
+  }
+}
+async function confirmPersonMerge(){
+  if(!pendingPersonMerge)return;
+  const {ids,groupKey}=pendingPersonMerge,people=latestPackage?.people.people||[],choices=Object.fromEntries([...$('#personMergePreview').querySelectorAll('[data-merge-field]')].map(select=>[select.dataset.mergeField,select.value]));
+  let next;try{next=mergePersonProfilesMany(project,people,ids,choices);validateBuilderProjectStructure(next);await buildPackage(next);}catch(error){toast(error.message||'These profiles cannot be merged');return;}
+  const removedIds=ids.slice(1),referenceCount=(project.rows||[]).reduce((sum,row)=>sum+['speakerEntityIds','chairEntityIds','authorEntityIds','personEntityIds'].reduce((n,field)=>n+(row[field]||[]).filter(id=>removedIds.includes(id)).length,0),0);
+  try{await persistIdentityProject(next,{removedIds,expectedPrimaryId:ids[0],decisionCount:referenceCount});duplicateSelections.delete(groupKey);pendingPersonMerge=null;$('#personMergeDialog').close();await renderDerived();toast(`${removedIds.length} profiles merged · ${referenceCount} programme references updated`);}catch(error){setSaveStatus('Identity merge was not saved; the previous project remains intact.',true);toast(error.message||'Could not save the profile merge');}
+}
+async function savePersonIdentityDecision(ids,decision){
+  try{const next=applyPersonIdentityDecision(project,latestPackage?.people.people||[],ids,decision),pairs=ids.length*(ids.length-1)/2;await persistIdentityProject(next,{decisionCount:pairs});await renderDerived();toast(decision==='different'?`${pairs} different-person decisions saved`:'Selected identity decisions reopened for review');}
+  catch(error){setSaveStatus('Identity decisions were not saved; the previous project remains intact.',true);toast(error.message||'Could not save identity decisions');}
 }
 function initPeopleUi(){
   $('#peopleSearch').addEventListener('input',()=>{peopleListSignature='';if(latestPackage)renderPeopleDirectory(latestPackage);});
   $('#peopleRole').addEventListener('change',()=>{peopleListSignature='';if(latestPackage)renderPeopleDirectory(latestPackage);});
   $('#peoplePreview').addEventListener('click',event=>{const button=event.target.closest('[data-open-person]');if(button)openPersonEditor(button.dataset.openPerson);});
-  $('#reviewDuplicates').addEventListener('click',()=>{const panel=$('#duplicateReview');panel.hidden=!panel.hidden;if(!panel.hidden&&latestPackage)renderDuplicateReview(possiblePersonDuplicates(latestPackage.people.people));});
-  $('#duplicateReview').addEventListener('change',event=>{if(event.target.matches('[data-identity-decision]'))event.target.closest('[data-duplicate-group]').querySelector('[data-keep-wrap]').hidden=event.target.value!=='same';});
-  $('#duplicateReview').addEventListener('click',async event=>{
-    const single=event.target.closest('[data-apply-identity]'),preview=event.target.closest('[data-preview-bulk-resolution]'),confirmBulk=event.target.closest('[data-confirm-bulk-resolution]');
-    if(!single&&!preview&&!confirmBulk)return;
-    const selected=preview||confirmBulk?$$('#duplicateReview [data-duplicate-group]').filter(group=>group.querySelector('[data-bulk-resolution]').checked):[single.closest('[data-duplicate-group]')];
-    if(!selected.length)return toast('Select at least one identity group to resolve');
-    const operations=selected.map(group=>({firstId:group.querySelector('[data-identity-first]').value,secondId:group.querySelector('[data-identity-second]').value,decision:group.querySelector('[data-identity-decision]').value,keepId:group.querySelector('[data-identity-keep]').value,choices:Object.fromEntries([...group.querySelectorAll('[data-merge-choice]')].map(select=>[select.dataset.mergeChoice,select.value]))}));
-    if(operations.some(item=>item.firstId===item.secondId))return toast('Select two different candidate profiles in every group');
-    const impact=operations.map(item=>{const removeId=item.decision==='same'?(item.keepId===item.firstId?item.secondId:item.firstId):'';const references=removeId?(project.rows||[]).reduce((count,row)=>count+[...(row.speakerEntityIds||[]),...(row.chairEntityIds||[])].filter(id=>id===removeId).length,0):0;return{...item,removeId,references};});
-    if(preview){
-      try{applyIdentityResolutions(project,latestPackage.people.people,operations);const root=$('#bulkResolutionPreview');root.hidden=false;root.innerHTML=`<h4>Review ${operations.length} proposed decision${operations.length===1?'':'s'}</h4><ul>${impact.map(item=>`<li>${escapeHtml(latestPackage.people.people.find(p=>p.id===item.firstId)?.name||'Person')}: ${item.decision==='same'?`merge into ${escapeHtml(latestPackage.people.people.find(p=>p.id===item.keepId)?.name||'selected profile')} · remove 1 profile · update ${item.references} programme references`:item.decision==='different'?'keep as separate people':'leave unresolved'}</li>`).join('')}</ul>`;$('#duplicateReview [data-confirm-bulk-resolution]').hidden=false;return;}catch(error){return toast(error.message);}
-    }
-    const next=applyIdentityResolutions(project,latestPackage.people.people,operations);
-    if(single&&operations[0].decision==='same'&&!confirm('Merge these profiles and update every programme reference? The removed profile ID will remain as an alias.'))return;
-    if(confirmBulk&&!confirm(`Apply all ${operations.length} reviewed identity decisions? Programme references will be updated for merges.`))return;
-    try{clearTimeout(saveTimer);saveRevision++;await pendingSave.catch(()=>{});await saveProject(next);project=next;openPersonId='';$('#personEditor').hidden=true;peopleListSignature='';await renderDerived();const merges=impact.filter(item=>item.decision==='same');const referenceCount=merges.reduce((sum,item)=>sum+item.references,0);toast(`${operations.length} decisions saved · ${merges.length} profile${merges.length===1?'':'s'} merged · ${referenceCount} programme references updated`);}catch(error){setSaveStatus('Identity decisions were not saved; the prior project remains intact.',true);toast(error.message||'Could not save identity decisions');}
+  $('#reviewDuplicates').addEventListener('click',()=>{const panel=$('#duplicateReview');panel.hidden=!panel.hidden;if(!panel.hidden&&latestPackage)renderDuplicateReview(identityReviewGroups(project,latestPackage.people.people,{includeResolved:true}));});
+  $('#duplicateReview').addEventListener('change',event=>{
+    const checkbox=event.target.closest('[data-merge-profile]');if(!checkbox)return;
+    const groupElement=checkbox.closest('[data-duplicate-group]'),key=groupElement.dataset.duplicateGroup,current=duplicateSelections.get(key)||[];
+    duplicateSelections.set(key,checkbox.checked?[...current.filter(id=>id!==checkbox.value),checkbox.value]:current.filter(id=>id!==checkbox.value));updateDuplicateSelection(groupElement);
   });
+  $('#duplicateReview').addEventListener('click',event=>{
+    const groupElement=event.target.closest('[data-duplicate-group]');if(!groupElement)return;
+    if(event.target.closest('[data-clear-selection]')){duplicateSelections.set(groupElement.dataset.duplicateGroup,[]);groupElement.querySelectorAll('[data-merge-profile]').forEach(box=>box.checked=false);updateDuplicateSelection(groupElement);return;}
+    if(event.target.closest('[data-merge-selected]')){try{renderPersonMergePreview(groupElement);}catch(error){toast(error.message);}return;}
+    if(event.target.closest('[data-mark-different]')){const ids=selectedGroupProfiles(groupElement);if(ids.length<2)return;savePersonIdentityDecision(ids,'different');return;}
+    const reopen=event.target.closest('[data-reopen-pair]');if(reopen){savePersonIdentityDecision(JSON.parse(reopen.dataset.reopenPair),'unresolved');}
+  });
+  $('#personMergeCancel').addEventListener('click',()=>{pendingPersonMerge=null;$('#personMergeDialog').close();});
+  $('#personMergeDialog').addEventListener('cancel',()=>{pendingPersonMerge=null;});
+  $('#personMergeConfirm').addEventListener('click',confirmPersonMerge);
   $('#personEditor').addEventListener('click',event=>{if(event.target.id==='cancelPersonEdit'){$('#personEditor').hidden=true;openPersonId='';}if(event.target.id==='removeExtraPerson'&&openPersonId){project.extraPeople=project.extraPeople.filter(x=>x.id!==openPersonId);if(project.peoplePhotos)delete project.peoplePhotos[openPersonId];$('#personEditor').hidden=true;openPersonId='';peopleListSignature='';scheduleSave();renderDerived();}});
   $('#personEditor').addEventListener('submit',async event=>{event.preventDefault();const id=openPersonId;if(!id)return;const fields=Object.fromEntries([...event.target.querySelectorAll('[data-edit-field]')].map(el=>[el.dataset.editField,el.value]));const extra=(project.extraPeople||[]).find(p=>p.id===id);if(extra)Object.assign(extra,fields);else project.peopleOverrides[id]={...(project.peopleOverrides[id]||{}),...fields};const photo=$('#personPhotoDraft').files?.[0];if(photo)project.peoplePhotos={...(project.peoplePhotos||{}),[id]:await assetFromFile(photo)};$('#personEditor').hidden=true;openPersonId='';peopleListSignature='';scheduleSave();await renderDerived();toast('Person saved');});
 }

@@ -1,4 +1,30 @@
-# Conference Companion v1.2.8 verification — 2026-10-28
+# Conference Companion v1.2.9 verification — 2026-10-29
+
+The new identity tests cover first-selected primary order,
+four-profile merge and primary promotion, consolidated affiliations/papers,
+programme-reference remapping, preservation of alternate photos, explicitly
+different identities, and browser persistence/backup behavior.
+
+## v1.2.9 results
+
+`npm exec --package=node@22 -- npm run test:unit` passed all schema, semantic,
+attendee, Builder, import, identity, backup, source-removal, deployment ZIP,
+and branding checks after the v1.2.9 changes.
+
+The configured Playwright run attempted 207 browser cases. A Chromium backup
+restore assertion raced the intentional page reload, and a Firefox test read
+an identity ID before it was available in that fixture; both tests were fixed
+to await navigation/use rendered profile IDs, then the affected cases passed
+in both browsers. The other identity flows also passed in focused Chromium and
+Firefox runs. WebKit could not launch locally because this host lacks
+`libavif.so.16`; its 69 cases failed before application code ran. The workflow
+installs WebKit with system dependencies, so CI remains the complete WebKit
+verification gate.
+
+## Previous release results
+
+The v1.2.8 run results are retained in git history for audit; current release
+test counts and deployment status are appended after release verification.
 
 The complete Node 22 `npm run test:unit` gate passed on the final provenance,
 cleanup, and empty-programme runtime changes. This includes schema and semantic

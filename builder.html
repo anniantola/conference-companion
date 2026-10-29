@@ -187,6 +187,11 @@
     <section id="uncertainProgrammeRows" class="uncertain-programme-rows" hidden><h3>Records with uncertain origin</h3><p>Choose whether each record should be deleted as imported data or kept as a manually maintained entry.</p><div id="uncertainProgrammeChoices"></div></section>
     <div class="source-removal-actions"><button id="cancelClearProgramme" class="secondary-btn" type="button">Cancel</button><button id="confirmClearProgramme" class="danger-btn" type="button">Clear imported programme</button></div>
   </dialog>
+  <dialog id="personMergeDialog" class="source-removal-dialog person-merge-dialog" aria-labelledby="personMergeTitle">
+    <div class="dialog-head"><div><p class="eyebrow">Identity resolution</p><h2 id="personMergeTitle">Confirm profile merge</h2></div></div>
+    <div id="personMergePreview"></div>
+    <div class="source-removal-actions"><button id="personMergeCancel" class="secondary-btn" type="button">Cancel</button><button id="personMergeConfirm" class="primary-btn" type="button">Confirm merge</button></div>
+  </dialog>
   <div id="toast" class="toast"></div>
   <script type="module" src="./src/builder/main.js"></script>
 </body>

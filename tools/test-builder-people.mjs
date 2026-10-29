@@ -4,7 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {parseCSV,guessMapping,rowsFromMapping} from '../src/builder/importers.js';
 import {mergeImportedRows} from '../src/builder/merge.js';
 import {buildPackage,packageZip} from '../src/builder/package.js';
-import {possiblePersonDuplicates,mergePersonProfiles,identityReviewGroups,decidePersonIdentity,applyIdentityResolutions} from '../src/builder/people.js';
+import {possiblePersonDuplicates,mergePersonProfiles,mergePersonProfilesMany,identityReviewGroups,decidePersonIdentity,applyIdentityResolutions,applyPersonIdentityDecision} from '../src/builder/people.js';
 import {createBuilderProjectFile,readBuilderProjectFile} from '../src/builder/project-file.js';
 import {synthetic91Csv,synthetic91Headers} from './synthetic-91-csv.js';
 
@@ -81,6 +81,9 @@ const separate=await buildPackage(distinct);
 assert.deepEqual(new Set(separate.pkg.people.people.map(p=>p.id)),new Set(['person-north','person-south']));
 assert.equal(possiblePersonDuplicates(separate.pkg.people.people).length,1,'Same-name profiles are review candidates, not automatic merges');
 assert.equal(identityReviewGroups(distinct,separate.pkg.people.people).length,1,'Same-name people with distinct affiliations enter a review group with context');
+const posterReview=identityReviewGroups({rows:[{id:'poster-author',type:'poster',title:'Poster context',author:'Alex Same',authorEntityIds:['person-north'],session:'Poster Session A',date:'2031-06-10',start:'15:00',source:{fileId:'poster-source',row:14}}]},separate.pkg.people.people);
+assert.equal(posterReview[0].appearances[0].role,'Author','Poster author links appear in identity review context');
+assert.equal(posterReview[0].appearances[0].row.title,'Poster context');
 const pair=separate.pkg.people.people.map(person=>person.id);
 decidePersonIdentity(distinct,pair[0],pair[1],'different');
 assert.equal(identityReviewGroups(distinct,separate.pkg.people.people).length,0,'Confirmed different profiles are no longer unresolved');
@@ -110,6 +113,54 @@ assert.equal(transitiveResult.identityDecisions.pairs['different-b::same-c'],'di
 transitive.identityDecisions.pairs['different-b::same-c']='same';
 assert.throws(()=>applyIdentityResolutions(transitive,transitive.extraPeople,[{firstId:'same-a',secondId:'same-c',decision:'same',keepId:'same-c'}]),/conflicting confirmed identity decisions/);
 assert.equal(transitive.extraPeople.length,3,'A contradictory merge fails without changing source profiles');
+
+// Multi-profile merging is a single snapshot operation: the first interacted-with ID survives.
+const multi=project([]);multi.extraPeople=[
+  {id:'profile-c',name:'Jordan Example',affiliations:['Institute C'],position:'Professor',orcid:'0000-0000-0000-0003',papers:['Poster C']},
+  {id:'profile-a',name:'Jordan Example',affiliations:['Institute A'],publicEmail:'jordan@example.org',papers:['Talk A']},
+  {id:'profile-d',name:'Jordan Example',affiliations:['Institute D'],website:'https://example.org/jordan',papers:['Talk D']},
+  {id:'profile-b',name:'Jordan Example',affiliations:['Institute B'],papers:['Poster B']}
+];
+multi.peopleOverrides={'profile-c':{position:'Professor'},'profile-a':{orcid:'0000-0000-0000-0001'}};
+multi.peoplePhotos={
+  'profile-c':{name:'jordan-c.jpg',type:'image/jpeg',bytes:new Uint8Array([1,2,3])},
+  'profile-a':{name:'jordan-a.jpg',type:'image/jpeg',bytes:new Uint8Array([4,5,6])},
+  'profile-d':{name:'jordan-d.jpg',type:'image/jpeg',bytes:new Uint8Array([7,8,9])}
+};
+multi.rows=[
+  {id:'talk-a',type:'talk',title:'Talk A',speaker:'Jordan Example',speakerEntityIds:['profile-a']},
+  {id:'poster-b',type:'poster',title:'Poster B',speaker:'Jordan Example',speakerEntityIds:['profile-b']},
+  {id:'chair-d',type:'talk',title:'Talk D',chair:'Jordan Example',chairEntityIds:['profile-d']},
+  {id:'poster-c',type:'poster',title:'Poster C',speaker:'Jordan Example',speakerEntityIds:['profile-c']}
+];
+const multiPeople=multi.extraPeople.map(person=>({...person,affiliations:person.affiliations,links:[]}));
+const mergedC=mergePersonProfilesMany(multi,multiPeople,['profile-c','profile-a','profile-d']);
+assert.equal(multi.rows[0].speakerEntityIds[0],'profile-a','The original project is unchanged before the atomic result is accepted');
+assert.deepEqual(mergedC.rows.map(row=>row.speakerEntityIds?.[0]||row.chairEntityIds?.[0]),['profile-c','profile-b','profile-c','profile-c']);
+assert.deepEqual(mergedC.extraPeople.map(person=>person.id),['profile-c','profile-b']);
+assert.deepEqual(mergedC.extraPeople.find(person=>person.id==='profile-c').affiliation,'Institute C; Institute A; Institute D');
+assert.deepEqual(mergedC.extraPeople.find(person=>person.id==='profile-c').papers,['Poster C','Talk A','Talk D']);
+assert.equal(mergedC.extraPeople.find(person=>person.id==='profile-c').position,'Professor');
+assert.equal(mergedC.extraPeople.find(person=>person.id==='profile-c').publicEmail,'jordan@example.org');
+assert.deepEqual([...mergedC.peoplePhotos['profile-c'].bytes],[1,2,3],'Primary photo stays selected');
+assert.deepEqual(mergedC.mergedPersonPhotos['profile-c'].map(photo=>photo.name),['jordan-a.jpg','jordan-d.jpg'],'Alternate profile photos remain recoverable');
+assert.deepEqual(mergedC.personIdAliases,{'profile-a':'profile-c','profile-d':'profile-c'});
+const mergedA=mergePersonProfilesMany(multi,multiPeople,['profile-a','profile-d']);
+assert.deepEqual(mergedA.extraPeople.map(person=>person.id).sort(),['profile-b','profile-c','profile-a'].sort(),'Unchecked profiles remain unchanged');
+assert.equal(mergedA.rows.find(row=>row.id==='chair-d').chairEntityIds[0],'profile-a');
+const distinctMulti=structuredClone(multi);decidePersonIdentity(distinctMulti,'profile-c','profile-a','different');
+assert.throws(()=>mergePersonProfilesMany(distinctMulti,multiPeople,['profile-c','profile-a','profile-d']),/confirmed as different people/);
+assert.deepEqual(distinctMulti.rows,multi.rows,'A blocked merge leaves the original rows unchanged');
+const resolvedDistinct=applyPersonIdentityDecision(multi,multiPeople,['profile-c','profile-a','profile-d'],'different');
+assert.equal(Object.values(resolvedDistinct.identityDecisions.pairs).filter(value=>value==='different').length,3,'Mark different records every selected pair only');
+assert.equal(Object.keys(multi.identityDecisions?.pairs||{}).length,0,'Identity decisions are applied on an isolated project snapshot');
+const multiBackup=await readBuilderProjectFile(await createBuilderProjectFile(mergedC));
+assert.deepEqual([...multiBackup.peoplePhotos['profile-c'].bytes],[1,2,3]);
+assert.deepEqual(multiBackup.mergedPersonPhotos['profile-c'].map(photo=>[photo.name,...photo.bytes]),[['jordan-a.jpg',4,5,6],['jordan-d.jpg',7,8,9]],'Builder backup preserves every alternate photograph byte-for-byte');
+const multiReview=identityReviewGroups(multi, multiPeople,{includeResolved:true});
+assert.deepEqual(multiReview[0].pairDecisions.map(pair=>pair.decision),['unresolved','unresolved','unresolved','unresolved','unresolved','unresolved']);
+assert.throws(()=>mergePersonProfilesMany(multi,multiPeople,['profile-c','profile-a','profile-a']),/more than once/);
+assert.deepEqual(multi.extraPeople.map(person=>person.id),['profile-c','profile-a','profile-d','profile-b'],'Invalid multi-merge selection leaves the input untouched');
 
 // Old project ZIPs contain none of the new wizard or merge fields.
 const oldProject=structuredClone(initial);delete oldProject.activeStep;delete oldProject.personIdAliases;delete oldProject.personMergeHistory;delete oldProject.identityRegistry.personRecords;delete oldProject.identityRegistry.autoConsolidatedIds;

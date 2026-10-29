@@ -98,8 +98,10 @@ test('identity review shows programme context and persists an explicit different
   await page.locator('#importProgramme').click();await page.locator('#applyMapping').click();await expect(page.locator('#importReview')).toBeVisible();await page.locator('#confirmImportChanges').click();
   await page.locator('[data-goto-step="4"]').click();await expect(page.locator('#duplicateReview')).toBeVisible();
   const group=page.locator('[data-duplicate-group]').first();await expect(group).toContainText('North presentation');await expect(group).toContainText('South presentation');await expect(group).toContainText('identity-context.csv');
-  await group.locator('[data-identity-decision]').selectOption('different');await group.locator('[data-apply-identity]').click();
-  await expect(page.locator('#duplicateReview')).toContainText('No unresolved same-name identity groups');
+  const profiles=group.locator('[data-merge-profile]');await expect(profiles).toHaveCount(2);
+  await profiles.nth(1).check();await profiles.nth(0).check();await expect(group.locator('.is-primary')).toHaveAttribute('data-profile-id',await profiles.nth(1).getAttribute('value'));
+  await group.locator('[data-mark-different]').click();
+  await expect(group.locator('.identity-state')).toHaveText('Decisions saved');
   const saved=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return loadProject();});
   expect(Object.values(saved.identityDecisions.pairs)).toContain('different');
   await page.reload();await expect(page.locator('[data-step="4"]')).toBeVisible();await expect(page.locator('#duplicateCount')).toHaveText('');
@@ -163,7 +165,7 @@ test('removing the last programme source updates rendered people, locations and 
   await page.locator('[data-goto-step="8"]').click();await expect.poll(()=>page.evaluate(()=>document.querySelector('#attendeePreview')?.contentDocument?.querySelector('#programList')?.textContent||'')).toContain('Manual event');
   const backupPromise=page.waitForEvent('download');await page.locator('#exportBuilderProject').click();const backup=await backupPromise;
   page.once('dialog',dialog=>dialog.accept());await page.locator('#resetProject').click();await expect(page.locator('[data-step="1"]')).toBeVisible();
-  page.once('dialog',dialog=>dialog.accept());await page.locator('#builderProjectInput').setInputFiles(await backup.path());await expect.poll(()=>page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return (await loadProject())?.rows?.[0]?.title;})).toBe('Manual event');
+  page.once('dialog',dialog=>dialog.accept());const restoreNavigation=page.waitForNavigation({waitUntil:'load'});await page.locator('#builderProjectInput').setInputFiles(await backup.path());await restoreNavigation;await expect.poll(()=>page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return (await loadProject())?.rows?.[0]?.title;})).toBe('Manual event');
   await page.locator('[data-goto-step="3"]').click();await expect(page.locator('#rowCount')).toHaveText('1 rows');await expect(page.locator('#reviewTable input[data-field="title"]')).toHaveValue('Manual event');
   const restored=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return loadProject();});expect(restored.sourceFiles).toHaveLength(0);expect(restored.rows[0].source).toBeUndefined();
 });

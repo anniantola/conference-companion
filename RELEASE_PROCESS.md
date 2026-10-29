@@ -1,5 +1,9 @@
 # Release protocol (static GitHub Pages pilot)
 
+## v1.2.9 identity merge update
+
+Step 4 duplicate review uses one checkbox per profile. Check profiles in the order you want them combined: the first checked profile is the surviving primary. To change it, uncheck the primary; the earliest still checked profile becomes primary. Review the merge preview and choose values for any conflicting single-value fields, then confirm. Each duplicate-name group keeps its own selection. **Mark selected as different people** records explicit pairwise distinctions; reopen a confirmed distinction before attempting to merge those two identities. The merge is staged and read-back verified before its success message appears. Export a Builder project backup after substantial identity cleanup.
+
 ## v1.2.8 source-provenance and cleanup update
 
 In Step 2, source removal reconstructs old source links when possible and previews the resulting rows and derived package. If an imported programme still contains records that cannot be safely attributed, use **Clear imported programme data**. Review its row-by-row origin choices: choose **Delete as imported** only when the record is imported; choose **Keep as manually maintained** to preserve organizer content. Clearly marked imported rows are removed, manual rows stay, and unresolved rows block confirmation until each has a decision. After clearing/removing, confirm the source list is empty as expected and inspect Steps 3, 4, 5 and 8. The Builder verifies the saved project and rebuilt package before reporting success. Export a new Builder project backup after verifying the result.

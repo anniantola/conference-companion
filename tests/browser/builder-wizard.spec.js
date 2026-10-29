@@ -2,7 +2,7 @@ import {test,expect} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
 import {readStoredZip,textEntry} from '../../src/zip.js';
 import {createStoredZip} from '../../src/zip.js';
-import {createBuilderProjectFile} from '../../src/builder/project-file.js';
+import {createBuilderProjectFile,readBuilderProjectFile} from '../../src/builder/project-file.js';
 import {synthetic91Csv} from '../../tools/synthetic-91-csv.js';
 
 async function importSynthetic(page){
@@ -78,39 +78,87 @@ test('People directory lists 23 identities, searches roles and saves or cancels 
   await expect(page.locator('#personEditor [data-edit-field="website"]')).toHaveValue('https://example.org/eight');
 });
 
-test('organizer merge updates chair references and keeps chosen profile details',async({page})=>{
+test('checkbox merge keeps the first checked profile and preserves chair references and profile details',async({page})=>{
   await page.goto('/builder.html');await importSynthetic(page);
   await expect(page.locator('#builderSaveStatus')).toHaveText('Project saved locally');
-  const keptId=await page.evaluate(async()=>{const {loadProject,saveProject}=await import('/src/builder/project-store.js');const p=await loadProject();const kept=p.rows.find(row=>row.speaker==='Researcher 08').speakerEntityIds[0];const chair=p.rows.find(row=>row.chair==='Researcher 08');chair.chairEntityIds=['person-legacy-chair'];p.peopleOverrides['person-legacy-chair']={position:'Chair profile',publicEmail:'chair@example.org'};p.activeStep=4;await saveProject(p);return kept;});
+  const keptId=await page.evaluate(async()=>{const {loadProject,saveProject}=await import('/src/builder/project-store.js');const p=await loadProject();const kept=p.rows.find(row=>row.speaker==='Researcher 08').speakerEntityIds[0];const chair=p.rows.find(row=>row.chair==='Researcher 08');chair.chairEntityIds=['person-legacy-chair'];p.peopleOverrides[kept]={position:'Speaker profile'};p.peopleOverrides['person-legacy-chair']={position:'Chair profile',publicEmail:'chair@example.org'};p.peoplePhotos={'person-legacy-chair':{name:'chair.jpg',type:'image/jpeg',extension:'.jpg',bytes:new Uint8Array([1,2,3])}};p.activeStep=4;await saveProject(p);return kept;});
   await page.reload();await expect(page.locator('[data-step="4"]')).toBeVisible();
   await expect(page.locator('#peoplePreview .person-row')).toHaveCount(24);
   await expect(page.locator('#duplicateCount')).toHaveText('(1)');
   const group=page.locator('[data-duplicate-group]').first();await expect(group).toBeVisible();
-  await group.locator('[data-identity-first]').selectOption(keptId);await group.locator('[data-identity-second]').selectOption('person-legacy-chair');
-  await group.locator('[data-identity-decision]').selectOption('same');await group.locator('[data-identity-keep]').selectOption(keptId);
-  await group.locator('[data-merge-choice="position"]').selectOption('remove');await group.locator('[data-merge-choice="publicEmail"]').selectOption('remove');
-  page.once('dialog',dialog=>dialog.accept());await group.locator('[data-apply-identity]').click();
+  await expect(group.locator('[data-profile-id="person-legacy-chair"] img.duplicate-profile-photo')).toHaveAttribute('alt','Profile photograph of Researcher 08');
+  await group.locator('[data-merge-profile][value="person-legacy-chair"]').check();
+  await group.locator(`[data-merge-profile][value="${keptId}"]`).check();
+  await expect(group.locator('.is-primary')).toHaveAttribute('data-profile-id','person-legacy-chair');
+  await expect(group.locator('[data-merge-selected]')).toContainText('Merge 2 selected → Keep Researcher 08 (Affiliation unknown)');
+  await group.locator('[data-merge-selected]').click();
+  await expect(page.locator('#personMergeDialog')).toBeVisible();
+  await expect(page.locator('#personMergePreview')).toContainText('Primary profile');
+  await expect(page.locator('#personMergePreview [data-merge-field="position"]')).toHaveValue('person-legacy-chair');
+  await page.locator('#personMergeConfirm').click();
   await expect(page.locator('#peoplePreview .person-row')).toHaveCount(23);
   await expect(page.locator('#duplicateCount')).toBeEmpty();
   await expect(page.locator('#builderSaveStatus')).toHaveText('Project saved locally');
-  const result=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');const p=await loadProject();return {aliases:p.personIdAliases,chairIds:p.rows.filter(row=>row.chair==='Researcher 08').flatMap(row=>row.chairEntityIds||[]),position:p.peopleOverrides[p.personIdAliases['person-legacy-chair']]?.position};});
-  expect(result.aliases['person-legacy-chair']).toBe(keptId);
-  expect(result.chairIds).not.toContain('person-legacy-chair');
+  const result=await page.evaluate(async id=>{const {loadProject}=await import('/src/builder/project-store.js');const p=await loadProject();return {aliases:p.personIdAliases,chairIds:p.rows.filter(row=>row.chair==='Researcher 08').flatMap(row=>row.chairEntityIds||[]),position:p.peopleOverrides[p.personIdAliases[id]]?.position};},keptId);
+  expect(result.aliases[keptId]).toBe('person-legacy-chair');
+  expect(result.chairIds).not.toContain(keptId);
   expect(result.position).toBe('Chair profile');
 });
 
-test('bulk duplicate review merges only organizer-checked profile pairs',async({page})=>{
+test('four-profile selection preserves interaction order, promotes next primary, and leaves unchecked profiles unchanged',async({page})=>{
+  await page.goto('/builder.html');
+  const ids=await page.evaluate(async()=>{const {saveProject}=await import('/src/builder/project-store.js');const ids={b:'extra-b',c:'extra-c',a:'extra-a',d:'extra-d'};await saveProject({conference:{id:'merge-test',name:'Merge Test Conference',startDate:'2031-06-10',endDate:'2031-06-10',timezone:'Europe/Helsinki'},rows:[],extraPeople:['b','c','a','d'].map(letter=>({id:ids[letter],name:'Jordan Example',affiliation:`Institute ${letter.toUpperCase()}`})),activeStep:4});return ids;});
+  await page.reload();await expect(page.locator('#duplicateCount')).toHaveText('(1)');
+  const group=page.locator('[data-duplicate-group]').first();await expect(group.locator('[data-merge-profile]')).toHaveCount(4);
+  await group.locator(`[data-merge-profile][value="${ids.c}"]`).check();
+  await group.locator(`[data-merge-profile][value="${ids.a}"]`).check();
+  await group.locator(`[data-merge-profile][value="${ids.d}"]`).check();
+  await expect(group.locator('.is-primary')).toHaveAttribute('data-profile-id',ids.c);
+  await group.locator(`[data-merge-profile][value="${ids.c}"]`).uncheck();
+  await expect(group.locator('.is-primary')).toHaveAttribute('data-profile-id',ids.a);
+  await expect(group.locator('[data-merge-selected]')).toContainText('Merge 2 selected → Keep Jordan Example (Institute A)');
+  for(const width of [320,375,768]){await page.setViewportSize({width,height:800});await expect(group.locator('[data-merge-selected]')).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);}
+  await group.locator('[data-merge-selected]').click();await page.locator('#personMergeCancel').click();
+  expect(await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return (await loadProject()).extraPeople.length;})).toBe(4,'Cancelling leaves stored profiles unchanged');
+  await expect(group.locator('[data-merge-selected]')).toBeEnabled();await group.locator('[data-merge-selected]').click();await page.locator('#personMergeConfirm').click();
+  const result=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');const p=await loadProject();return {extras:p.extraPeople.map(person=>person.id),aliases:p.personIdAliases};});
+  expect(result.extras,JSON.stringify(result)).toContain(ids.b);expect(result.extras).toContain(ids.c);expect(result.extras).toContain(ids.a);expect(result.extras).not.toContain(ids.d);
+  expect(result.aliases[ids.d]).toBe(ids.a);
+  await expect(page.locator('#peoplePreview .person-row')).toHaveCount(3);
+  const archive=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');const {createBuilderProjectFile}=await import('/src/builder/project-file.js');const blob=await createBuilderProjectFile(await loadProject());return Array.from(new Uint8Array(await blob.arrayBuffer()));});
+  const restored=await readBuilderProjectFile(new Blob([new Uint8Array(archive)]));expect(restored.personIdAliases[ids.d]).toBe(ids.a);expect(restored.extraPeople.map(person=>person.id).sort()).toEqual([ids.a,ids.b,ids.c].sort());
+  await page.reload();await expect(page.locator('[data-step="4"]')).toBeVisible();await expect(page.locator('#peoplePreview .person-row')).toHaveCount(3);await expect(page.locator('#duplicateCount')).toHaveText('(1)');
+});
+
+test('duplicate checkbox groups keep independent selection order; confirmed different pairs block merge',async({page})=>{
   await page.goto('/builder.html');await importSynthetic(page);
-  await expect(page.locator('#builderSaveStatus')).toHaveText('Project saved locally');
-  const kept=await page.evaluate(async()=>{const {loadProject,saveProject}=await import('/src/builder/project-store.js');const p=await loadProject(),ids={};for(const number of ['08','09']){ids[number]=p.rows.find(row=>row.speaker===`Researcher ${number}`).speakerEntityIds[0];p.rows.find(row=>row.chair===`Researcher ${number}`).chairEntityIds=[`person-legacy-${number}`];}p.activeStep=4;await saveProject(p);return ids;});
-  await page.reload();await expect(page.locator('#duplicateCount')).toHaveText('(2)');
-  const groups=page.locator('[data-duplicate-group]');await expect(groups).toHaveCount(2);
-  for(const number of ['08','09']){const group=groups.filter({hasText:`Researcher ${number}`});await group.locator('[data-identity-first]').selectOption(kept[number]);await group.locator('[data-identity-second]').selectOption(`person-legacy-${number}`);await group.locator('[data-identity-decision]').selectOption('same');await group.locator('[data-identity-keep]').selectOption(kept[number]);await group.locator('[data-bulk-resolution]').check();}
-  await page.locator('[data-preview-bulk-resolution]').click();await expect(page.locator('#bulkResolutionPreview')).toBeVisible();page.once('dialog',dialog=>dialog.accept());await page.locator('[data-confirm-bulk-resolution]').click();
-  await expect(page.locator('#peoplePreview .person-row')).toHaveCount(23);
-  await expect(page.locator('#builderSaveStatus')).toHaveText('Project saved locally');
-  const aliases=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return (await loadProject()).personIdAliases;});
-  expect(aliases['person-legacy-08']).toBe(kept['08']);expect(aliases['person-legacy-09']).toBe(kept['09']);
+  await page.evaluate(async()=>{const {loadProject,saveProject}=await import('/src/builder/project-store.js');const p=await loadProject();for(const number of ['08','09']){p.rows.find(row=>row.chair===`Researcher ${number}`).chairEntityIds=[`separate-${number}`];p.extraPeople=[...(p.extraPeople||[]),{id:`separate-${number}`,name:`Researcher ${number}`,affiliation:`Second institute ${number}`}];}p.activeStep=4;await saveProject(p);});
+  await page.reload();const groups=page.locator('[data-duplicate-group]');await expect(groups).toHaveCount(2);
+  const first=groups.filter({hasText:'Researcher 08'}),second=groups.filter({hasText:'Researcher 09'});
+  const base08=await first.locator('.duplicate-profile').filter({hasText:'Institute 8'}).getAttribute('data-profile-id'),base09=await second.locator('.duplicate-profile').filter({hasText:'Institute 9'}).getAttribute('data-profile-id');
+  await first.locator(`[data-merge-profile][value="${base08}"]`).check();await second.locator('[data-merge-profile][value="separate-09"]').check();
+  await page.locator('#reviewDuplicates').click();await expect(page.locator('#duplicateReview')).toBeHidden();await page.locator('#reviewDuplicates').click();
+  await expect(first.locator('.is-primary')).toHaveAttribute('data-profile-id',base08);await expect(second.locator('.is-primary')).toHaveAttribute('data-profile-id','separate-09');
+  await first.locator('[data-clear-selection]').click();await expect(first.locator('[data-merge-selected]')).toBeDisabled();
+  await second.locator(`[data-merge-profile][value="${base09}"]`).check();
+  await first.locator(`[data-merge-profile][value="separate-08"]`).check();await first.locator(`[data-merge-profile][value="${base08}"]`).check();await first.locator('[data-mark-different]').click();
+  await expect(page.locator('#toast')).toContainText('different-person decisions saved');
+  await first.locator('[data-merge-selected]').click();await expect(page.locator('#personMergeDialog')).not.toBeVisible();await expect(page.locator('#toast')).toContainText('confirmed as different people');
+  await expect(first.locator('.is-primary')).toHaveAttribute('data-profile-id','separate-08');
+  await expect(second.locator('.is-primary')).toHaveAttribute('data-profile-id','separate-09');
+  await first.locator('.confirmed-distinct summary').click();await first.locator('[data-clear-selection]').click();await first.locator('[data-reopen-pair]').click();
+  await expect(first.locator('[data-reopen-pair]')).toHaveCount(0);
+});
+
+test('failed IndexedDB write keeps every original profile and reference',async({page})=>{
+  await page.goto('/builder.html');
+  await page.evaluate(async()=>{const {saveProject}=await import('/src/builder/project-store.js');await saveProject({conference:{id:'merge-failure',name:'Merge Failure Test',startDate:'2031-06-10',endDate:'2031-06-10',timezone:'Europe/Helsinki'},rows:[],extraPeople:[{id:'failure-a',name:'Failure Example',affiliation:'Institute A'},{id:'failure-b',name:'Failure Example',affiliation:'Institute B'}],activeStep:4});});
+  await page.reload();const group=page.locator('[data-duplicate-group]').first();await group.locator('[data-merge-profile][value="failure-b"]').check();await group.locator('[data-merge-profile][value="failure-a"]').check();await group.locator('[data-merge-selected]').click();
+  await page.evaluate(()=>{const original=IDBDatabase.prototype.transaction;let rejectNextWrite=true;IDBDatabase.prototype.transaction=function(...args){const tx=original.apply(this,args);if(rejectNextWrite&&args[0]==='projects'&&args[1]==='readwrite'){rejectNextWrite=false;queueMicrotask(()=>{try{tx.abort();}catch{}});}return tx;};});
+  await page.locator('#personMergeConfirm').click();await expect(page.locator('#builderSaveStatus')).toContainText('Identity merge was not saved');
+  const unchanged=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');const p=await loadProject();return {ids:p.extraPeople.map(person=>person.id).sort(),aliases:p.personIdAliases||{},rows:p.rows};});
+  expect(unchanged.ids).toEqual(['failure-a','failure-b']);expect(unchanged.aliases).toEqual({});expect(unchanged.rows).toEqual([]);
+  await expect(page.locator('#peoplePreview .person-row')).toHaveCount(2);
 });
 
 test('hundreds of people and mobile step controls stay usable',async({page})=>{
