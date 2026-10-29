@@ -1,5 +1,9 @@
 # Release protocol (static GitHub Pages pilot)
 
+## v1.2.11 data integrity corrections
+
+This release preserves automatic person assignments as automatic when profiles are saved, reconciles edited and reimported names before retaining person IDs, accepts valid keyed legacy source journals, and escapes attendee programme timezone labels. The v1.2.10 Builder initialization gate remains in place. Run the full Node and browser suites before publication.
+
 ## v1.2.10 identity validation update
 
 Step 4's confirmed-different decision is only a statement about the selected profile pair. Review remaining blocking **Person assignment needs review** errors in Step 8; use **Review assignment** to choose the specific speaker, chair, or poster author in Step 3. The selection is persisted with the programme row and role slot, and remains attached through re-import when that same name and role slot are present. If the source changes a name or role, review the new assignment rather than relying on an old selection. Unresolved assignments are not emitted as people in the deployment package, and export remains blocked until they are resolved.

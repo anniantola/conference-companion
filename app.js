@@ -1667,7 +1667,7 @@ import {encodeStoredValue,decodeStoredValue} from './src/user-store.js';
     if (state.track !== "all") events = events.filter(e => (e.trackId || "common")===state.track);
     events.sort((a,b) => a.date.localeCompare(b.date) || timeValue(a.start)-timeValue(b.start) || a.track-b.track);
 
-    $("#programMeta").innerHTML = `<span>${q ? `${events.length} search results` : `${events.length} program items`}</span><span>${state.timeMode==="conference"?(CONFERENCE.timezoneLabel || "Conference time"):"Device time"}</span>`;
+    $("#programMeta").innerHTML = `<span>${q ? `${events.length} search results` : `${events.length} program items`}</span><span>${esc(state.timeMode==="conference"?(CONFERENCE.timezoneLabel || "Conference time"):"Device time")}</span>`;
 
     if (!events.length) {
       $("#programList").innerHTML = `<div class="empty-state"><strong>No matches</strong>Try another search or room filter.</div>`;

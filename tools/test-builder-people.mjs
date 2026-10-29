@@ -8,6 +8,7 @@ import {possiblePersonDuplicates,mergePersonProfiles,mergePersonProfilesMany,ide
 import {createBuilderProjectFile,readBuilderProjectFile} from '../src/builder/project-file.js';
 import {synthetic91Csv,synthetic91Headers} from './synthetic-91-csv.js';
 import {describeValidationMessage} from '../src/builder/validation-ui.js';
+import {reconcileAppearanceNames} from '../src/builder/identity-assignments.js';
 
 function importedRows(){const raw=parseCSV(synthetic91Csv()).map(row=>({...row,__sourceFileId:'people-synthetic'}));return rowsFromMapping(raw,guessMapping(synthetic91Headers));}
 function project(rows){return {conference:{id:'synthetic-people',name:'Synthetic People Conference',shortName:'Synthetic',startDate:'2031-06-10',endDate:'2031-06-11',timezone:'Europe/Helsinki',venueName:'Main venue'},rows,features:{},branding:{},identityRegistry:{people:{},locations:{},tracks:{}},peopleOverrides:{},peoplePhotos:{},extraPeople:[],dataVersion:1};}
@@ -248,5 +249,34 @@ const restored=await readBuilderProjectFile(await createBuilderProjectFile(oldPr
 assert.equal(restored.rows.length,91);
 assert.equal((await buildPackage(restored)).pkg.people.people.length,23);
 assert.ok(Object.keys(restored.identityRegistry.personRecords).length>=23,'Legacy name index migrates to ID-centered registry');
+
+// A generated profile is not proof that an organizer confirmed an appearance.
+const automatic=project([{id:'automatic-speaker',type:'talk',title:'Automatic talk',speaker:'Taylor Example',date:'2031-06-10',start:'09:00',end:'09:30',session:'Morning',location:'Room A',track:'A'}]);
+await buildPackage(automatic);
+const firstAutomatic=automatic.rows[0].personIdentityAssignments.speaker[0];
+assert.equal(firstAutomatic.status,'automatic');
+automatic.peopleOverrides[firstAutomatic.personId]={position:'Professor'};
+for(let pass=0;pass<3;pass++){
+  await buildPackage(automatic);
+  assert.equal(automatic.rows[0].personIdentityAssignments.speaker[0].status,'automatic','Saved profile data must not confirm an inferred assignment');
+  assert.equal(automatic.rows[0].personIdentityAssignments.speaker[0].personId,firstAutomatic.personId);
+}
+const identitySnapshot=JSON.stringify({rows:automatic.rows,registry:automatic.identityRegistry,warnings:automatic.identityWarnings,stats:automatic.identityStats});
+await buildPackage(automatic);
+assert.equal(JSON.stringify({rows:automatic.rows,registry:automatic.identityRegistry,warnings:automatic.identityWarnings,stats:automatic.identityStats}),identitySnapshot,'Repeated builds preserve the same identity state');
+automatic.identityRegistry.personRecords['person-historical-only']={names:['taylor example'],affiliations:[],explicitIds:[]};
+const withoutGhost=await buildPackage(automatic);
+assert.ok(!withoutGhost.pkg.people.people.some(person=>person.id==='person-historical-only'),'A historical same-name record does not become an active profile');
+assert.equal(automatic.rows[0].personIdentityIssues.length,0,'Historical records do not create assignment warnings');
+const edited={speakerEntityIds:['person-alex','person-maria'],personIdentityAssignments:{speaker:{0:{personId:'person-alex',status:'confirmed'},1:{personId:'person-maria',status:'confirmed'}}}};
+reconcileAppearanceNames(edited,'speaker','Alex Smith; Maria Jones','Maria Jones; Sofia Brown');
+assert.deepEqual(edited.speakerEntityIds,['person-maria']);
+assert.deepEqual(edited.personIdentityAssignments.speaker,{0:{personId:'person-maria',status:'confirmed'}});
+reconcileAppearanceNames(edited,'speaker','Maria Jones; Sofia Brown','Sofia Brown; Maria Jones');
+assert.equal(edited.speakerEntityIds[1],'person-maria','Reordering keeps the identity attached to the same name');
+assert.equal(edited.speakerEntityIds[0],undefined,'A new name never inherits the previous slot identity');
+const changedImport=mergeImportedRows([{id:'stable-row',title:'Identity talk',date:'2031-06-10',start:'09:00',end:'09:30',session:'Morning',location:'Room A',speaker:'Alex Smith; Maria Jones',speakerEntityIds:['person-alex','person-maria'],personIdentityAssignments:{speaker:{0:{personId:'person-alex',status:'confirmed'},1:{personId:'person-maria',status:'confirmed'}}},source:{id:'source:1',fileId:'source',row:1}}],[{title:'Identity talk',date:'2031-06-10',start:'09:00',end:'09:30',session:'Morning',location:'Room A',speaker:'Maria Jones; Sofia Brown',source:{id:'source:2',fileId:'source',row:2}}]);
+assert.equal(changedImport.rows[0].speakerEntityIds[0],'person-maria');
+assert.equal(changedImport.rows[0].speakerEntityIds[1],undefined);
 
 console.log('Builder people regressions passed: 91 entries, 18 posters, 23 people, explicit review/merge, re-import and legacy ZIP');

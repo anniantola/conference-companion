@@ -40,6 +40,11 @@ for(const descriptor of descriptors.filter(Boolean))assert.ok(entries.has(descri
 
 const legacy={conference:{name:'Older project'},rows:[],logo:asset('legacy-logo.png',[71,72,73],'image/png'),sponsorFiles:[asset('legacy-sponsor.png',[74,75],'image/png')],peoplePhotos:{},sourceFiles:[]};
 const oldRoundTrip=await readBuilderProjectFile(await createBuilderProjectFile(legacy));
+const keyedJournal={format:'conference-companion-builder-project',version:1,project:{conference:{name:'Historical source journal'},rows:[],sourceState:{'legacy-source:row-7':{fileId:'legacy-source',raw:{title:'Archived title'}}}}};
+const keyedRestored=await readBuilderProjectFile(await createStoredZip([{name:'project.json',data:JSON.stringify(keyedJournal)}]));
+assert.deepEqual(keyedRestored.sourceState,[{fileId:'legacy-source',raw:{title:'Archived title'},sourceId:'legacy-source:row-7'}]);
+keyedJournal.project.sourceState['legacy-source:row-7']='malformed';
+await assert.rejects(readBuilderProjectFile(await createStoredZip([{name:'project.json',data:JSON.stringify(keyedJournal)}])),/invalid source journal record/);
 assert.deepEqual(bytes(oldRoundTrip.logo.bytes),bytes(legacy.logo.bytes),'legacy single logo is preserved');
 assert.deepEqual(bytes(oldRoundTrip.sponsorFiles[0].bytes),bytes(legacy.sponsorFiles[0].bytes),'legacy flat sponsor asset is preserved');
 const legacyAutosave={logoLight:{name:'old-autosave.svg',bytes:{'0':81,'1':82,'2':83}},sponsorFiles:[{id:'old-sponsor',name:'Old sponsor',height:55,light:{name:'old-sponsor.svg',bytes:{'0':91,'1':92}},dark:null}]};

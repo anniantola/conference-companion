@@ -6,6 +6,7 @@ export const PROGRAMME_FIELDS = [
 const CALENDAR_FIELDS = new Set(['date','start','end','title','location','session']);
 
 const clean = value => String(value ?? '').trim().toLocaleLowerCase();
+import {reconcileAppearanceNames} from './identity-assignments.js';
 const originalValue = (row, field) => row?.source?.matchData?.[field] ?? row?.source?.raw?.[field] ?? row?.[field] ?? '';
 function provenance(source){
   if(Array.isArray(source?.sources)&&source.sources.length)return source.sources.map(item=>({...item}));
@@ -121,27 +122,6 @@ export function mergeImportedRows(existingRows, incomingRows, deletedSourceIds =
       speakerEntityIds:[...(incoming.speakerEntityIds?.length?incoming.speakerEntityIds:(old.speakerEntityIds||[]))],
       chairEntityIds:[...(incoming.chairEntityIds?.length?incoming.chairEntityIds:(old.chairEntityIds||[]))]
     };
-    // Programme-level identity decisions belong to the appearance, not to a
-    // particular source row. Keep a confirmed assignment across re-import only
-    // when the same name remains in the same role slot. A new explicit ID wins.
-    const splitPeople=value=>String(value||'').split(/\s*(?:;|\band\b)\s*/i).map(name=>name.trim()).filter(Boolean);
-    merged.personIdentityAssignments={};
-    for(const [role,idField] of [['speaker','speakerEntityIds'],['chair','chairEntityIds'],['author','authorEntityIds']]){
-      const priorNames=splitPeople(old[role]),nextNames=splitPeople(incoming[role]);
-      const priorAssignments=old.personIdentityAssignments?.[role]||{},nextAssignments=incoming.personIdentityAssignments?.[role]||{};
-      const ids=[...(merged[idField]||[])];
-      for(let index=0;index<nextNames.length;index++){
-        const supplied=nextAssignments[index],prior=priorAssignments[index];
-        if(supplied?.status==='confirmed'){
-          (merged.personIdentityAssignments[role]||={})[index]={...supplied};
-        }else if(prior?.status==='confirmed'&&priorNames[index]?.toLocaleLowerCase()===nextNames[index].toLocaleLowerCase()){
-          (merged.personIdentityAssignments[role]||={})[index]={...prior};
-          if(!ids[index])ids[index]=prior.personId||prior.id||old[idField]?.[index]||'';
-        }
-      }
-      merged[idField]=ids;
-    }
-    if(!Object.keys(merged.personIdentityAssignments).length)delete merged.personIdentityAssignments;
     const sourceRefs=[...provenance(old.source),...provenance(incoming.source)],sourcesByRecord=new Map();
     for(const source of sourceRefs){const key=source.id||`${source.fileId}|${source.sheet||''}|${source.row||source.page||''}`;sourcesByRecord.set(key,source);}
     const sources=[...sourcesByRecord.values()],contributors=[...new Set(sources.map(source=>source.fileId).filter(Boolean))];
@@ -157,6 +137,18 @@ export function mergeImportedRows(existingRows, incomingRows, deletedSourceIds =
         calendarChanged=true;
       }
     }
+    // Compare the final names after organizer overrides have been preserved.
+    merged.personIdentityAssignments=structuredClone(old.personIdentityAssignments||{});
+    for(const role of ['speaker','chair','author']){
+      const field={speaker:'speakerEntityIds',chair:'chairEntityIds',author:'authorEntityIds'}[role];
+      merged[field]=[...(old[field]||[])];
+      reconcileAppearanceNames(merged,role,old[role],merged[role]);
+      if(!old.manualFields?.[role])for(const [index,assignment] of Object.entries(incoming.personIdentityAssignments?.[role]||{}))if(assignment?.status==='confirmed'){
+        (merged.personIdentityAssignments[role]||={})[index]={...assignment};
+        merged[field][index]=assignment.personId||assignment.id;
+      }
+    }
+    if(!Object.keys(merged.personIdentityAssignments).length)delete merged.personIdentityAssignments;
     if (calendarChanged) merged.sequence=Number(old.sequence||0)+1;
     rows[i]=merged;
   }

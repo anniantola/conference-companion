@@ -77,9 +77,12 @@ export function ensureProjectIdentities(project){
   // by the organizer are candidates. Old registry entries remain available for
   // stable ID reuse, but cannot create ghost profiles or fresh warnings alone.
   for(const person of project.extraPeople||[])if(person?.id&&person?.name){const id=canonicalPersonId(person.id);activeIds.add(id);const record=records[id]||={names:[],affiliations:[],explicitIds:[]};const name=norm(person.name),aff=String(person.affiliation||'').split(';').map(norm).filter(Boolean);if(name&&!record.names.includes(name))record.names.push(name);for(const value of aff)if(!record.affiliations.includes(value))record.affiliations.push(value);}
+  // A historical name match alone must not reactivate a removed profile.
+  // Current appearance references and still-open review candidates are evidence.
   const programmeNames=new Set(rows.flatMap(row=>Object.keys(roleFields).flatMap(role=>parseRoleNames(row[role]).map(norm))));
-  for(const [id,record] of Object.entries(records))if((record.names||[]).some(name=>programmeNames.has(norm(name))))activeIds.add(canonicalPersonId(id));
+  for(const [key,id] of Object.entries(registry.people))if(!project.personIdAliases?.[id]&&programmeNames.has(key.split('|')[0])&&records[canonicalPersonId(id)])activeIds.add(canonicalPersonId(id));
   for(const row of rows){
+    for(const issue of row.personIdentityIssues||[])for(const candidate of issue.candidateIds||[]){const id=canonicalPersonId(candidate);if(!project.personIdAliases?.[candidate]&&records[id]?.names?.includes(norm(issue.name)))activeIds.add(id);}
     const legacyNames=row.personIdentityResolvedNames||{};
     for(const [role,field] of Object.entries(roleFields)){
       const names=parseRoleNames(row[role]);
@@ -92,17 +95,16 @@ export function ensureProjectIdentities(project){
         // Older projects kept edited profiles in overrides/photos while row
         // references held the only ID-to-name link. Migrate that evidence
         // before resolution; a row ID by itself is never treated as proof.
-        const hasSavedProfile=!!id&&(!!project.peopleOverrides?.[id]||!!project.peoplePhotos?.[id]||!!(project.extraPeople||[]).some(person=>person.id===id)||!!records[canonicalPersonId(id)]);
-        if(id&&(saved?.status==='confirmed'||legacyExplicit||hasSavedProfile||explicitLegacyRowId||String(row.source?.id||'').includes(':package:'))){
+        if(id&&(saved?.status==='confirmed'||legacyExplicit||explicitLegacyRowId||String(row.source?.id||'').includes(':package:')||hasRowProfile)){
           const canonical=canonicalPersonId(id),record=records[canonical]||={names:[],affiliations:[],explicitIds:[]},name=norm(names[index]);
           if(name&&!record.names.includes(name))record.names.push(name);
           const override=project.peopleOverrides?.[id]||{},extra=(project.extraPeople||[]).find(person=>person.id===id)||{};
           const profileAffiliation=override.affiliation||extra.affiliation||(role==='speaker'?row.affiliation:'');
           for(const affiliation of String(profileAffiliation||'').split(';').map(norm).filter(Boolean))if(!record.affiliations.includes(affiliation))record.affiliations.push(affiliation);
-          if((saved?.status!=='confirmed'||savedId!==rowId)&&(legacyExplicit||hasSavedProfile||explicitLegacyRowId||String(row.source?.id||'').includes(':package:'))){row.personIdentityAssignments||={};row.personIdentityAssignments[role]||={};row.personIdentityAssignments[role][index]={personId:canonical,status:'confirmed'};}
+          if((saved?.status!=='confirmed'||savedId!==rowId)&&(legacyExplicit||explicitLegacyRowId||String(row.source?.id||'').includes(':package:'))){row.personIdentityAssignments||={};row.personIdentityAssignments[role]||={};row.personIdentityAssignments[role][index]={personId:canonical,status:'confirmed'};}
           activeIds.add(canonical);
         }
-        if(id&&(!legacyConflict(row,role,index)||saved?.status==='confirmed'||legacyExplicit||String(row.source?.id||'').includes(':package:')))activeIds.add(canonicalPersonId(id));
+        if(id&&(savedId||rowId||legacyExplicit))activeIds.add(canonicalPersonId(id));
       }
     }
   }
@@ -255,7 +257,7 @@ export function ensureProjectIdentities(project){
         else if(exact.length>1)issue={role,index,name,candidateIds:exact,reason:'Several confirmed profiles match this affiliation'};
         else if(!affiliations.length&&candidates.length>1)issue={role,index,name,candidateIds:candidates,reason:'Two or more different profiles share this name'};
         else if(!affiliations.length&&candidates.length===1)resolvedId=candidates[0];
-        if(issue){resolvedId='';row.personIdentityIssues.push({...issue,rowId:row.id});}
+        if(issue){resolvedId='';row.personIdentityIssues.push({...issue,rowId:row.id});row.personIdentityAssignments||={};row.personIdentityAssignments[role]||={};row.personIdentityAssignments[role][index]={personId:'',status:'unresolved'};}
         ids[index]=resolvedId;
         if(resolvedId){row.personIdentityAssignments||={};row.personIdentityAssignments[role]||={};row.personIdentityAssignments[role][index]={personId:resolvedId,status:'automatic'};}
       }
@@ -403,7 +405,7 @@ export async function buildPackage(project){
   for(const id of new Set(rows.flatMap(row=>(row.personIdentityIssues||[]).flatMap(issue=>issue.candidateIds||[])))){
     if(personById.has(id))continue;
     const record=project.identityRegistry?.personRecords?.[id],name=record?.names?.[0];
-    if(name)ensurePerson(name,(record.affiliations||[]).join('; '),id);
+    if(name){const display=rows.flatMap(row=>[...parseNames(row.speaker),...parseNames(row.chair),...parseNames(row.author)]).find(value=>value.toLocaleLowerCase()===name)||name;ensurePerson(display,(record.affiliations||[]).join('; '),id);}
   }
   const peopleOverrides=project.peopleOverrides||{};
   for(const person of people){const o=peopleOverrides[person.id];if(!o)continue;Object.assign(person,o);if(o.affiliation!==undefined)person.affiliations=String(o.affiliation||'').split(';').map(x=>x.trim()).filter(Boolean);normalizePersonLinks(person,o);delete person.affiliation;}
@@ -446,7 +448,7 @@ export async function buildPackage(project){
   const now=new Date().toISOString();
   const version=Number(project.dataVersion||1);
   const changelog=[...(project.changelog||[])];
-  const manifest={schemaVersion:CURRENT_SCHEMA_VERSION,dataVersion:version,minimumEngineVersion:'1.2.10',publishedAt:now,files:['conference.json','programme.json','people.json','locations.json','branding.json'],checksums:{},changelog};
+  const manifest={schemaVersion:CURRENT_SCHEMA_VERSION,dataVersion:version,minimumEngineVersion:'1.2.11',publishedAt:now,files:['conference.json','programme.json','people.json','locations.json','branding.json'],checksums:{},changelog};
   const pkg={manifest,conference,programme,people:peopleJson,locations:locationsJson,branding};
   const report=validatePackage(pkg,{strictCalendarUid:true,policy:project.policy||{}});
   report.errors.push(...builderErrors);
@@ -525,7 +527,7 @@ async function fetchBytes(path){const r=await fetch(path,{cache:'no-store'});if(
 function manifestText(pkg){return JSON.stringify({name:pkg.conference.name,short_name:pkg.conference.shortName||pkg.conference.name,id:'./',start_url:'./',scope:'./',display:'standalone',background_color:'#000000',theme_color:pkg.branding.primary||'#000000',icons:[{src:'./icon-192.png',sizes:'192x192',type:'image/png',purpose:'any'},{src:'./icon-512.png',sizes:'512x512',type:'image/png',purpose:'any maskable'}]},null,2)+'\n';}
 function sharePreviewSvg(pkg){const title=String(pkg.conference.shortName||pkg.conference.name||'Conference').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630"><rect width="1200" height="630" fill="${pkg.branding.primary||'#000'}"/><rect x="60" y="60" width="1080" height="510" rx="44" fill="#fff" opacity=".96"/><text x="110" y="285" font-family="system-ui,sans-serif" font-weight="700" font-size="78" fill="#111">${title}</text><text x="110" y="370" font-family="system-ui,sans-serif" font-size="38" fill="#444">Conference Companion</text></svg>`;}
 export function workflowText(){return `name: Validate and deploy Conference Companion\n\non:\n  push:\n    branches: ["main"]\n  workflow_dispatch:\n\npermissions:\n  contents: read\n  pages: write\n  id-token: write\n\nconcurrency:\n  group: "pages"\n  cancel-in-progress: false\n\njobs:\n  deploy:\n    environment:\n      name: github-pages\n      url: \${{ steps.deployment.outputs.page_url }}\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@v6\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n      - name: Validate conference package\n        run: npm test\n      - name: Stage public application files\n        run: |\n          mkdir _site\n          cp -r index.html app.js bootstrap.js styles.css service-worker.js manifest.webmanifest icon-*.png share-preview.svg assets src schemas conference tools _site/\n      - uses: actions/configure-pages@v5\n      - uses: actions/upload-pages-artifact@v4\n        with:\n          path: "_site"\n      - name: Deploy to GitHub Pages\n        id: deployment\n        uses: actions/deploy-pages@v4\n`;}
-function generatedPackageJson(){return JSON.stringify({name:'conference-companion-deployment',version:'1.2.10',private:true,type:'module',scripts:{schema:'node tools/schema-check.mjs conference',validate:'node tools/validate-conference.mjs conference',test:'npm run schema && npm run validate'}},null,2)+'\n';}
+function generatedPackageJson(){return JSON.stringify({name:'conference-companion-deployment',version:'1.2.11',private:true,type:'module',scripts:{schema:'node tools/schema-check.mjs conference',validate:'node tools/validate-conference.mjs conference',test:'npm run schema && npm run validate'}},null,2)+'\n';}
 
 /** A repository-ready static deployment ZIP: stable engine + generated package + branded install assets. */
 export async function packageZip(project){

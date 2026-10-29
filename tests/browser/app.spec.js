@@ -9,6 +9,16 @@ async function ready(page,path='/'){
 async function controlled(page){
   await page.evaluate(async()=>{await navigator.serviceWorker.ready;if(!navigator.serviceWorker.controller)await new Promise(resolve=>navigator.serviceWorker.addEventListener('controllerchange',resolve,{once:true}));});
 }
+test('conference timezone label is rendered as text',async({page})=>{
+  const files={};for(const name of ['conference-manifest.json','conference.json','programme.json','people.json','locations.json','branding.json'])files[name]=await readFile(`conference/${name}`,'utf8');
+  const conference=JSON.parse(files['conference.json']);conference.timezoneLabel='<img src=x onerror="window.timezoneInjected=true">';files['conference.json']=JSON.stringify(conference);
+  const manifest=JSON.parse(files['conference-manifest.json']);manifest.checksums['conference.json']=createHash('sha256').update(files['conference.json']).digest('hex');files['conference-manifest.json']=JSON.stringify(manifest);
+  await page.route('**/timezone-fixture/**',route=>{const name=new URL(route.request().url()).pathname.split('/').pop();return files[name]?route.fulfill({contentType:'application/json',body:files[name]}):route.fulfill({status:404});});
+  await ready(page,'/?conference=./timezone-fixture');
+  await expect(page.locator('#programMeta')).toContainText(conference.timezoneLabel);
+  await expect(page.locator('#programMeta img')).toHaveCount(0);
+  expect(await page.evaluate(()=>window.timezoneInjected)).toBeUndefined();
+});
 for(const base of ['conference','fixtures/multi-track-no-posters']){
   test(`navigation, preferences and offline reload: ${base}`,async({page,context})=>{
     await ready(page,`/?conference=./${base}`);await controlled(page);
@@ -83,7 +93,7 @@ test('rollback persists online and offline until explicitly resumed and retains 
   let current=makeRelease(10);
   await page.route('**/rollback-release/**',route=>{const name=new URL(route.request().url()).pathname.split('/').pop();return current[name]===undefined?route.fulfill({status:503,body:'unavailable'}):route.fulfill({contentType:'application/json',body:current[name]});});
   const conferenceId=JSON.parse(files['conference.json']).id,personal={favorites:['rollback-favorite'],posterFavorites:['rollback-poster'],notes:{'talk:rollback-favorite':'Keep these notes'}};
-  const load=()=>page.evaluate(async()=>{const {loadConferencePackage}=await import('/src/package-store.js');const result=await loadConferencePackage('./rollback-release','1.2.10');return {version:result.pkg.manifest.dataVersion,source:result.source,rollbackActive:result.rollbackActive};});
+  const load=()=>page.evaluate(async()=>{const {loadConferencePackage}=await import('/src/package-store.js');const result=await loadConferencePackage('./rollback-release','1.2.11');return {version:result.pkg.manifest.dataVersion,source:result.source,rollbackActive:result.rollbackActive};});
   const savePersonal=()=>page.evaluate(async({conferenceId,personal})=>{const {createUserStore}=await import('/src/user-store.js'),store=createUserStore(conferenceId);await store.saveState(personal);await store.saveProfile({name:'Rollback attendee',photo:new Blob(['profile-photo'])});await store.saveFriend({id:'rollback-contact',name:'Rollback contact',privateNotes:'Private contact note'});},{conferenceId,personal});
   const checkPersonal=async()=>{const value=await page.evaluate(async id=>{const {createUserStore}=await import('/src/user-store.js'),store=createUserStore(id),friends=await store.listFriends(),profile=await store.getProfile();return {state:await store.getState(),name:profile.name,photo:await profile.photo.text(),friends};},conferenceId);expect(value.state).toEqual(personal);expect(value.name).toBe('Rollback attendee');expect(value.photo).toBe('profile-photo');expect(value.friends[0].name).toBe('Rollback contact');expect(value.friends[0].privateNotes).toBe('Private contact note');};
   expect(await load()).toMatchObject({version:10,source:'network'});await savePersonal();

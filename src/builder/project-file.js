@@ -80,7 +80,7 @@ export function validateBuilderProjectStructure(project){
       if(!isRecord(row.personIdentityAssignments))throw new Error(`Builder project backup has invalid row ${index+1} personIdentityAssignments`);
       for(const [role,assignments] of Object.entries(row.personIdentityAssignments)){
         if(!['speaker','chair','author'].includes(role)||!isRecord(assignments))throw new Error(`Builder project backup has invalid row ${index+1} ${role} identity assignments`);
-        for(const [position,assignment] of Object.entries(assignments))if(!/^\d+$/.test(position)||!isRecord(assignment)||typeof(assignment.personId||assignment.id)!=='string'||!['automatic','confirmed'].includes(assignment.status))throw new Error(`Builder project backup has invalid row ${index+1} ${role} assignment ${position}`);
+        for(const [position,assignment] of Object.entries(assignments))if(!/^\d+$/.test(position)||!isRecord(assignment)||typeof(assignment.personId??assignment.id)!=='string'||!['automatic','confirmed','unresolved'].includes(assignment.status)||assignment.status==='confirmed'&&!(assignment.personId||assignment.id))throw new Error(`Builder project backup has invalid row ${index+1} ${role} assignment ${position}`);
       }
     }
     if(row.personIdentityIssues!==undefined&&(!Array.isArray(row.personIdentityIssues)||row.personIdentityIssues.some(issue=>!isRecord(issue)||!['speaker','chair','author'].includes(issue.role)||!Number.isInteger(issue.index)||issue.index<0||typeof issue.name!=='string'||!Array.isArray(issue.candidateIds)||issue.candidateIds.some(id=>typeof id!=='string'))))throw new Error(`Builder project backup has invalid row ${index+1} personIdentityIssues`);
@@ -202,6 +202,12 @@ export async function readBuilderProjectFile(file){
   if(!Number.isInteger(version)||version!==1)throw new Error(`Unsupported Builder project backup version: ${wrapper.version}`);
   const project=wrapper.project;
   if(!isRecord(project))throw new Error('Builder project backup does not contain a valid project');
+  // Historical backups used source IDs as journal keys. Normalize only a
+  // well-formed keyed journal; the ordinary structural checks remain strict.
+  if(isRecord(project.sourceState))project.sourceState=Object.entries(project.sourceState).map(([sourceId,item])=>{
+    if(!isRecord(item))throw new Error(`Builder project backup has an invalid source journal record ${sourceId}`);
+    return {...item,sourceId:item.sourceId||sourceId};
+  });
   const restoreAsset=(asset,label,area='assets')=>{
     if(asset==null)return asset;
     if(typeof asset!=='object'||Array.isArray(asset))throw new Error(`Invalid ${label} asset in Builder project backup`);
