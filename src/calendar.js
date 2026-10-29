@@ -23,13 +23,6 @@ function offsetMinutes(timeZone, date) {
 function offsetText(mins) {
   const sign=mins<0?'-':'+'; const a=Math.abs(mins); return `${sign}${pad(Math.floor(a/60))}${pad(a%60)}`;
 }
-function localParts(timeZone,date) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'
-  }).formatToParts(date);
-  const m=Object.fromEntries(parts.filter(x=>x.type!=='literal').map(x=>[x.type,x.value]));
-  return `${m.year}${m.month}${m.day}T${m.hour}${m.minute}${m.second}`;
-}
 function wallStampFromUtcWithOffset(date,offset) {
   const d=new Date(date.getTime()+offset*60000);
   return `${d.getUTCFullYear()}${pad(d.getUTCMonth()+1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}`;

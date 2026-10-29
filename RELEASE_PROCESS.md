@@ -1,12 +1,16 @@
 # Release protocol (static GitHub Pages pilot)
 
+## v1.2.12 maintenance cleanup
+
+This release removes verified unused attendee and Builder code and obsolete contact-card CSS. Friend Book event choices are prepared once per render while each contact keeps its own event selection. Step 3 bulk person-name edits use the existing appearance reconciliation helper, preventing an old confirmed person ID from following a replacement name. Package content remains unchanged for an unchanged project apart from engine version and generated publication metadata.
+
 ## v1.2.11 data integrity corrections
 
 This release preserves automatic person assignments as automatic when profiles are saved, reconciles edited and reimported names before retaining person IDs, accepts valid keyed legacy source journals, and escapes attendee programme timezone labels. The v1.2.10 Builder initialization gate remains in place. Run the full Node and browser suites before publication.
 
 ## v1.2.10 identity validation update
 
-Step 4's confirmed-different decision is only a statement about the selected profile pair. Review remaining blocking **Person assignment needs review** errors in Step 8; use **Review assignment** to choose the specific speaker, chair, or poster author in Step 3. The selection is persisted with the programme row and role slot, and remains attached through re-import when that same name and role slot are present. If the source changes a name or role, review the new assignment rather than relying on an old selection. Unresolved assignments are not emitted as people in the deployment package, and export remains blocked until they are resolved.
+Step 4's confirmed-different decision is only a statement about the selected profile pair. Review remaining blocking **Person assignment needs review** errors in Step 8; use **Review assignment** to choose the specific speaker, chair, or poster author in Step 3. The selection is persisted with the programme row and role occurrence, and remains attached through re-import when that same name and role are present, including after reordering. If the source changes a name or role, review the new assignment rather than relying on an old selection. Unresolved assignments are not emitted as people in the deployment package, and export remains blocked until they are resolved.
 
 ## v1.2.9 identity merge update
 
@@ -40,9 +44,9 @@ The package cache retains the active validated release and four recent validated
 
 The Builder currently provides a downloadable repository ZIP, **not** authenticated GitHub commit/tag automation. Users must execute steps 3–5 in GitHub. The static pilot does not provide organizer accounts, cloud APIs, hosted vCards or push.
 
-## Acceptance required before NEURONICS production
+## Acceptance required before a production conference
 
-- Import actual official NEURONICS data and validate times, rooms, authors and posters.
+- Import the conference's official programme and validate times, rooms, authors and posters.
 - Run the second independent fixture in `fixtures/multi-track-no-posters` (America/New_York, 4 tracks, multiple venues, no posters).
 - Perform manual device/browser tests for install, offline reload, note editing during an app update, re-import, photo capture, backup/restore and ICS imports in Google/Apple/Outlook.
 - Confirm share-image previews on the final custom HTTPS domain (many crawlers prefer PNG/JPEG and absolute URLs).

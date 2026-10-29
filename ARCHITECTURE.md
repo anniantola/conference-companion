@@ -1,6 +1,6 @@
 # Conference Companion architecture
 
-This repository follows the Conference Companion technical plan used for the NEURONICS 2027 pilot: one reusable attendee engine, one normalized conference package per event, a separate organizer Builder, and an optional Cloud layer that remains deferred for the static pilot.
+Conference Companion has one reusable attendee engine, one normalized conference package per event, and a separate organizer Builder. An optional Cloud layer remains deferred for the static application.
 
 ## 1. Separation of concerns
 
@@ -428,14 +428,18 @@ Step 4's duplicate review is built from `identityReviewGroups()`, which combines
 
 `mergePersonProfilesMany()` applies a whole selection to a cloned project. It rejects stale IDs, duplicate selections, confirmed-different pairs and conflicting outside decisions before the result is exposed. A valid merge remaps every role/reference array, aliases and registry records; combines affiliations, papers and links; keeps the first selected profile's stable ID; stores alternate photos; and removes duplicate profile records. The Builder validates and package-builds this candidate, saves it as one IndexedDB project update, reads it back, and verifies removed identities and references are absent before updating the live interface. A failed save or verification restores the prior project. A merge preview lets organizers choose among conflicting single-value fields; the primary's value is preferred otherwise. Explicit different-person decisions remain separate from merge selection and must be reopened before a conflicting merge.
 
+## 24. Separate profile decisions from programme assignments (v1.2.10)
+
+`identityDecisions.pairs` describes the relationship between canonical profiles. Step 4 uses these pair decisions to clear only profile-level duplicate warnings. Each programme appearance has independent `personIdentityAssignments[role][index]` state (`automatic`, `confirmed`, or `unresolved`), and `personIdentityIssues` is recomputed from the current canonical registry on every package build. A `different` pair does not assign an unaffiliated speaker, chair, or poster author to either profile; that issue remains a blocking, contextual validation error until an organizer selects the right profile in Step 3. The error carries the stable Builder row ID and role/index so navigation focuses the correct control even when source row numbers differ from current array positions.
+
+Confirmed Step 3 assignments follow the same normalized name and role through re-import, including reordered names. Explicit IDs in the new import take precedence. Legacy resolved-name markers and existing structured package identities are migrated conservatively; a bare generated/provisional UUID or saved profile is not confirmation. Unresolved assignments are omitted from generated people and programme references, preventing fake attendee profiles, and their blocking error prevents deployment export. IndexedDB writes are read back and package-rebuilt before the UI confirms an identity decision or assignment.
+
+The Builder keeps its header and editor inert while it loads the saved IndexedDB project, builds the initial derived package, and binds controls. It exposes `data-builder-ready="true"` only after initialization completes, preventing early edits from being silently missed while the asynchronous startup is still restoring project state.
+
 ## 25. Appearance identity integrity (v1.2.11)
 
 Profile records and photographs do not confirm programme assignments. A confirmed appearance requires an organizer decision, an explicit imported person ID, or a narrowly recognized legacy assignment. Name edits and reimports reconcile appearance IDs by matching names, so changed names cannot inherit IDs from the old slot. Keyed historical source journals are normalized during backup restoration after their record shape is checked.
 
-## 24. Separate profile decisions from programme assignments (v1.2.10)
+## 26. Maintenance cleanup (v1.2.12)
 
-`identityDecisions.pairs` describes the relationship between canonical profiles. Step 4 uses these pair decisions to clear only profile-level duplicate warnings. Each programme appearance has independent `personIdentityAssignments[role][index]` state (`automatic` or organizer `confirmed`), and `personIdentityIssues` is recomputed from the current canonical registry on every package build. A `different` pair does not assign an unaffiliated speaker, chair, or poster author to either profile; that issue remains a blocking, contextual validation error until an organizer selects the right profile in Step 3. The error carries the stable Builder row ID and role/index so navigation focuses the correct control even when source row numbers differ from current array positions.
-
-Confirmed Step 3 assignments are carried through re-import only when the same normalized name remains in the same role slot. Explicit IDs in the new import take precedence. Old project IDs backed by saved profile metadata, legacy resolved-name markers, or existing structured package identities are migrated conservatively; a bare generated/provisional UUID is not confirmation. Unresolved assignments are omitted from generated people and programme references, preventing fake attendee profiles, and their blocking error prevents deployment export. IndexedDB writes are read back and package-rebuilt before the UI confirms an identity decision or assignment.
-
-The Builder keeps its header and editor inert while it loads the saved IndexedDB project, builds the initial derived package, and binds controls. It exposes `data-builder-ready="true"` only after initialization completes, preventing early edits from being silently missed while the asynchronous startup is still restoring project state.
+The attendee Friend Book sorts conference event choices once per render and applies each contact's own selected event while constructing its card. The Builder applies `reconcileAppearanceNames()` to bulk speaker and chair edits as it does to individual row edits. Manual programme rows receive their origin marker when created, before autosave or derived-package generation.

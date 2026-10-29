@@ -1,6 +1,6 @@
 # Conference Companion
 
-Current engine release: **v1.2.11**.
+Current engine release: **v1.2.12**.
 
 Conference Companion is a standalone, offline-first conference PWA plus a browser-based Conference Builder. The attendee engine is stable and conference content is published as a normalized, versioned data package rather than being hard-coded into the UI.
 
@@ -9,6 +9,8 @@ Conference Companion is a standalone, offline-first conference PWA plus a browse
 Builder project backups are restored only after archive, project structure, binary assets, and a disposable package build pass validation; an organizer confirms replacement before saving. Incomplete drafts remain restorable. CSV/XLSX/row-JSON imports stay as mapping previews until applied, and failed parsing or storage writes preserve the existing project and previous source files. The attendee release cache keeps five validated releases (active plus four recent); an explicitly selected rollback remains pinned until updates are resumed.
 
 Step 4 profile identity decisions and Step 3 programme-person assignments are separate. Confirming two profiles as different suppresses only the duplicate-profile warning; an appearance with an ambiguous name still blocks export until its speaker, chair, or poster-author assignment is explicitly selected. Assignment issues link to the exact programme row by stable row ID, and confirmed row assignments survive re-import and Builder backup/restore. Repeated package builds recompute ambiguity from current profiles and decisions rather than trusting stale row flags.
+
+Step 3 bulk edits use the same name-based identity reconciliation as individual row edits. Replacing a speaker or chair cannot carry a previous person's confirmed ID into the new name.
 
 In Step 4, each possible duplicate profile has its own checkbox. The first profile checked is the primary that survives; additional checked profiles are merged into it. Unchecking the primary promotes the earliest remaining selection, and each name group maintains an independent selection order. The confirmation preview shows retained profile information and offers choices for conflicting single-value fields. A merge updates all programme references in one staged operation and preserves alternate profile photographs in the Builder backup. A confirmed **Different people** decision blocks an incompatible merge until it is explicitly reopened.
 
@@ -24,7 +26,7 @@ Builder Step 2 now provides a source manager, explicit merge/replace-source/repl
 - PPTX export for notes and presentation photos.
 - Personal-data ZIP backup and restore, including favorites, notes, Friend Book, profile photo and conference photos.
 - Standards-based `.ics` export for one programme item, starred schedule or full programme, including `VTIMEZONE`, immutable calendar UIDs and `SEQUENCE` support. New Builder-created UIDs use persistent `urn:uuid:<UUIDv4>`; already published UIDs remain unchanged.
-- Friend Book with an optional local profile photo, conference card, compact vCard QR sharing, vCard import, QR image scanning where `BarcodeDetector` is available, private notes/tags and conference/event “met at” context.
+- Friend Book with an optional local profile photo, conference card, compact vCard QR sharing, vCard import, live QR scanning with `BarcodeDetector` or a bundled offline fallback, private notes/tags and conference/event “met at” context.
 - Announcements.
 - Generic conference branding, track/location colors, typography, logo and sponsor assets.
 - Installable PWA with a service worker that does not force-reload an attendee while an engine update is waiting.

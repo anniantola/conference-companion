@@ -1,5 +1,9 @@
 # Conference Companion test results
 
+## v1.2.12 maintenance cleanup — 2026-10-29
+
+Before changes, the v1.2.11 Node suite passed locally and GitHub Actions run 40908550151 had passed 213 browser tests. A pre-change synthetic 91-row package snapshot contained 55 presentations, 18 posters, 23 people, and 8 locations. After code cleanup, the generated package matched that snapshot after normalizing only publication time and the intended engine minimum version. The complete v1.2.12 Node 22 suite passed locally. Playwright passed 144 local cases: 72 Chromium and 72 Firefox. Focused regressions verify per-contact Friend Book event selection and bulk-edit identity preservation through reload and Builder backup restoration. Local WebKit could not start because the host lacks `libavif.so.16`; the deployment workflow installs WebKit dependencies and is the complete three-browser verification gate.
+
 ## v1.2.11 targeted data integrity checks — 2026-10-29
 
 Regression coverage now checks automatic identity status across repeated package builds, name edits and reordered appearances, reimport identity reconciliation, keyed legacy source journals, and HTML-like attendee timezone labels. The full Node 22 unit suite passed locally. The complete local Playwright run passed 142 tests: 71 Chromium and 71 Firefox. WebKit requires the CI runner's browser system dependencies on this host.

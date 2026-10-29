@@ -383,26 +383,6 @@ import {encodeStoredValue,decodeStoredValue} from './src/user-store.js';
     });
   }
 
-  async function replaceAllPhotos(photoMeta=[], photoFiles=new Map()) {
-    const rows=[];
-    for(const meta of photoMeta||[]){
-      const blob=photoFiles.get(meta.file);if(!blob)continue;
-      const row={...meta,blob};delete row.file;delete row.type;
-      row.ownerKey=row.ownerKey||photoOwnerKey(row.ownerType||'unclassified',row.ownerId||'unclassified');
-      rows.push(await encodeStoredValue(row));
-    }
-    const db = await openPhotoDb();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(PHOTO_STORE, "readwrite");
-      const store = tx.objectStore(PHOTO_STORE);
-      store.clear();
-      for(const row of rows)store.put(row);
-      tx.oncomplete = () => { db.close(); resolve(); };
-      tx.onerror = () => { db.close(); reject(tx.error); };
-      tx.onabort = () => { db.close(); reject(tx.error || new Error("Photo restore aborted")); };
-    });
-  }
-
   async function replacePhotoRows(photos=[]) {
     const storedPhotos=await Promise.all(photos.map(encodeStoredValue));
     const db=await openPhotoDb();
@@ -2388,7 +2368,7 @@ import {encodeStoredValue,decodeStoredValue} from './src/user-store.js';
     }catch(error){console.error(error);toast("Could not save conference card");}
   }
 
-  function friendContactHtml(friend) {
+  function friendContactHtml(friend,events) {
     const emails=[...new Set([...(friend.emails||[]),friend.email].map(normalizeEmail).filter(Boolean))];
     const affiliations=[...new Set([...(friend.affiliations||[]),friend.affiliation].filter(Boolean))];
     const linkRows=[
@@ -2399,7 +2379,6 @@ import {encodeStoredValue,decodeStoredValue} from './src/user-store.js';
     ].map(link=>link?.url?{...link,url:normalizeExternalLink(link.url)}:link).filter(link=>link?.url);
     const links=linkRows.map(link=>`<a href="${esc(link.url)}" target="_blank" rel="noopener noreferrer">${esc(link.label||"Link")} ↗</a>`).join(" · ");
     const papers=(friend.papers||[]).map(p=>typeof p==="string"?p:(p.doi||p.title||"")).filter(Boolean);
-    const events=MODEL.calendarItems().slice().sort((a,b)=>`${a.date}|${a.start}`.localeCompare(`${b.date}|${b.start}`));
     const eventOptions=events.map(e=>`<option value="${esc(e.id)}" ${e.id===friend.metAtEventId?'selected':''}>${esc(`${e.date} ${e.start} · ${e.title}`)}</option>`).join("");
     const expanded=expandedFriendIds.has(friend.id),detailsId=`friend-details-${String(friend.id).replace(/[^a-zA-Z0-9_-]/g,"-")}`;
     return `<article class="friend-card${expanded?' expanded':''}" data-friend-id="${esc(friend.id)}">
@@ -2437,7 +2416,7 @@ import {encodeStoredValue,decodeStoredValue} from './src/user-store.js';
     }
     const editor=$("#profileSection");if(editor&&profileDraft===null)editor.hidden=true;
     friends.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""),undefined,{sensitivity:"base"}));
-    const list=$("#friendList");if(list) list.innerHTML=friends.length?friends.map(friendContactHtml).join(""):`<div class="empty-state"><strong>No contacts saved yet</strong>Scan a conference card QR or import a .vcf file.</div>`;
+    const list=$("#friendList");if(list){const events=friends.length?MODEL.calendarItems().slice().sort((a,b)=>`${a.date}|${a.start}`.localeCompare(`${b.date}|${b.start}`)):[];list.innerHTML=friends.length?friends.map(friend=>friendContactHtml(friend,events)).join(""):`<div class="empty-state"><strong>No contacts saved yet</strong>Scan a conference card QR or import a .vcf file.</div>`;}
     if($("#friendCount")) $("#friendCount").textContent=String(friends.length);
   }
 

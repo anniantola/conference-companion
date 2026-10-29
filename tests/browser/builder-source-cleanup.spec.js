@@ -22,6 +22,7 @@ test('legacy source removal deletes corrected records through UI, IndexedDB, rel
   await expect(page.locator('#rowCount')).toHaveText('3 rows');
   for(const [field,value] of Object.entries({date:'2033-05-04',start:'16:00',end:'16:30',session:'Organizer event',title:'Independent manual event',location:'Independent room',track:'Common'}))await page.locator(`[data-row="${manual}"][data-field="${field}"]`).fill(value);await page.locator(`[data-row="${manual}"][data-field="type"]`).selectOption('social');
   await expect.poll(async()=> (await storedProject(page)).rows.length).toBe(3);
+  expect((await storedProject(page)).rows[manual].manuallyCreated).toBe(true,'A new row is marked manual before its first save');
   await page.locator('[data-goto-step="4"]').click();await page.locator('#addPerson').click();await page.locator('#personEditor [data-edit-field="name"]').fill('Independent organizer');await page.locator('#personEditor [data-edit-field="affiliation"]').fill('Organizer Group');await page.locator('#personEditForm button[type="submit"]').click();await expect.poll(async()=>(await storedProject(page)).extraPeople?.some(person=>person.name==='Independent organizer')).toBe(true);
   // Reproduce legacy backups that lost the current row.source object after a
   // correction, while retaining the old import journal and its field mapping.
@@ -35,7 +36,7 @@ test('legacy source removal deletes corrected records through UI, IndexedDB, rel
   await page.locator('[data-goto-step="3"]').click();await expect(page.locator('#rowCount')).toHaveText('1 rows');await expect(page.locator('#reviewTable input[data-field="title"]')).toHaveValue('Independent manual event');
   await page.locator('[data-goto-step="4"]').click();await expect(page.locator('#peoplePreview')).not.toContainText('Ada Imported');await expect(page.locator('#peoplePreview')).not.toContainText('Bea Poster');await expect(page.locator('#peoplePreview')).toContainText('Independent organizer');
   await page.locator('[data-goto-step="8"]').click();await expect(page.locator('#previewStatus')).toHaveText('Up to date');await assertPreviewText(page,'Organizer corrected imported talk',false);await assertPreviewText(page,'Imported poster',false);await assertPreviewText(page,'Organizer event');
-  await page.reload();saved=await storedProject(page);expect(saved.rows.map(row=>row.title)).toEqual(['Independent manual event']);
+  await page.reload();saved=await storedProject(page);expect(saved.rows.map(row=>row.title)).toEqual(['Independent manual event']);expect(saved.rows[0].manuallyCreated).toBe(true,'Manual origin survives reload');
   await page.locator('[data-goto-step="3"]').click();await expect(page.locator('#rowCount')).toHaveText('1 rows');await page.locator('[data-goto-step="4"]').click();await expect(page.locator('#peoplePreview')).not.toContainText('Ada Imported');
   await page.locator('[data-goto-step="8"]').click();await expect(page.locator('#previewStatus')).toHaveText('Up to date');await assertPreviewText(page,'Imported poster',false);
   const backup=page.waitForEvent('download');await page.locator('#exportBuilderProject').click();const download=await backup;

@@ -122,7 +122,14 @@ test('Friend Book is an alphabetical, keyboard-accessible expandable list',async
   await expect(page.locator('.friend-card-details:visible')).toHaveCount(0);
   const amy=page.locator('[data-friend-toggle]').first();await amy.focus();await amy.press('Enter');await expect(amy).toHaveAttribute('aria-expanded','true');
   const details=page.locator('.friend-card-details:visible');await expect(details).toContainText('Professor');await expect(details).toContainText('Alpha Lab');await expect(details).toContainText('amy@example.test');await expect(details).toContainText('Research profile');await expect(details.locator('[data-friend-note]')).toBeEditable();
+  const amyEvent=details.locator('[data-friend-event]'),eventIds=await amyEvent.locator('option').evaluateAll(options=>options.map(option=>option.value).filter(Boolean));expect(eventIds.length).toBeGreaterThan(1);
+  await amyEvent.selectOption(eventIds[0]);
   await amy.click();await expect(page.locator('.friend-card-details:visible')).toHaveCount(0);
+  const zeta=page.locator('[data-friend-toggle]').nth(1);await zeta.click();await page.locator('.friend-card-details:visible [data-friend-event]').selectOption(eventIds[1]);
+  await zeta.click();await amy.click();await expect(page.locator('.friend-card-details:visible [data-friend-event]')).toHaveValue(eventIds[0]);
+  await expect.poll(()=>page.evaluate(async()=>{const {createUserStore}=await import('/src/user-store.js');const friends=await createUserStore(window.CONFERENCE_CONFIG.conference.id).listFriends();return friends.sort((a,b)=>a.name.localeCompare(b.name)).map(friend=>friend.metAtEventId);})).toEqual(eventIds.slice(0,2));
+  await page.reload();await page.locator('[data-target="friends"]').click();await page.locator('[data-friend-toggle]').first().click();await expect(page.locator('.friend-card-details:visible [data-friend-event]')).toHaveValue(eventIds[0]);
+  await page.locator('[data-friend-toggle]').first().click();await page.locator('[data-friend-toggle]').nth(1).click();await expect(page.locator('.friend-card-details:visible [data-friend-event]')).toHaveValue(eventIds[1]);
 });
 
 test('QR and scanner dialogs expose names, contain focus and restore focus on close',async({page})=>{
