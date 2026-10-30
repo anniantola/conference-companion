@@ -20,14 +20,22 @@ test('same-origin deployments keep packages, rollback, offline caches and person
   test.setTimeout(90000);
   await page.goto('/builder.html');
   await page.evaluate(async()=>{
+    let stage='package cache';
+    try{
     const db=await new Promise((resolve,reject)=>{const request=indexedDB.open('conferenceCompanionPackages',1);request.onupgradeneeded=()=>{request.result.createObjectStore('packages',{keyPath:'key'});request.result.createObjectStore('meta',{keyPath:'base'});};request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
     await new Promise((resolve,reject)=>{const tx=db.transaction(['packages','meta'],'readwrite');tx.objectStore('packages').put({key:'legacy-record',base:'./conference',dataVersion:999,pkg:null});tx.objectStore('meta').put({base:'./conference',activeKey:'legacy-record',history:['legacy-record']});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});db.close();
+    stage='personal state';
     const personal=await new Promise((resolve,reject)=>{const request=indexedDB.open('conferenceCompanionUserData',2);request.onupgradeneeded=()=>{request.result.createObjectStore('states',{keyPath:'conferenceId'});request.result.createObjectStore('profiles',{keyPath:'conferenceId'});const friends=request.result.createObjectStore('friends',{keyPath:'key'});friends.createIndex('conferenceId','conferenceId',{unique:false});request.result.createObjectStore('meta',{keyPath:'key'});};request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
     await new Promise((resolve,reject)=>{const tx=personal.transaction('states','readwrite');tx.objectStore('states').put({conferenceId:'conference-companion-demo',data:{favorites:['legacy-private']}});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});personal.close();
     localStorage.setItem('conferenceCompanion:conference-companion-demo:preferences:v1','{"theme":"dark"}');
-    const oldPhotos=await new Promise((resolve,reject)=>{const request=indexedDB.open('conferenceCompanion:conference-companion-demo:photos',1);request.onupgradeneeded=()=>request.result.createObjectStore('photos',{keyPath:'id',autoIncrement:true});request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
-    await new Promise((resolve,reject)=>{const tx=oldPhotos.transaction('photos','readwrite');tx.objectStore('photos').add({blob:new Blob(['legacy photo'])});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});oldPhotos.close();
+    stage='legacy photo';
+    const {encodeStoredValue}=await import('/src/user-store.js');
+    const oldPhotos=await new Promise((resolve,reject)=>{const request=indexedDB.open('conferenceCompanion:conference-companion-demo:photos',1);request.onupgradeneeded=()=>{const store=request.result.createObjectStore('photos',{keyPath:'id',autoIncrement:true});store.createIndex('ownerKey','ownerKey',{unique:false});};request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
+    const legacyPhoto=await encodeStoredValue({blob:new Blob(['legacy photo'])});
+    await new Promise((resolve,reject)=>{const tx=oldPhotos.transaction('photos','readwrite');tx.objectStore('photos').add(legacyPhoto);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||new Error('Legacy photo fixture could not be stored'));tx.onabort=()=>reject(tx.error||new Error('Legacy photo fixture write aborted'));});oldPhotos.close();
+    stage='legacy cache';
     await caches.open('conference-companion-engine-1.2.12');
+    }catch(error){throw new Error(`Legacy fixture ${stage}: ${error?.message||String(error)}`);}
   });
   const first=await open(page,A);expect(first).toMatchObject({name:'Conference Companion Demo',id:'conference-companion-demo',version:3});
   await page.evaluate(async()=>{
@@ -35,10 +43,11 @@ test('same-origin deployments keep packages, rollback, offline caches and person
     await store.saveState({favorites:['a-only'],posterFavorites:[],notes:{'talk:a-only':'A private note'}});
     await store.saveProfile({name:'A attendee'});
     await store.saveFriend({id:'a-friend',name:'A private contact'});
-    const {attendeeStorageId}=await import('./src/user-store.js');
+    const {attendeeStorageId,encodeStoredValue}=await import('./src/user-store.js');
     localStorage.setItem(`conferenceCompanion:${attendeeStorageId(window.CONFERENCE_PACKAGE.conference.id)}:preferences:v1`,JSON.stringify({compact:true}));
     const db=await new Promise((resolve,reject)=>{const request=indexedDB.open(`conferenceCompanion:${attendeeStorageId(window.CONFERENCE_PACKAGE.conference.id)}:photos`,1);request.onupgradeneeded=()=>{const store=request.result.createObjectStore('photos',{keyPath:'id',autoIncrement:true});store.createIndex('ownerKey','ownerKey',{unique:false});};request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
-    await new Promise((resolve,reject)=>{const tx=db.transaction('photos','readwrite');tx.objectStore('photos').add({ownerKey:'event:a-only',blob:new Blob(['A private photo'])});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});db.close();
+    const photo=await encodeStoredValue({ownerKey:'event:a-only',blob:new Blob(['A private photo'])});
+    await new Promise((resolve,reject)=>{const tx=db.transaction('photos','readwrite');tx.objectStore('photos').add(photo);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||new Error('Scoped photo write failed'));tx.onabort=()=>reject(tx.error||new Error('Scoped photo write aborted'));});db.close();
   });
   const second=await open(page,B);expect(second).toMatchObject({name:'Synthetic Research Exchange',id:first.id,version:1});
   expect((await open(page,`${B}?conference=${B}conference`)).version).toBe(1);
@@ -92,7 +101,8 @@ test('same-origin deployments keep packages, rollback, offline caches and person
     const state=await new Promise((resolve,reject)=>{const tx=user.transaction('states'),r=tx.objectStore('states').get('conference-companion-demo');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);tx.oncomplete=()=>user.close();});
     const photos=await new Promise((resolve,reject)=>{const r=indexedDB.open('conferenceCompanion:conference-companion-demo:photos',1);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
     const photo=await new Promise((resolve,reject)=>{const tx=photos.transaction('photos'),r=tx.objectStore('photos').get(1);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);tx.oncomplete=()=>photos.close();});
-    return {packageMeta,legacyPackage,state,prefs:localStorage.getItem('conferenceCompanion:conference-companion-demo:preferences:v1'),photo:await photo.blob.text()};
+    const {decodeStoredValue}=await import('./src/user-store.js');
+    return {packageMeta,legacyPackage,state,prefs:localStorage.getItem('conferenceCompanion:conference-companion-demo:preferences:v1'),photo:await decodeStoredValue(photo.blob).text()};
   });
   expect(legacy.packageMeta.activeKey).toBe('legacy-record');expect(legacy.legacyPackage.dataVersion).toBe(999);expect(legacy.state.data.favorites).toEqual(['legacy-private']);expect(legacy.prefs).toBe('{"theme":"dark"}');expect(legacy.photo).toBe('legacy photo');
 });
