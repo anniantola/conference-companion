@@ -42,7 +42,8 @@ try{
   assert.ok(entries.has('assets/fonts/inter/OFL.txt'));assert.ok(entries.has('assets/fonts/noto-serif/OFL.txt'));
   assert.ok([...entries.keys()].some(x=>x.startsWith('assets/fonts/inter/')&&x.endsWith('.woff2')));
   assert.ok(textEntry(entries,'index.html').includes('./assets/fonts/fonts.css'));
-  assert.ok(textEntry(entries,'service-worker.js').includes('conference-companion-engine-1.2.12'));
+  assert.ok(textEntry(entries,'service-worker.js').includes('encodeURIComponent(self.registration.scope)'));
+  assert.ok(textEntry(entries,'service-worker.js').includes('1.2.13'));
   assert.match(workflowText(),/cp -r .* assets src schemas conference tools _site\//);
 }finally{globalThis.fetch=oldFetch;}
 console.log('Branding regressions passed: legacy appearance/logo migration, theme assets, sponsor order, offline fonts and deployment parity');

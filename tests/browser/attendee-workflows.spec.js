@@ -135,9 +135,10 @@ test('invalid backup and failed database restore leave all saved personal data i
   await expect(page.locator('.friend-card')).toHaveCount(1);
   const snapshot=()=>page.evaluate(async()=>{
     const store=window.CONFERENCE_SERVICES.userStore,id=window.CONFERENCE_PACKAGE.conference.id;
-    const db=await new Promise((resolve,reject)=>{const r=indexedDB.open(`conferenceCompanion:${id}:photos`,1);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
+    const {attendeeStorageId}=await import('/src/user-store.js');const storageId=attendeeStorageId(id);
+    const db=await new Promise((resolve,reject)=>{const r=indexedDB.open(`conferenceCompanion:${storageId}:photos`,1);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
     const photos=await new Promise((resolve,reject)=>{const tx=db.transaction('photos','readonly'),r=tx.objectStore('photos').getAll();r.onsuccess=()=>resolve(r.result.map(p=>({id:p.id,name:p.name,title:p.customTitle||'',size:p.blob?.size||p.blob?.bytes?.byteLength||0})));r.onerror=()=>reject(r.error);tx.oncomplete=()=>db.close();});
-    return {state:await store.getState(),profile:await store.getProfile(),friends:await store.listFriends(),photos,prefs:localStorage.getItem(`conferenceCompanion:${id}:preferences:v1`)};
+    return {state:await store.getState(),profile:await store.getProfile(),friends:await store.listFriends(),photos,prefs:localStorage.getItem(`conferenceCompanion:${storageId}:preferences:v1`)};
   });
   await page.locator('[data-target="settings"]').click();
   const before=await snapshot();expect(before.profile.name).toBe('Existing profile');expect(before.photos).toHaveLength(1);

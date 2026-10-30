@@ -1,5 +1,11 @@
 # Conference Companion test results
 
+## v1.2.13 deployment isolation — 2026-10-30
+
+Node 22 `test:unit` passed, including schema, semantic, 91-record/18-poster, backup, release, and generated deployment ZIP validation. The complete local Playwright rerun passed **150 cases**: 75 Chromium and 75 Firefox. WebKit could not launch locally because MiniBrowser requires the unavailable system library `libavif.so.16`; the GitHub Actions runner installs WebKit dependencies and is the three-browser release gate.
+
+Cross-deployment browser fixtures serve two complete apps under separate paths on one origin: data v3 and v1 with the same conference ID. Tests cover round trips, reloads, offline launch, simultaneous service-worker caches, an A-only data update, A-only rollback and resume, an A-only engine update while B remains usable offline, equivalent relative/absolute package URLs, personal state/photos/preferences, Builder project separation, and preservation of unscoped legacy records.
+
 ## v1.2.12 maintenance cleanup — 2026-10-29
 
 Before changes, the v1.2.11 Node suite passed locally and GitHub Actions run 40908550151 had passed 213 browser tests. A pre-change synthetic 91-row package snapshot contained 55 presentations, 18 posters, 23 people, and 8 locations. After code cleanup, the generated package matched that snapshot after normalizing only publication time and the intended engine minimum version. The complete v1.2.12 Node 22 suite passed locally. Playwright passed 144 local cases: 72 Chromium and 72 Firefox. Focused regressions verify per-contact Friend Book event selection and bulk-edit identity preservation through reload and Builder backup restoration. Local WebKit could not start because the host lacks `libavif.so.16`; the deployment workflow installs WebKit dependencies and is the complete three-browser verification gate.

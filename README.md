@@ -1,6 +1,6 @@
 # Conference Companion
 
-Current engine release: **v1.2.12**.
+Current engine release: **v1.2.13**.
 
 Conference Companion is a standalone, offline-first conference PWA plus a browser-based Conference Builder. The attendee engine is stable and conference content is published as a normalized, versioned data package rather than being hard-coded into the UI.
 
@@ -46,6 +46,8 @@ Builder Step 2 now provides a source manager, explicit merge/replace-source/repl
 9. falls back to the last-known-good release when offline or when a candidate fails validation.
 
 A same-version release with changed checksums is treated as a mutated release and is not activated. Older network releases are ignored. The Settings page shows the active data release and changelog/notices. Choosing a previous validated release pins it across restarts and disables network package checks until **Resume automatic updates** is selected. Engine updates and conference `dataVersion` releases remain separate; rollback never deletes attendee data.
+
+Each deployment resolves its package path to a canonical absolute URL before using IndexedDB. Its service worker caches engine assets under its own scope, so separate GitHub Pages repositories on one hostname cannot exchange packages, rollback choices, or offline assets. Attendee state, photos, and preferences use both the deployment path and package URL in their storage keys; Builder projects use the deployment path. Old origin-wide records are left untouched because their owning deployment cannot always be determined. The first v1.2.13 launch needs a network connection to seed the new scoped release cache; old rollback pins do not transfer automatically. Restore a previously downloaded personal backup in the intended deployment, and restore a Builder project ZIP in its intended Builder. If no backup exists, keep the browser profile and site data intact for assisted recovery; clearing site data destroys those legacy records.
 
 ### Conference Builder
 

@@ -443,3 +443,9 @@ Profile records and photographs do not confirm programme assignments. A confirme
 ## 26. Maintenance cleanup (v1.2.12)
 
 The attendee Friend Book sorts conference event choices once per render and applies each contact's own selected event while constructing its card. The Builder applies `reconcileAppearanceNames()` to bulk speaker and chair edits as it does to individual row edits. Manual programme rows receive their origin marker when created, before autosave or derived-package generation.
+
+## 27. Cross-deployment storage isolation (v1.2.13)
+
+`canonicalPackageBase()` resolves relative and absolute package paths to the same absolute URL before reading or writing release metadata. The package IndexedDB database remains origin-wide, but metadata and release keys include that canonical URL; version comparisons, rollback locks, and retention cleanup operate only within that package. The service worker names its CacheStorage entry with its registration scope and engine version. Activation deletes only older entries with the same scope prefix, and fetch fallbacks search only that cache. The old origin-wide cache name is retained conservatively.
+
+Attendee state, Friend Book records, photo databases, and local preferences use an opaque key containing both deployment directory and canonical package URL plus the conference ID. Builder projects use the deployment directory. Existing unscoped keys remain in place and are never automatically assigned to a deployment, because the previous format did not record ownership. A downloaded attendee backup or Builder ZIP can be restored explicitly in the intended deployment. Conference entity IDs, calendar UIDs, and backup file formats are unchanged.

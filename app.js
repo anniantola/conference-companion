@@ -1,6 +1,6 @@
 
 import {normalizeEmail,normalizeOrcid,normalizeExternalLink,normalizeWebUrl} from './src/safe-url.js';
-import {encodeStoredValue,decodeStoredValue} from './src/user-store.js';
+import {encodeStoredValue,decodeStoredValue,attendeeStorageId} from './src/user-store.js';
 
 (() => {
   const CONFIG = window.CONFERENCE_CONFIG || {};
@@ -16,8 +16,9 @@ import {encodeStoredValue,decodeStoredValue} from './src/user-store.js';
   const LOCATION_ROWS = CONFIG.locations?.locations || [];
   const LOCATIONS = Object.fromEntries(LOCATION_ROWS.map(x => [x.id, x]));
   const POSTER_SESSIONS = MODEL?.posterSessions || (MODEL?.posterSession ? [MODEL.posterSession] : []);
-  const PREFS_KEY = `conferenceCompanion:${CONFERENCE.id || "default"}:preferences:v1`;
-  const PHOTO_DB = `conferenceCompanion:${CONFERENCE.id || "default"}:photos`;
+  const storageId = attendeeStorageId(CONFERENCE.id);
+  const PREFS_KEY = `conferenceCompanion:${storageId}:preferences:v1`;
+  const PHOTO_DB = `conferenceCompanion:${storageId}:photos`;
 
   const PHOTO_STORE = "photos";
   const defaultState = {

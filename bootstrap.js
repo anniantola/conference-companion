@@ -1,4 +1,4 @@
-import {loadConferencePackage,getPackageDiagnostics,rollbackConferencePackage,resumeConferencePackageUpdates} from './src/package-store.js';
+import {loadConferencePackage,getPackageDiagnostics,rollbackConferencePackage,resumeConferencePackageUpdates,canonicalPackageBase} from './src/package-store.js';
 import {createConferenceModel} from './src/model.js';
 import {createUserStore} from './src/user-store.js';
 import * as calendar from './src/calendar.js';
@@ -7,7 +7,7 @@ import * as qr from './src/qrcode.js';
 import * as backup from './src/backup.js';
 import {normalizeWebUrl} from './src/safe-url.js';
 
-const ENGINE_VERSION='1.2.12';
+const ENGINE_VERSION='1.2.13';
 const qs=new URLSearchParams(location.search);
 const builderPreview=qs.get('builderPreview')==='1'&&window.parent!==window;
 const base=(qs.get('conference')||'./conference').replace(/\/$/,'');
@@ -62,6 +62,7 @@ function legacyFont(value){return value==='serif'?'noto-serif':value==='condense
     }):null;
     const loadInfo=builderPreview?{pkg:previewData,source:'Builder preview',warnings:[],updated:false}:await loadConferencePackage(base,ENGINE_VERSION);const pkg=loadInfo.pkg;
     if(pkg.conference.programmePdf)pkg.conference.programmePdf=resolvePackageUrl(pkg.conference.programmePdf);
+    window.CONFERENCE_STORAGE_SCOPE=canonicalPackageBase(base);
     const model=createConferenceModel(pkg),userStore=createUserStore(pkg.conference.id);
     await userStore.ensureReady();
     const userState=await userStore.getState();

@@ -7,6 +7,15 @@ const DB_VERSION = 1;
 // Keep the active release plus four recent validated releases for rollback.
 export const RELEASE_HISTORY_LIMIT = 5;
 
+// IndexedDB is shared by every application on an origin. Resolve the package
+// against the current page so relative and absolute references share one key.
+export function canonicalPackageBase(base) {
+  const url = new URL(base || './conference', globalThis.location?.href);
+  url.search = '';
+  url.hash = '';
+  return url.href.replace(/\/$/, '');
+}
+
 function openDb() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
@@ -180,7 +189,7 @@ async function downloadCandidate(base, manifest, engineVersion) {
 }
 
 export async function loadConferencePackage(base, engineVersion) {
-  const normalizedBase = String(base || './conference').replace(/\/$/, '');
+  const normalizedBase = canonicalPackageBase(base);
   const meta=await getRecord('meta',normalizedBase).catch(()=>null);
   const stored=await cachedRecords(meta).catch(()=>[]);
   const cachedEntry=stored.find(row=>row.ok)||null;
@@ -255,7 +264,7 @@ export async function loadConferencePackage(base, engineVersion) {
 }
 
 export async function rollbackConferencePackage(base) {
-  const normalizedBase = String(base || './conference').replace(/\/$/, '');
+  const normalizedBase = canonicalPackageBase(base);
   const meta = await getRecord('meta', normalizedBase);
   if(meta?.rollbackActive)throw new Error('Automatic updates are already paused at a rollback release.');
   const candidateKeys=(meta?.history||[]).filter(key=>key!==meta?.activeKey).slice(0,RELEASE_HISTORY_LIMIT-1);
@@ -273,7 +282,7 @@ export async function rollbackConferencePackage(base) {
 }
 
 export async function resumeConferencePackageUpdates(base){
-  const normalizedBase=String(base||'./conference').replace(/\/$/,'');
+  const normalizedBase=canonicalPackageBase(base);
   const current=await getRecord('meta',normalizedBase);
   if(!current?.rollbackActive)return false;
   const updated=await writeMeta(normalizedBase,meta=>meta.rollbackActive?{...meta,rollbackActive:false,rollbackKey:null,rollbackDataVersion:null,updatedAt:Date.now()}:null);
@@ -281,7 +290,7 @@ export async function resumeConferencePackageUpdates(base){
 }
 
 export async function getPackageDiagnostics(base) {
-  const normalizedBase = String(base || './conference').replace(/\/$/, '');
+  const normalizedBase = canonicalPackageBase(base);
   const meta = await getRecord('meta', normalizedBase).catch(() => null);
   if (!meta) return {base:normalizedBase, activeKey:null, history:[],rollbackActive:false,records:[]};
   const records=[];

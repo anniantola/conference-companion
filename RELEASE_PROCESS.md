@@ -1,5 +1,11 @@
 # Release protocol (static GitHub Pages pilot)
 
+## v1.2.13 deployment isolation
+
+Deploy the v1.2.13 engine separately to every conference repository. For an existing Builder project, open the v1.2.13 Builder, restore its project ZIP if needed, generate a fresh deployment ZIP, commit its contents to that conference repository, and let its own Pages workflow validate and deploy it. Do not copy the original example's `conference/` directory into another conference. Keep the published data version and immutable IDs when conference content is unchanged; increment `dataVersion` through the Builder when publishing changed content. Verify each deployment's Settings page and offline launch after its workflow succeeds.
+
+The previous origin-wide package, personal-data, photo, preference, and Builder-project records are not deleted or automatically migrated. Their owner may be ambiguous when several deployments shared an ID. Open each upgraded app online once to seed its scoped offline package; old rollback pins and release history are not imported automatically. To recover personal or Builder data, import a previously downloaded personal-data backup or Builder project ZIP into the intended v1.2.13 deployment. If a backup is unavailable, preserve the browser profile and site data for assisted recovery; do not clear storage or copy raw records into a deployment without checking ownership. A conference still running an older engine can interfere with other older installations until it is upgraded separately.
+
 ## v1.2.12 maintenance cleanup
 
 This release removes verified unused attendee and Builder code and obsolete contact-card CSS. Friend Book event choices are prepared once per render while each contact keeps its own event selection. Step 3 bulk person-name edits use the existing appearance reconciliation helper, preventing an old confirmed person ID from following a replacement name. Package content remains unchanged for an unchanged project apart from engine version and generated publication metadata.

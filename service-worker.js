@@ -1,4 +1,6 @@
-const CACHE = "conference-companion-engine-1.2.12";
+// CacheStorage is origin-wide, even though this worker controls only its scope.
+const CACHE_PREFIX = `conference-companion-engine:${encodeURIComponent(self.registration.scope)}:`;
+const CACHE = `${CACHE_PREFIX}1.2.13`;
 const ENGINE_ASSETS = [
   "./",
   "./index.html",
@@ -49,7 +51,7 @@ self.addEventListener("install", event => {
 self.addEventListener("activate", event => {
   event.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(key => key.startsWith("conference-companion-engine-") && key !== CACHE).map(key => caches.delete(key))))
+      .then(keys => Promise.all(keys.filter(key => key.startsWith(CACHE_PREFIX) && key !== CACHE).map(key => caches.delete(key))))
       .then(() => self.clients.claim())
   );
 });
@@ -62,7 +64,7 @@ self.addEventListener("fetch", event => {
   // scripts can otherwise mix new modules with an old page during note editing.
   const engineUrl = new URL(url.href);engineUrl.search='';
   const isEngineAsset=ENGINE_ASSETS.some(path=>new URL(path,self.location.href).href===engineUrl.href);
-  const isFontAsset=url.pathname.includes("/assets/fonts/");
+  const isFontAsset=url.href.startsWith(new URL('./assets/fonts/',self.registration.scope).href);
   if(url.origin===self.location.origin&&isFontAsset){
     event.respondWith(caches.open(CACHE).then(cache=>cache.match(engineUrl.href)).then(cached=>cached||fetch(event.request)));
     return;
@@ -73,8 +75,8 @@ self.addEventListener("fetch", event => {
   }
 
   // Runtime JSON Schemas belong to the engine and are safe to cache.
-  if (url.pathname.includes("/schemas/") && url.pathname.endsWith(".json")) {
-    event.respondWith(caches.match(event.request).then(cached => cached || fetch(event.request)));
+  if (url.href.startsWith(new URL('./schemas/',self.registration.scope).href) && url.pathname.endsWith(".json")) {
+    event.respondWith(caches.open(CACHE).then(cache=>cache.match(event.request)).then(cached => cached || fetch(event.request)));
     return;
   }
 
@@ -86,7 +88,7 @@ self.addEventListener("fetch", event => {
   }
 
   if (url.pathname.endsWith(".webmanifest") || url.pathname.endsWith("/service-worker.js")) {
-    event.respondWith(fetch(event.request).catch(() => caches.match(event.request)));
+    event.respondWith(fetch(event.request).catch(() => caches.open(CACHE).then(cache=>cache.match(event.request))));
     return;
   }
 
@@ -100,13 +102,13 @@ self.addEventListener("fetch", event => {
           }
           return response;
         })
-        .catch(() => event.request.mode === "navigate" ? caches.match("./index.html") : caches.match(event.request))
+        .catch(() => caches.open(CACHE).then(cache=>event.request.mode === "navigate" ? cache.match("./index.html") : cache.match(event.request)))
     );
     return;
   }
 
   event.respondWith(
-    caches.match(event.request).then(cached => cached || fetch(event.request).then(response => {
+    caches.open(CACHE).then(cache=>cache.match(event.request)).then(cached => cached || fetch(event.request).then(response => {
       if (response && response.status === 200 && url.origin === self.location.origin) {
         const copy = response.clone();
         caches.open(CACHE).then(cache => cache.put(event.request, copy));

@@ -3,6 +3,16 @@ const DB_VERSION = 2;
 const USER_SCHEMA_VERSION = 1;
 const STORED_BLOB = '__conferenceCompanionStoredBlobV1';
 const STORED_BYTES = '__conferenceCompanionStoredBytesV1';
+
+// Personal storage follows the package, not just its conference ID: separate
+// deployments may legitimately publish packages with the same ID.
+export function attendeeStorageId(conferenceId, packageBase = globalThis.CONFERENCE_STORAGE_SCOPE || new URL('./conference', globalThis.location?.href).href) {
+  const url = new URL(packageBase, globalThis.location?.href);
+  url.search = '';
+  url.hash = '';
+  const deployment = new URL('./', globalThis.location?.href).href;
+  return `scope:${encodeURIComponent(deployment)}:${encodeURIComponent(url.href.replace(/\/$/, ''))}:${String(conferenceId || 'default')}`;
+}
 const BYTE_VIEW_TYPES=Object.fromEntries([
   'Uint8Array','Uint8ClampedArray','Int8Array','Uint16Array','Int16Array','Uint32Array','Int32Array',
   'Float32Array','Float64Array','BigInt64Array','BigUint64Array','DataView'
@@ -74,7 +84,7 @@ function txRequest(db, storeName, mode, operation) {
 }
 
 export function createUserStore(conferenceId) {
-  const id = String(conferenceId || "default");
+  const id = attendeeStorageId(conferenceId);
   return {
     async ensureReady() {
       const db = await openDb();

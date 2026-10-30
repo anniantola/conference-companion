@@ -9,6 +9,7 @@ const pilotCsv=`date,start,end,type,session,title,speaker,affiliation,room,track
 const svg=color=>`<svg xmlns="http://www.w3.org/2000/svg" width="120" height="40"><rect width="120" height="40" fill="${color}"/></svg>`;
 async function openPilotPreview(page,{expectReady=true}={}){
   await page.goto('/builder.html');
+  await expect(page.locator('body')).toHaveAttribute('data-builder-ready','true');
   await page.locator('[data-config="name"]').fill('Pilot Preview Conference');
   await page.locator('[data-config="shortName"]').fill('Pilot');
   await page.locator('[data-config="startDate"]').fill('2032-03-01');
