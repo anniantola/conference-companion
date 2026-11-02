@@ -1,5 +1,13 @@
 # Conference Companion test results
 
+## v1.2.14 shared engine — 2026-11-02
+
+Before removing duplicated files from `conference-test`, its original schema and semantic checks passed, the companion Node 22 unit suite passed, and the shared build staged the DEMO conference with 39 sessions, 57 presentations and 18 posters. The staged site loaded online and offline in Chromium and Firefox, with deployment-scoped storage.
+
+After removal, `conference-test` passed `npm test` and `npm run stage`; its staged site again passed the Chromium and Firefox online/offline smoke test. The companion Node 22 unit suite passed, including extraction, validation and staging of all three generated data-only deployment ZIPs. The final Playwright run passed **150 of 150 cases**: 75 Chromium and 75 Firefox. The scoped cache, engine update, Builder export and PWA asset cases passed in both browsers after the v1.2.14 cache version bump.
+
+WebKit could not launch on this host because `libavif.so.16` is missing. `playwright install-deps webkit` was attempted, but sudo requires a password unavailable in this environment. The GitHub Actions workflow installs browser dependencies before its full three-browser gate; no v1.2.14 Pages deployment has been run yet.
+
 ## v1.2.13 deployment isolation — 2026-10-30
 
 Node 22 `test:unit` passed, including schema, semantic, 91-record/18-poster, backup, release, and generated deployment ZIP validation. The complete local Playwright rerun passed **150 cases**: 75 Chromium and 75 Firefox. WebKit could not launch locally because MiniBrowser requires the unavailable system library `libavif.so.16`; the GitHub Actions runner installs WebKit dependencies and is the three-browser release gate.

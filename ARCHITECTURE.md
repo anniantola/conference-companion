@@ -187,13 +187,14 @@ ICS exports include:
 
 ## 10. Static deployment boundary
 
-The Builder generates a repository-ready static deployment ZIP containing:
+The Builder generates a repository-ready conference deployment ZIP containing:
 
-- stable attendee engine;
 - validated conference package;
 - PWA manifest/icons/branding assets;
-- JSON Schemas and validators;
-- GitHub Pages workflow with `npm test` as a deployment gate.
+- a small local build entry point;
+- GitHub Pages workflow that checks out the shared engine and runs `npm test` before staging.
+
+`tools/deployment-engine.mjs` in the engine repository validates a conference package and stages the attendee runtime, schemas and offline fonts with deployment-specific data. A conference repository can track its own data and Pages history without tracking copies of engine source files. Generated ZIPs use this same boundary.
 
 No organizer or GitHub credentials are embedded in the attendee PWA. Direct managed GitHub publishing, Git tags/releases, custom-domain automation, `webcal`, push and organizer accounts belong to the optional managed/Cloud layer and are intentionally not required by this static implementation.
 
@@ -343,7 +344,7 @@ Step 8 loads `index.html` in a same-origin iframe with the current Builder packa
 
 Builder projects retain legacy darkMode, typography, headerStyle, logo, and single-file sponsor records. On load, old darkMode true maps to the dark attendee default and false maps to follow-device. A legacy logo remains the fallback for both theme variants. New branding stores defaultAppearance, independent previewAppearance, logoLight/logoDark, separate heading/body font IDs, theme-specific header backgrounds, logo alignment and size, and ordered sponsor records. Preview appearance is not serialized into conference branding.json.
 
-The attendee runtime resolves defaultAppearance before the deprecated boolean and applies theme logo/background variants whenever the actual theme changes. sponsorLogos carries each variant and display height; sponsorAssets remains for older readers. The Builder preview and deployment ZIP use the same branding package and paths. The generated ZIP and GitHub Pages artifact include 1.4 MB of local WOFF2 Unicode subsets, the font stylesheet, and six OFL notices. The service worker precaches these assets so every curated choice remains available offline. Contrast checks warn when a brand color is weak for white text; primary buttons choose black or white foregrounds automatically.
+The attendee runtime resolves defaultAppearance before the deprecated boolean and applies theme logo/background variants whenever the actual theme changes. sponsorLogos carries each variant and display height; sponsorAssets remains for older readers. The Builder preview and staged deployment use the same branding package and paths. The Pages artifact stages 1.4 MB of local WOFF2 Unicode subsets, the font stylesheet, and six OFL notices from the shared engine. The service worker precaches these assets so every curated choice remains available offline. Contrast checks warn when a brand color is weak for white text; primary buttons choose black or white foregrounds automatically.
 
 ## 19. Project backup and startup safety (v1.2.5)
 

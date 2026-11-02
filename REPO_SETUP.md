@@ -1,6 +1,6 @@
 # Repository setup
 
-This repository is a standalone Conference Companion development repository.
+This repository owns the attendee engine, Builder, validators, schemas and tests. Conference-specific repositories own only their package data, branding and GitHub Pages workflow.
 
 ## GitHub Pages
 
@@ -12,6 +12,6 @@ This repository is a standalone Conference Companion development repository.
 
 ## Creating a conference deployment
 
-Use the Conference Builder and choose **Download repository-ready deployment ZIP**. The generated ZIP contains the stable attendee engine, a validated conference package, PWA identity assets, JSON Schema/semantic validators and a GitHub Pages workflow.
+Use the Conference Builder and choose **Download repository-ready deployment ZIP**. The generated ZIP contains conference data, PWA identity assets and a GitHub Pages workflow. The workflow checks out this repository as the shared engine, validates the conference package and stages a static attendee site.
 
-Upload the generated ZIP contents to a conference-specific repository root and enable GitHub Pages through GitHub Actions.
+Upload the generated ZIP contents to a conference-specific repository root and enable GitHub Pages through GitHub Actions. The repositories retain separate histories and deployments. Keep this engine repository beside a conference repository for local `npm test` and `npm run stage`, or set `CONFERENCE_ENGINE_DIR`.

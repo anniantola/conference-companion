@@ -4,15 +4,6 @@ import {calendarUidForEntity} from '../calendar.js';
 import {CURRENT_SCHEMA_VERSION} from '../migrations.js';
 import {validatePackageSchemas} from '../json-schema.js';
 
-const ENGINE_FILES = [
-  'index.html','app.js','bootstrap.js','styles.css','service-worker.js',
-  'assets/fonts/manifest.json',
-  'src/validation.js','src/safe-url.js','src/json-schema.js','src/migrations.js','src/package-store.js','src/model.js','src/user-store.js',
-  'src/calendar.js','src/vcard.js','src/qrcode.js','src/backup.js','src/zip.js',
-  'src/vendor/qr-scanner/qr-scanner.min.js','src/vendor/qr-scanner/qr-scanner-worker.min.js','src/vendor/qr-scanner/LICENSE'
-];
-const SCHEMA_FILES=['conference-manifest.schema.json','conference.schema.json','programme.schema.json','people.schema.json','locations.schema.json','branding.schema.json'];
-
 function slug(value,prefix='id'){
   const s=String(value||'').trim().toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
   return s||prefix;
@@ -526,10 +517,10 @@ async function imageBytesToPng(asset,size){
 async function fetchBytes(path){const r=await fetch(path,{cache:'no-store'});if(!r.ok)throw new Error(`Could not include engine file ${path}`);return new Uint8Array(await r.arrayBuffer());}
 function manifestText(pkg){return JSON.stringify({name:pkg.conference.name,short_name:pkg.conference.shortName||pkg.conference.name,id:'./',start_url:'./',scope:'./',display:'standalone',background_color:'#000000',theme_color:pkg.branding.primary||'#000000',icons:[{src:'./icon-192.png',sizes:'192x192',type:'image/png',purpose:'any'},{src:'./icon-512.png',sizes:'512x512',type:'image/png',purpose:'any maskable'}]},null,2)+'\n';}
 function sharePreviewSvg(pkg){const title=String(pkg.conference.shortName||pkg.conference.name||'Conference').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630"><rect width="1200" height="630" fill="${pkg.branding.primary||'#000'}"/><rect x="60" y="60" width="1080" height="510" rx="44" fill="#fff" opacity=".96"/><text x="110" y="285" font-family="system-ui,sans-serif" font-weight="700" font-size="78" fill="#111">${title}</text><text x="110" y="370" font-family="system-ui,sans-serif" font-size="38" fill="#444">Conference Companion</text></svg>`;}
-export function workflowText(){return `name: Validate and deploy Conference Companion\n\non:\n  push:\n    branches: ["main"]\n  workflow_dispatch:\n\npermissions:\n  contents: read\n  pages: write\n  id-token: write\n\nconcurrency:\n  group: "pages"\n  cancel-in-progress: false\n\njobs:\n  deploy:\n    environment:\n      name: github-pages\n      url: \${{ steps.deployment.outputs.page_url }}\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@v6\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n      - name: Validate conference package\n        run: npm test\n      - name: Stage public application files\n        run: |\n          mkdir _site\n          cp -r index.html app.js bootstrap.js styles.css service-worker.js manifest.webmanifest icon-*.png share-preview.svg assets src schemas conference tools _site/\n      - uses: actions/configure-pages@v5\n      - uses: actions/upload-pages-artifact@v4\n        with:\n          path: "_site"\n      - name: Deploy to GitHub Pages\n        id: deployment\n        uses: actions/deploy-pages@v4\n`;}
-function generatedPackageJson(){return JSON.stringify({name:'conference-companion-deployment',version:'1.2.13',private:true,type:'module',scripts:{schema:'node tools/schema-check.mjs conference',validate:'node tools/validate-conference.mjs conference',test:'npm run schema && npm run validate'}},null,2)+'\n';}
+export function workflowText(){return `name: Validate and deploy Conference Companion\n\non:\n  push:\n    branches: ["main"]\n  workflow_dispatch:\n\npermissions:\n  contents: read\n  pages: write\n  id-token: write\n\nconcurrency:\n  group: "pages"\n  cancel-in-progress: false\n\njobs:\n  deploy:\n    environment:\n      name: github-pages\n      url: \${{ steps.deployment.outputs.page_url }}\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@v6\n      - name: Check out shared attendee engine\n        uses: actions/checkout@v6\n        with:\n          repository: anniantola/conference-companion\n          ref: v1.2.14\n          path: .engine\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n      - name: Validate conference package\n        run: npm test\n      - name: Stage public application files\n        run: npm run stage\n      - uses: actions/configure-pages@v5\n      - uses: actions/upload-pages-artifact@v4\n        with:\n          path: "_site"\n      - name: Deploy to GitHub Pages\n        id: deployment\n        uses: actions/deploy-pages@v4\n`;}
+function generatedPackageJson(){return JSON.stringify({name:'conference-companion-deployment',version:'1.2.14',private:true,type:'module',scripts:{test:'node tools/deployment.mjs check',stage:'node tools/deployment.mjs stage'}},null,2)+'\n';}
 
-/** A repository-ready static deployment ZIP: stable engine + generated package + branded install assets. */
+/** A repository-ready data-only deployment ZIP, built with the shared engine. */
 export async function packageZip(project){
   const {pkg,report}=await buildPackage(project);if(report.errors.length)throw new Error(report.errors.join('\n'));
   const jsons={'conference.json':JSON.stringify(pkg.conference,null,2)+'\n','programme.json':JSON.stringify(pkg.programme,null,2)+'\n','people.json':JSON.stringify(pkg.people,null,2)+'\n','locations.json':JSON.stringify(pkg.locations,null,2)+'\n','branding.json':JSON.stringify(pkg.branding,null,2)+'\n'};
@@ -545,22 +536,7 @@ export async function packageZip(project){
   }
   for(const person of pkg.people.people||[]){const asset=project.peoplePhotos?.[person.id];if(!asset||!person.photoUrl)continue;const bytes=await readProjectAsset(asset);if(bytes)entries.push({name:`conference/${person.photoUrl}`,data:bytes});}
 
-  // Include the stable attendee engine exactly as deployed with the Builder.
-  for(const path of ENGINE_FILES){
-    if(path==='index.html'){
-      const bytes=await fetchBytes('./index.html');
-      let html=new TextDecoder().decode(bytes);
-      const description=`Conference companion for ${pkg.conference.name}`;
-      const escapeAttr=s=>String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
-      html=html.replace('</head>',`  <meta property="og:type" content="website">\n  <meta property="og:title" content="${escapeAttr(pkg.conference.name)}">\n  <meta property="og:description" content="${escapeAttr(description)}">\n  <meta property="og:image" content="share-preview.svg">\n  <meta name="twitter:card" content="summary_large_image">\n</head>`);
-      entries.push({name:path,data:html});
-    } else entries.push({name:path,data:await fetchBytes(`./${path}`)});
-  }
-  const fontManifest=JSON.parse(new TextDecoder().decode(await fetchBytes('./assets/fonts/manifest.json')));
-  for(const path of fontManifest.assets||[])entries.push({name:`assets/fonts/${path}`,data:await fetchBytes(`./assets/fonts/${path}`)});
-  entries.push({name:'tools/validate-conference.mjs',data:await fetchBytes('./tools/validate-conference.mjs')},{name:'tools/schema-check.mjs',data:await fetchBytes('./tools/schema-check.mjs')});
-  for(const file of SCHEMA_FILES)entries.push({name:`schemas/${file}`,data:await fetchBytes(`./schemas/${file}`)});
-  entries.push({name:'.nojekyll',data:''},{name:'package.json',data:generatedPackageJson()},{name:'.github/workflows/deploy.yml',data:workflowText()},{name:'manifest.webmanifest',data:manifestText(pkg)},{name:'share-preview.svg',data:sharePreviewSvg(pkg)});
+  entries.push({name:'.nojekyll',data:''},{name:'.gitignore',data:'.engine/\n_site/\n'},{name:'tools/deployment.mjs',data:await fetchBytes('./tools/deployment.mjs')},{name:'package.json',data:generatedPackageJson()},{name:'.github/workflows/deploy.yml',data:workflowText()},{name:'manifest.webmanifest',data:manifestText(pkg)},{name:'share-preview.svg',data:sharePreviewSvg(pkg)});
 
   const iconSource=project.appIcon?.bytes?project.appIcon:(project.logo?.bytes?project.logo:null);
   for(const size of [180,192,512]){
@@ -568,6 +544,6 @@ export async function packageZip(project){
     if(!png)png=await fetchBytes(`./icon-${size}.png`);
     entries.push({name:`icon-${size}.png`,data:png});
   }
-  entries.push({name:'DEPLOY.md',data:`# Conference Companion deployment\n\nThis ZIP is repository-ready. Upload its contents to a fresh GitHub repository root, enable GitHub Pages with GitHub Actions, and push to main.\n\nConference: ${pkg.conference.name}\nData version: ${pkg.manifest.dataVersion}\nGenerated: ${pkg.manifest.publishedAt}\n`});
+  entries.push({name:'DEPLOY.md',data:`# Conference Companion deployment\n\nThis ZIP contains conference data and branding. Its Pages workflow checks out the shared attendee engine from anniantola/conference-companion, validates the package, stages the application and deploys this repository independently.\n\nFor local checks, clone conference-companion beside this repository or set CONFERENCE_ENGINE_DIR, then run npm test and npm run stage.\n\nConference: ${pkg.conference.name}\nData version: ${pkg.manifest.dataVersion}\nGenerated: ${pkg.manifest.publishedAt}\n`});
   return {blob:createStoredZip(entries),pkg,report};
 }

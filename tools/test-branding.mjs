@@ -38,12 +38,9 @@ try{
   assert.equal(published.sponsorLogos[0].height,64);assert.equal(published.sponsorLogos[1].name,'Second sponsor');
   assert.equal(new TextDecoder().decode(entries.get('conference/'+published.logoLight)),lightSvg);
   assert.equal(new TextDecoder().decode(entries.get('conference/'+published.logoDark)),darkSvg);
-  assert.ok(entries.has('assets/fonts/fonts.css'));assert.ok(entries.has('assets/fonts/manifest.json'));
-  assert.ok(entries.has('assets/fonts/inter/OFL.txt'));assert.ok(entries.has('assets/fonts/noto-serif/OFL.txt'));
-  assert.ok([...entries.keys()].some(x=>x.startsWith('assets/fonts/inter/')&&x.endsWith('.woff2')));
-  assert.ok(textEntry(entries,'index.html').includes('./assets/fonts/fonts.css'));
-  assert.ok(textEntry(entries,'service-worker.js').includes('encodeURIComponent(self.registration.scope)'));
-  assert.ok(textEntry(entries,'service-worker.js').includes('1.2.13'));
-  assert.match(workflowText(),/cp -r .* assets src schemas conference tools _site\//);
+  assert.ok(!entries.has('assets/fonts/fonts.css'));assert.ok(!entries.has('index.html'));assert.ok(!entries.has('service-worker.js'));
+  assert.ok(entries.has('tools/deployment.mjs'));
+  assert.match(workflowText(),/repository: anniantola\/conference-companion/);
+  assert.match(workflowText(),/run: npm run stage/);
 }finally{globalThis.fetch=oldFetch;}
 console.log('Branding regressions passed: legacy appearance/logo migration, theme assets, sponsor order, offline fonts and deployment parity');

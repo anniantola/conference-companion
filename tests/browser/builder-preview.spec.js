@@ -293,8 +293,9 @@ test('complete Step 6 branding stays in sync with both themes and the exported d
   expect(published.sponsorLogos[0].height).toBe(62);
   expect(new TextDecoder().decode(zip.get('conference/'+published.logoLight))).toContain('#654321');
   expect(new TextDecoder().decode(zip.get('conference/'+published.logoDark))).toContain('#abcdef');
-  expect(zip.has('assets/fonts/fonts.css')).toBe(true);
-  expect(zip.has('assets/fonts/space-grotesk/OFL.txt')).toBe(true);
+  expect(zip.has('tools/deployment.mjs')).toBe(true);
+  expect(zip.has('assets/fonts/fonts.css')).toBe(false);
+  expect(textEntry(zip,'.github/workflows/deploy.yml')).toContain('repository: anniantola/conference-companion');
 });
 
 for(const width of [320,375,768]){

@@ -48,6 +48,6 @@ assert(workflowText().includes('run: npm test'),'Generated deployments must vali
 assert(workflowText().includes('runs-on: ubuntu-24.04'),'Generated deployments must use the tested runner image');
 const {execFileSync}=await import('node:child_process');
 execFileSync(process.execPath,['tools/stage-site.mjs']);
-for(const path of ['index.html','builder.html','src/builder/main.js','src/vendor/qr-scanner/qr-scanner.min.js','src/vendor/qr-scanner/qr-scanner-worker.min.js','schemas/programme.schema.json','conference/conference-manifest.json','tools/validate-conference.mjs','assets/fonts/fonts.css','assets/fonts/manifest.json','assets/fonts/inter/OFL.txt'])assert(fs.existsSync(`_site/${path}`),`Missing staged public file ${path}`);
+for(const path of ['index.html','builder.html','src/builder/main.js','src/vendor/qr-scanner/qr-scanner.min.js','src/vendor/qr-scanner/qr-scanner-worker.min.js','schemas/programme.schema.json','conference/conference-manifest.json','tools/validate-conference.mjs','tools/deployment.mjs','assets/fonts/fonts.css','assets/fonts/manifest.json','assets/fonts/inter/OFL.txt'])assert(fs.existsSync(`_site/${path}`),`Missing staged public file ${path}`);
 for(const path of ['node_modules','tests','test-results','.git','package-lock.json'])assert(!fs.existsSync(`_site/${path}`),`Private/development file published: ${path}`);
 console.log('Pages artifact and generated workflow regressions OK');

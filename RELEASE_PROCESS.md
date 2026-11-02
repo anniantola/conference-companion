@@ -1,5 +1,9 @@
 # Release protocol (static GitHub Pages pilot)
 
+## v1.2.14 shared engine
+
+The engine repository now supplies the attendee runtime, schemas, validators and offline fonts to every conference deployment during its own Pages build. Conference repositories track only conference data, install branding, the build entry point and their own workflow. Publish the engine repository and its `v1.2.14` tag first; then publish each conference repository separately with its engine ref pinned to that release. Keep conference `dataVersion` and entity IDs unchanged when its data has not changed. The Builder's deployment ZIP now contains only conference-specific content and fetches the shared engine at build time.
+
 ## v1.2.13 deployment isolation
 
 Deploy the v1.2.13 engine separately to every conference repository. For an existing Builder project, open the v1.2.13 Builder, restore its project ZIP if needed, generate a fresh deployment ZIP, commit its contents to that conference repository, and let its own Pages workflow validate and deploy it. Do not copy the original example's `conference/` directory into another conference. Keep the published data version and immutable IDs when conference content is unchanged; increment `dataVersion` through the Builder when publishing changed content. Verify each deployment's Settings page and offline launch after its workflow succeeds.
