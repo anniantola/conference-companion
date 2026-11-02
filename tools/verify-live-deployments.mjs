@@ -23,6 +23,7 @@ async function verifyOnline(page, deployment) {
     const manifest = await fetch(manifestLink.href).then(response => response.json());
     return {
       name: window.CONFERENCE_PACKAGE.conference.name,
+      engineVersion: window.CONFERENCE_CONFIG.engineVersion,
       id: window.CONFERENCE_PACKAGE.conference.id,
       sessions: window.CONFERENCE_PACKAGE.programme.sessions.length,
       presentations: window.CONFERENCE_PACKAGE.programme.presentations.length,
@@ -37,6 +38,7 @@ async function verifyOnline(page, deployment) {
     };
   });
   assert.equal(live.name, deployment.conference.name);
+  assert.equal(live.engineVersion,'1.2.15');
   assert.equal(live.id, deployment.conference.id);
   assert.equal(live.sessions, deployment.programme.sessions.length);
   assert.equal(live.presentations, deployment.programme.presentations.length);
@@ -56,7 +58,7 @@ async function verifyOnline(page, deployment) {
     assert.deepEqual(await response.body(), expected, `${file} differs from local repository`);
   }
   console.log(`Conference files match ${deployment.url.href}`);
-  for (const file of ['app.js', 'bootstrap.js', 'service-worker.js', 'src/package-store.js']) {
+  for (const file of ['app.js', 'bootstrap.js', 'service-worker.js', 'styles.css', 'src/package-store.js', 'src/vcard.js', 'src/qrcode.js', 'src/publications.js', 'src/friend-contact.js', 'src/vendor/qrcode-generator/qrcode.js']) {
     const expected = await readFile(join(deployments[0].root, file));
     const response = await page.request.get(new URL(file, deployment.url).href);
     assert.equal(response.status(), 200, `${deployment.url.href}${file}`);
@@ -66,16 +68,37 @@ async function verifyOnline(page, deployment) {
   return live;
 }
 
+async function verifySharingUi(page,name){
+  await page.locator('[data-target="friends"]').click();
+  await page.locator('#editProfileBtn').click();
+  await page.locator('#profileName').fill(name);
+  await page.locator('#profileEmail').fill('verification@example.org');
+  await page.locator('#profilePapers').fill('Live DOI paper | doi:10.1234/live-test');
+  await page.locator('#saveProfileBtn').click();
+  await page.locator('#myCardSummary a[href="https://doi.org/10.1234/live-test"]').waitFor();
+  await page.locator('#friendShareBtn').click();
+  assert.equal(await page.locator('#shareQrCompact').isChecked(),true);
+  await page.locator('#shareQrFull').check();
+  assert.ok((await page.locator('#shareQrFields').textContent()).includes('Selected papers'));
+  const decoded=await page.evaluate(async()=>{
+    const Scanner=(await import('./src/vendor/qr-scanner/qr-scanner.min.js')).default;
+    return Scanner.scanImage(document.querySelector('#shareQrCanvas'));
+  });
+  assert.ok(decoded.includes('X-PAPER:Live DOI paper | https://doi.org/10.1234/live-test'));
+  await page.locator('#shareQrClose').click();
+  console.log(`Friend Book links and Full QR sharing OK for ${name}`);
+}
+
 for (const [browserName, browserType] of Object.entries({chromium, firefox})) {
   const browser = await browserType.launch();
   try {
     const context = await browser.newContext();
     const page = await context.newPage();
     const first = await verifyOnline(page, deployments[0]);
-    await page.evaluate(() => window.CONFERENCE_SERVICES.userStore.saveProfile({name: 'Engine verification A'}));
+    await verifySharingUi(page,'Engine verification A');
     const second = await verifyOnline(page, deployments[1]);
     assert.ok(!second.body.includes(first.name), 'Conference Test shows the engine example conference');
-    await page.evaluate(() => window.CONFERENCE_SERVICES.userStore.saveProfile({name: 'Engine verification B'}));
+    await verifySharingUi(page,'Engine verification B');
     const keys = await page.evaluate(() => caches.keys());
     for (const deployment of deployments) assert.ok(keys.some(key => key.includes(encodeURIComponent(deployment.url.href))), `Missing scoped cache for ${deployment.url.href}`);
     await context.setOffline(true);

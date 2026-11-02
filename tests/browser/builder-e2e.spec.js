@@ -175,6 +175,7 @@ test('removing the last programme source updates rendered people, locations and 
   await page.goto('/builder.html');
   await page.locator('[data-config="name"]').fill('Source removal pilot');await page.locator('[data-config="shortName"]').fill('Removal');
   await page.locator('[data-config="startDate"]').fill('2032-05-05');await page.locator('[data-config="endDate"]').fill('2032-05-05');
+  await expect.poll(()=>page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return (await loadProject())?.conference?.name;})).toBe('Source removal pilot');
   await page.locator('[data-goto-step="2"]').click();
   const csv=`date,start,end,type,session,title,speaker,affiliation,room,track,posterNumber\n2032-05-05,09:00,09:30,talk,Methods,Imported talk,Ada Import,Imported Lab,Hall A,North,\n2032-05-05,12:00,13:00,poster,Poster session,Imported poster,Bea Poster,Poster Lab,Poster Hall,Common,P1`;
   await page.locator('#programmeFile').setInputFiles({name:'last-source.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});
@@ -200,7 +201,7 @@ test('removing the last programme source updates rendered people, locations and 
   await expect.poll(()=>page.evaluate(()=>document.querySelector('#attendeePreview')?.contentDocument?.querySelector('#programList')?.textContent||'')).not.toContain('Imported talk');
   await expect.poll(()=>page.evaluate(()=>document.querySelector('#attendeePreview')?.contentDocument?.querySelector('#programList')?.textContent||'')).not.toContain('Imported poster');
   const stored=await page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return loadProject();});
-  expect(stored.sourceFiles).toHaveLength(0);expect(stored.rows.map(row=>row.title)).toEqual(['Manual event']);expect(stored.rows[0].source).toBeUndefined();expect(stored.rows[0].manuallyMaintained).toBeFalsy();
+  expect(stored.conference.name).toBe('Source removal pilot');expect(stored.sourceFiles).toHaveLength(0);expect(stored.rows.map(row=>row.title)).toEqual(['Manual event']);expect(stored.rows[0].source).toBeUndefined();expect(stored.rows[0].manuallyMaintained).toBeFalsy();
   await page.reload();await expect(page.locator('[data-step="8"]')).toBeVisible();await page.locator('[data-goto-step="3"]').click();await expect(page.locator('#rowCount')).toHaveText('1 rows');await expect(page.locator('#reviewTable input[data-field="title"]')).toHaveValue('Manual event');
   await page.locator('[data-goto-step="8"]').click();await expect.poll(()=>page.evaluate(()=>document.querySelector('#attendeePreview')?.contentDocument?.querySelector('#programList')?.textContent||'')).toContain('Manual event');
   const backupPromise=page.waitForEvent('download');await page.locator('#exportBuilderProject').click();const backup=await backupPromise;

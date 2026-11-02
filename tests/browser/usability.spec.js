@@ -23,7 +23,7 @@ test('PWA assets, Pages scope, native prompt and offline QR fallback are operati
     for(const icon of manifest.icons){const bitmap=await createImageBitmap(await fetch(icon.src).then(r=>r.blob()));dimensions.push([bitmap.width,bitmap.height]);bitmap.close();}
     return {manifest,scope:registration.scope,dimensions,caches:await window.caches.keys()};
   });
-  const cacheName=`conference-companion-engine:${encodeURIComponent(result.scope)}:1.2.14`;
+  const cacheName=`conference-companion-engine:${encodeURIComponent(result.scope)}:1.2.15`;
   expect(result.manifest).toMatchObject({id:'./',start_url:'./',scope:'./',display:'standalone'});
   expect(result.scope).toBe('http://127.0.0.1:8080/');
   expect(result.dimensions).toEqual([[192,192],[512,512]]);
@@ -135,7 +135,7 @@ test('Friend Book is an alphabetical, keyboard-accessible expandable list',async
 test('QR and scanner dialogs expose names, contain focus and restore focus on close',async({page})=>{
   await ready(page);await page.locator('[data-target="friends"]').click();await page.locator('#editProfileBtn').click();await page.locator('#profileName').fill('Accessible Attendee');await page.locator('#saveProfileBtn').click();
   await page.locator('#friendShareBtn').click();const share=page.getByRole('dialog',{name:'Share QR code'});await expect(share).toBeVisible();await expect(page.locator('#shareQrClose')).toBeFocused();
-  await page.keyboard.press('Tab');await expect(page.locator('#shareQrClose')).toBeFocused();await page.keyboard.press('Escape');await expect(share).toBeHidden();await expect(page.locator('#friendShareBtn')).toBeFocused();
+  await page.keyboard.press('Tab');await expect(page.locator('#shareQrCompact')).toBeFocused();await page.keyboard.press('Escape');await expect(share).toBeHidden();await expect(page.locator('#friendShareBtn')).toBeFocused();
   await page.evaluate(()=>{window.CONFERENCE_QR_SCANNER_CLASS=class {constructor(){}async start(){}async stop(){}destroy(){}};});
   await page.locator('#scanFriendBtn').click();const scanner=page.getByRole('dialog',{name:'Scan conference contact'});await expect(scanner).toBeVisible();await expect(page.locator('#qrScanClose')).toBeFocused();
   await page.keyboard.press('Escape');await expect(scanner).toBeHidden();await expect(page.locator('#scanFriendBtn')).toBeFocused();

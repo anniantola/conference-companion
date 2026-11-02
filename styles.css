@@ -388,12 +388,15 @@ html[data-theme="dark"] .gallery-thumb-title{color:#fff}
 }
 .share-qr-full-caption{margin-top:12px;font-size:12px;font-weight:800}
 .share-qr-full-card a{display:inline-block;margin-top:7px;color:#000;text-decoration:underline;font-size:13px;font-weight:800}
+.share-qr-modes{display:flex;justify-content:center;gap:4px;border:0;padding:0;margin:0}.share-qr-modes legend{font-size:12px;font-weight:800;margin:0 auto 7px}.share-qr-modes label{display:flex;align-items:center;gap:5px;border:1px solid #777;border-radius:9px;padding:7px 12px;font-size:13px;font-weight:800;cursor:pointer}.share-qr-modes label:has(input:checked){background:#111;color:#fff;border-color:#111}.share-qr-modes input{accent-color:#fff}.share-qr-fields{max-width:440px;line-height:1.45}.share-qr-full-card canvas[hidden],.share-qr-full-card button[hidden],.share-qr-full-card p[hidden]{display:none!important}.share-qr-full-card #shareVcardFallback{border:0;border-radius:9px;background:#111;color:#fff;padding:10px 14px;font-weight:800;cursor:pointer}
+.share-qr-full-card canvas{box-sizing:border-box;width:min(84vw,390px);image-rendering:pixelated}.share-qr-full-card p{color:#444}
 html.share-qr-open,body.share-qr-open{overflow:hidden!important;overscroll-behavior:none}
 
 @media (max-width:560px){
-  .share-qr-full-card{padding:18px}
+  .share-qr-full-card{padding:10px}
   .share-qr-full-card>strong{font-size:22px}
   .share-qr-full-card img{width:min(66dvh,100%)}
+  .share-qr-viewer .share-qr-full-card canvas{width:min(84vw,390px)}
 }
 
 

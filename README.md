@@ -1,6 +1,6 @@
 # Conference Companion
 
-Current engine release: **v1.2.14**.
+Current engine release: **v1.2.15**.
 
 Conference Companion is a standalone, offline-first conference PWA plus a browser-based Conference Builder. The attendee engine is stable and conference content is published as a normalized, versioned data package rather than being hard-coded into the UI.
 
@@ -26,7 +26,7 @@ Builder Step 2 now provides a source manager, explicit merge/replace-source/repl
 - PPTX export for notes and presentation photos.
 - Personal-data ZIP backup and restore, including favorites, notes, Friend Book, profile photo and conference photos.
 - Standards-based `.ics` export for one programme item, starred schedule or full programme, including `VTIMEZONE`, immutable calendar UIDs and `SEQUENCE` support. New Builder-created UIDs use persistent `urn:uuid:<UUIDv4>`; already published UIDs remain unchanged.
-- Friend Book with an optional local profile photo, conference card, compact vCard QR sharing, vCard import, live QR scanning with `BarcodeDetector` or a bundled offline fallback, private notes/tags and conference/event “met at” context.
+- Friend Book with an optional local profile photo, clickable DOI/publication links, Compact and Full vCard QR sharing, oversized-card vCard export, vCard import, live QR scanning with `BarcodeDetector` or a bundled offline fallback, private notes/tags and conference/event “met at” context.
 - Announcements.
 - Generic conference branding, track/location colors, typography, logo and sponsor assets.
 - Installable PWA with a service worker that does not force-reload an attendee while an engine update is waiting.
@@ -115,7 +115,7 @@ Downloading a deployment ZIP records an export only. After uploading and deployi
 │   ├── migrations.js               # schema migration boundary
 │   ├── calendar.js                 # ICS/VTIMEZONE generation
 │   ├── vcard.js                    # profile/contact vCards
-│   ├── qrcode.js                   # dependency-free QR encoder
+│   ├── qrcode.js                   # offline QR encoder and display limit
 │   ├── backup.js                   # personal-data ZIP backup
 │   ├── zip.js                      # ZIP reader/writer used by local exports
 │   └── builder/

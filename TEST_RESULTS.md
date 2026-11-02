@@ -1,5 +1,11 @@
 # Conference Companion test results
 
+## v1.2.15 Friend Book sharing — 2026-11-02
+
+The Node 22 unit suite passed, including new DOI/HTTPS safety, compact/full vCard round trips, QR size limits, non-destructive merges, legacy vCards and personal backups. The complete local Playwright suites passed **80 of 80 Chromium** and **80 of 80 Firefox** cases. New browser cases decode QR cards with the bundled scanner, decode a Full card from its rendered 320px image, import and rescan contacts without losing public or private information, verify the mobile vCard fallback, and reject unsafe links. The existing deployment, offline, Builder and PWA cases also passed.
+
+Local WebKit could not launch because this host lacks `libavif.so.16`; the GitHub Actions release workflow installs WebKit system dependencies and runs the three-browser suite before Pages deployment.
+
 ## v1.2.14 shared engine — 2026-11-02
 
 Before removing duplicated files from `conference-test`, its original schema and semantic checks passed, the companion Node 22 unit suite passed, and the shared build staged the DEMO conference with 39 sessions, 57 presentations and 18 posters. The staged site loaded online and offline in Chromium and Firefox, with deployment-scoped storage.

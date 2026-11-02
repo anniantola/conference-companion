@@ -1,5 +1,9 @@
 # Release protocol (static GitHub Pages pilot)
 
+## v1.2.15 Friend Book sharing
+
+Publish the v1.2.15 engine commit and tag after the full Node and three-browser CI suite passes. Update each conference deployment workflow to the exact published engine commit SHA, then run its own validation, staging, Pages deployment and live offline/PWA checks. The Builder's generated deployment workflow uses the v1.2.15 tag. Compact QR sharing is the default; Full includes supported public profile fields, and a full vCard download is offered when the QR display limit is exceeded. Private contact notes, tags and meeting context are never included in a shared card. The new QR encoder and Friend Book merge keep existing saved contacts and backups compatible.
+
 ## v1.2.14 shared engine
 
 The engine repository now supplies the attendee runtime, schemas, validators and offline fonts to every conference deployment during its own Pages build. Conference repositories track only conference data, install branding, the build entry point and their own workflow. Publish the engine repository and its `v1.2.14` tag first; then publish each conference repository separately with its engine ref pinned to that release. Keep conference `dataVersion` and entity IDs unchanged when its data has not changed. The Builder's deployment ZIP now contains only conference-specific content and fetches the shared engine at build time.

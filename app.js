@@ -1,6 +1,8 @@
 
 import {normalizeEmail,normalizeOrcid,normalizeExternalLink,normalizeWebUrl} from './src/safe-url.js';
 import {encodeStoredValue,decodeStoredValue,attendeeStorageId} from './src/user-store.js';
+import {publicationParts,publicationReference,publicationText} from './src/publications.js';
+import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
 
 (() => {
   const CONFIG = window.CONFERENCE_CONFIG || {};
@@ -176,19 +178,46 @@ import {encodeStoredValue,decodeStoredValue,attendeeStorageId} from './src/user-
     </section>`;
   }
 
+  function papersHtml(entries) {
+    return (entries||[]).map(entry=>{
+      const {label,url}=publicationParts(entry);
+      if(!label)return '';
+      return url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label)} ↗</a>`:esc(label);
+    }).filter(Boolean).join(' · ');
+  }
+
+
+  function renderShareQr() {
+    const compact=$('#shareQrCompact').checked;
+    const canvas=$('#shareQrCanvas'),hint=$('#shareQrHint'),fields=$('#shareQrFields'),fallback=$('#shareVcardFallback');
+    let includeWebsite=true,card;
+    const maxVersion=window.innerWidth<=400?14:SERVICES.qr.MAX_QR_VERSION;
+    try {
+      card=SERVICES.vcard.profileToVCard(profile,{compact});
+      try{SERVICES.qr.qrDetails(card,{maxVersion});}catch(error){
+        if(!compact||!profile.website)throw error;
+        includeWebsite=false;
+        card=SERVICES.vcard.profileToVCard(profile,{compact,includeWebsite:false});
+      }
+      SERVICES.qr.qrDetails(card,{maxVersion});
+      SERVICES.qr.drawQr(canvas,card,{scale:7,margin:4});
+      canvas.hidden=false;fallback.hidden=true;
+      const bytes=new TextEncoder().encode(card).length;
+      hint.textContent=`Scan to save this ${compact?'compact':'full'} vCard (${bytes} bytes).${includeWebsite?'':' Website omitted to keep the QR scannable.'} Private Friend Book information is never shared.`;
+    }catch(error){
+      canvas.hidden=true;fallback.hidden=false;
+      hint.textContent=String(error.message||'Card cannot fit in a scannable QR code.')+' Download the full vCard instead.';
+    }
+    fields.textContent=`Included: ${SERVICES.vcard.sharedFieldLabels(profile,{compact,includeWebsite}).join(', ')}.`;
+    $('#shareQrPhotoNote').hidden=!(profile.photoBlob instanceof Blob);
+  }
 
   function openShareQr() {
     if (!CONFERENCE.features?.friendBook) return;
     if (!String(profile?.name || "").trim()) return toast("Add your name to My conference card first");
-    try {
-      const card = SERVICES.vcard.compactProfileVCard(profile);
-      SERVICES.qr.drawQr($("#shareQrCanvas"), card, {scale:7, margin:4});
-      $("#shareQrName").textContent = profile.name || "My conference card";
-      $("#shareQrHint").textContent = "Scan to save this compact vCard. Your private Friend Book notes are never shared.";
-    } catch (err) {
-      console.error(err);
-      return toast("Could not create QR card");
-    }
+    $('#shareQrCompact').checked=true;
+    $("#shareQrName").textContent = profile.name || "My conference card";
+    renderShareQr();
     const viewer = $("#shareQrViewer");
     shareQrReturnFocus=document.activeElement;
     viewer.hidden = false;
@@ -2333,7 +2362,7 @@ import {encodeStoredValue,decodeStoredValue,attendeeStorageId} from './src/user-
     $("#profileLinkedin").value=source.linkedin||"";
     $("#profileWebsite").value=source.website||"";
     $("#profileBio").value=source.bio||"";
-    $("#profilePapers").value=(source.papers||[]).map(x=>typeof x==="string"?x:(x.doi||x.title||"")).filter(Boolean).join("\n");
+    $("#profilePapers").value=(source.papers||[]).map(x=>typeof x==='string'?x:publicationText(x)).filter(Boolean).join("\n");
     renderProfilePhoto(source);
   }
 
@@ -2358,7 +2387,10 @@ import {encodeStoredValue,decodeStoredValue,attendeeStorageId} from './src/user-
     if(next.email&&!normalizeEmail(next.email)){toast('Enter a valid email address');$('#profileEmail').focus();return;}
     if(next.orcid){const value=normalizeOrcid(next.orcid);if(!value){toast('Enter a valid ORCID identifier');$('#profileOrcid').focus();return;}next.orcid=value;}
     for(const field of ['website','linkedin'])if(next[field]){const value=normalizeWebUrl(next[field]);if(!value){toast(`${field==='website'?'Website':'LinkedIn'} must use a safe HTTPS URL`);$(`#profile${field==='website'?'Website':'Linkedin'}`).focus();return;}next[field]=value;}
-    const unsafePaper=next.papers.find(value=>/^[a-z][a-z0-9+.-]*:/i.test(value)&&!/^doi:/i.test(value)&&!normalizeWebUrl(value));
+    const unsafePaper=next.papers.find(value=>{
+      const reference=value.includes(' | ')?value.slice(value.lastIndexOf(' | ')+3).trim():value;
+      return /^[a-z][a-z0-9+.-]*:/i.test(reference)&&!publicationReference(reference);
+    });
     if(unsafePaper){toast('Selected paper links must use HTTPS or DOI references');$('#profilePapers').focus();return;}
     try{
       await trackPersonalWrite(USER_STORE?.saveProfile(next));
@@ -2379,7 +2411,7 @@ import {encodeStoredValue,decodeStoredValue,attendeeStorageId} from './src/user-
       ...(friend.links||[]).map((link,index)=>typeof link==="string"?{label:`Link ${index+1}`,url:link}:link)
     ].map(link=>link?.url?{...link,url:normalizeExternalLink(link.url)}:link).filter(link=>link?.url);
     const links=linkRows.map(link=>`<a href="${esc(link.url)}" target="_blank" rel="noopener noreferrer">${esc(link.label||"Link")} ↗</a>`).join(" · ");
-    const papers=(friend.papers||[]).map(p=>typeof p==="string"?p:(p.doi||p.title||"")).filter(Boolean);
+    const papers=papersHtml(friend.papers);
     const eventOptions=events.map(e=>`<option value="${esc(e.id)}" ${e.id===friend.metAtEventId?'selected':''}>${esc(`${e.date} ${e.start} · ${e.title}`)}</option>`).join("");
     const expanded=expandedFriendIds.has(friend.id),detailsId=`friend-details-${String(friend.id).replace(/[^a-zA-Z0-9_-]/g,"-")}`;
     return `<article class="friend-card${expanded?' expanded':''}" data-friend-id="${esc(friend.id)}">
@@ -2390,7 +2422,7 @@ import {encodeStoredValue,decodeStoredValue,attendeeStorageId} from './src/user-
         ${emails.length?`<p><strong>Email</strong><span>${emails.map(email=>`<a href="mailto:${esc(email)}">${esc(email)}</a>`).join(" · ")}</span></p>`:""}
         ${links?`<p><strong>Links</strong><span>${links}</span></p>`:""}
         ${friend.bio?`<p><strong>About</strong><span>${esc(friend.bio)}</span></p>`:""}
-        ${papers.length?`<p><strong>Papers</strong><span>${papers.map(esc).join(" · ")}</span></p>`:""}
+        ${papers?`<p><strong>Papers</strong><span>${papers}</span></p>`:""}
         <div class="friend-private"><label>Met at<select data-friend-event="${esc(friend.id)}"><option value="">— conference generally —</option>${eventOptions}</select></label><label>Met at note<input data-friend-met-at="${esc(friend.id)}" value="${esc(friend.metAt||CONFERENCE.shortName||CONFERENCE.name||"")}" placeholder="Poster session, conference dinner…"></label><label>Private notes<textarea rows="2" data-friend-note="${esc(friend.id)}">${esc(friend.privateNotes||"")}</textarea></label><label>Private tags<input data-friend-tags="${esc(friend.id)}" value="${esc((friend.tags||[]).join(", "))}" placeholder="met at dinner, memristors"></label></div>
         <div class="friend-card-footer"><span>Saved locally · ${esc(friend.metAtConferenceId||CONFERENCE.id||"")}</span><button class="friend-delete" data-friend-delete="${esc(friend.id)}" type="button">Delete contact</button></div>
       </div>
@@ -2411,7 +2443,7 @@ import {encodeStoredValue,decodeStoredValue,attendeeStorageId} from './src/user-
         normalizeWebUrl(profile.linkedin)?`<p><a href="${esc(normalizeWebUrl(profile.linkedin))}" target="_blank" rel="noopener noreferrer">LinkedIn ↗</a></p>`:"",
         normalizeWebUrl(profile.website)?`<p><a href="${esc(normalizeWebUrl(profile.website))}" target="_blank" rel="noopener noreferrer">Website ↗</a></p>`:"",
         profile.bio?`<p>${esc(profile.bio)}</p>`:"",
-        (profile.papers||[]).length?`<p><strong>Selected papers</strong><br>${(profile.papers||[]).map(x=>esc(typeof x==="string"?x:(x.doi||x.title||""))).filter(Boolean).join(" · ")}</p>`:""
+        (profile.papers||[]).length?`<p><strong>Selected papers</strong><br>${papersHtml(profile.papers)}</p>`:""
       ].filter(Boolean).join("");
       summary.innerHTML=profile?.name?`<div class="my-card-summary-layout ${photo?'with-photo':'no-photo'}">${photo}<div><h4>${esc(profile.name)}</h4>${details}</div></div>`:`<h4>Create your conference card</h4><p>Add your details with Edit, then share them by QR or vCard.</p>`;
     }
@@ -2431,20 +2463,12 @@ import {encodeStoredValue,decodeStoredValue,attendeeStorageId} from './src/user-
     friends[idx]=await trackPersonalWrite(USER_STORE.saveFriend(friend));
   }
 
-  function friendIdentity(friend) {
-    const email=String((friend.emails||[])[0]||friend.email||"").trim().toLowerCase();
-    if(email)return `email:${email}`;
-    const orcid=String(friend.orcid||"").replace(/^https?:\/\/orcid\.org\//i,"").trim().toLowerCase();
-    if(orcid)return `orcid:${orcid}`;
-    return `name:${String(friend.name||"").trim().toLowerCase()}|${String((friend.affiliations||[])[0]||friend.affiliation||"").trim().toLowerCase()}`;
-  }
-
   async function addFriendFromVCard(text) {
     try {
       const parsed=SERVICES.vcard.parseVCard(text);
-      const signature=friendIdentity(parsed);
-      const existing=friends.find(x=>friendIdentity(x)===signature);
-      const saved=await trackPersonalWrite(USER_STORE.saveFriend({...existing,...parsed,id:existing?.id||crypto.randomUUID(),metAtConferenceId:CONFERENCE.id,metAtEventId:existing?.metAtEventId||"",metAt:existing?.metAt||CONFERENCE.shortName||CONFERENCE.name||"",savedAt:existing?.savedAt||Date.now(),privateNotes:existing?.privateNotes||"",tags:existing?.tags||[]}));
+      const existing=findMatchingFriend(friends,parsed);
+      const merged=mergeFriendContact(existing,parsed,{conferenceId:CONFERENCE.id,conferenceName:CONFERENCE.shortName||CONFERENCE.name||''});
+      const saved=await trackPersonalWrite(USER_STORE.saveFriend(merged));
       friends=existing?friends.map(x=>x.id===saved.id?saved:x):[...friends,saved];
       renderFriendBook();toast(existing?"Contact updated":"Contact saved to Friend Book");
       return true;
@@ -2923,6 +2947,9 @@ import {encodeStoredValue,decodeStoredValue,attendeeStorageId} from './src/user-
     });
 
     $("#shareQrClose").addEventListener("click", closeShareQr);
+    $("#shareQrCompact").addEventListener("change",renderShareQr);
+    $("#shareQrFull").addEventListener("change",renderShareQr);
+    $("#shareVcardFallback").addEventListener("click",()=>SERVICES.vcard.downloadVCard(profile));
     $("#shareQrViewer").addEventListener("click", e => {
       if (e.target === $("#shareQrViewer")) closeShareQr();
     });

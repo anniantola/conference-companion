@@ -12,11 +12,14 @@ export const attendeeFiles = [
   'index.html', 'app.js', 'bootstrap.js', 'styles.css', 'service-worker.js',
   'src/package-store.js', 'src/calendar.js', 'src/validation.js',
   'src/backup.js', 'src/zip.js', 'src/qrcode.js', 'src/safe-url.js',
+  'src/publications.js', 'src/friend-contact.js',
   'src/model.js', 'src/user-store.js', 'src/json-schema.js',
   'src/vcard.js', 'src/migrations.js',
   'src/vendor/qr-scanner/qr-scanner.min.js',
   'src/vendor/qr-scanner/qr-scanner-worker.min.js',
-  'src/vendor/qr-scanner/LICENSE', 'tools/deployment.mjs'
+  'src/vendor/qr-scanner/LICENSE',
+  'src/vendor/qrcode-generator/qrcode.js',
+  'src/vendor/qrcode-generator/LICENSE', 'tools/deployment.mjs'
 ];
 
 const escapeHtml = value => String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

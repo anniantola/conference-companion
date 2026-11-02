@@ -155,7 +155,7 @@
               <label>Profile photo<input id="profilePhotoInput" type="file" accept="image/*"></label>
               <div class="profile-photo-cell"><img id="profilePhotoPreview" alt="Profile preview" hidden><button id="clearProfilePhotoBtn" class="secondary-btn" type="button" hidden>Remove photo</button></div>
               <label class="profile-wide">Research interests / bio<textarea id="profileBio" rows="3"></textarea></label>
-              <label class="profile-wide">Selected papers / DOI links <small>One per line</small><textarea id="profilePapers" rows="3"></textarea></label>
+              <label class="profile-wide">Selected papers / DOI links <small>One per line. Use “Title | DOI or HTTPS link” to show a paper title.</small><textarea id="profilePapers" rows="3"></textarea></label>
             </div>
             <div class="button-row profile-edit-actions"><button id="saveProfileBtn" class="primary-btn" type="button">Save</button><button id="cancelProfileBtn" class="secondary-btn" type="button">Cancel</button></div>
           </div>
@@ -332,7 +332,15 @@
 
   <dialog id="shareQrViewer" class="share-qr-viewer" aria-label="Share QR code" hidden>
     <button id="shareQrClose" class="share-qr-close" type="button" aria-label="Close QR code">×</button>
-    <div class="share-qr-full-card"><strong id="shareQrName">My conference card</strong><canvas id="shareQrCanvas" aria-label="QR code"></canvas><p id="shareQrHint">Scan to save this vCard.</p></div>
+    <div class="share-qr-full-card">
+      <strong id="shareQrName">My conference card</strong>
+      <fieldset class="share-qr-modes"><legend>Share card details</legend><label><input id="shareQrCompact" type="radio" name="shareQrMode" value="compact" checked> Compact</label><label><input id="shareQrFull" type="radio" name="shareQrMode" value="full"> Full</label></fieldset>
+      <p id="shareQrFields" class="share-qr-fields"></p>
+      <canvas id="shareQrCanvas" aria-label="Conference card QR code"></canvas>
+      <p id="shareQrHint" role="status">Scan to save this vCard.</p>
+      <p id="shareQrPhotoNote" hidden>Profile photographs are excluded from QR cards because of their size.</p>
+      <button id="shareVcardFallback" type="button" hidden>Download full vCard</button>
+    </div>
   </dialog>
 
   <dialog id="qrScanDialog" class="qr-scan-dialog" aria-labelledby="qrScanTitle">

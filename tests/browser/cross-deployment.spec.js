@@ -124,11 +124,11 @@ test('an engine update cleans only its own deployment cache',async({context})=>{
   const a=await context.newPage(),b=await context.newPage();
   await open(a,A);await open(b,B);
   const scopeA=new URL(A,a.url()).href,scopeB=new URL(B,b.url()).href;
-  const oldA=`conference-companion-engine:${encodeURIComponent(scopeA)}:1.2.14`;
-  const existingB=`conference-companion-engine:${encodeURIComponent(scopeB)}:1.2.14`;
-  const updatedA=`conference-companion-engine:${encodeURIComponent(scopeA)}:1.2.14-next`;
+  const oldA=`conference-companion-engine:${encodeURIComponent(scopeA)}:1.2.15`;
+  const existingB=`conference-companion-engine:${encodeURIComponent(scopeB)}:1.2.15`;
+  const updatedA=`conference-companion-engine:${encodeURIComponent(scopeA)}:1.2.15-next`;
   const worker=await readFile('service-worker.js','utf8'),path='__test_scope_worker.js';
-  await writeFile(path,worker.replace('1.2.14','1.2.14-next'));
+  await writeFile(path,worker.replace('1.2.15','1.2.15-next'));
   try{
     await a.evaluate(()=>navigator.serviceWorker.register('./__test_scope_worker.js',{scope:'./'}));
     await expect.poll(()=>a.evaluate(async()=>{const r=await navigator.serviceWorker.getRegistration();return r.waiting?.scriptURL||null;})).toContain('__test_scope_worker.js');
