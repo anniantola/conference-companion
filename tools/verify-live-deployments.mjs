@@ -13,10 +13,12 @@ for (const deployment of deployments) {
 }
 
 async function verifyOnline(page, deployment) {
+  console.log(`Checking ${deployment.url.href}`);
   await page.goto(deployment.url.href);
   await page.waitForFunction(name => window.CONFERENCE_PACKAGE?.conference?.name === name && !!document.querySelector('#programList')?.textContent?.trim(), deployment.conference.name);
+  console.log(`Loaded ${deployment.conference.name}`);
   const live = await page.evaluate(async () => {
-    const registration = await navigator.serviceWorker.ready;
+    const registration = await Promise.race([navigator.serviceWorker.ready, new Promise((_, reject) => setTimeout(() => reject(new Error('Service worker did not become ready within 20 seconds')), 20000))]);
     const manifestLink = document.querySelector('link[rel="manifest"]');
     const manifest = await fetch(manifestLink.href).then(response => response.json());
     return {
@@ -44,20 +46,23 @@ async function verifyOnline(page, deployment) {
   assert.equal(live.storageScope, new URL('conference', deployment.url).href);
   for (const field of ['id', 'start_url', 'scope']) assert.equal(live.manifest[field], './');
   assert.equal(live.manifest.display, 'standalone');
-  for (const icon of live.manifest.icons) assert.equal((await page.request.get(new URL(icon.src, deployment.url))).status(), 200);
-  if (deployment.branding.logoLight) assert.equal(live.logo, new URL(`conference/${deployment.branding.logoLight}`, deployment.url).href);
+  console.log(`Service worker ready at ${live.scope}`);
+  for (const icon of live.manifest.icons) assert.equal((await page.request.get(new URL(icon.src, deployment.url).href)).status(), 200);
+  if (deployment.branding.logoLight) assert.equal(new URL(live.logo, deployment.url).href, new URL(`conference/${deployment.branding.logoLight}`, deployment.url).href);
   for (const file of ['conference-manifest.json', 'conference.json', 'programme.json', 'people.json', 'locations.json', 'branding.json']) {
     const expected = await readFile(join(deployment.root, 'conference', file));
-    const response = await page.request.get(new URL(`conference/${file}`, deployment.url));
+    const response = await page.request.get(new URL(`conference/${file}`, deployment.url).href);
     assert.equal(response.status(), 200, `${deployment.url.href}${file}`);
     assert.deepEqual(await response.body(), expected, `${file} differs from local repository`);
   }
+  console.log(`Conference files match ${deployment.url.href}`);
   for (const file of ['app.js', 'bootstrap.js', 'service-worker.js', 'src/package-store.js']) {
     const expected = await readFile(join(deployments[0].root, file));
-    const response = await page.request.get(new URL(file, deployment.url));
+    const response = await page.request.get(new URL(file, deployment.url).href);
     assert.equal(response.status(), 200, `${deployment.url.href}${file}`);
     assert.deepEqual(await response.body(), expected, `${deployment.url.href}${file} is not the published shared engine`);
   }
+  console.log(`Engine files match ${deployment.url.href}`);
   return live;
 }
 

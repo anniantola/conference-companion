@@ -6,7 +6,9 @@ Before removing duplicated files from `conference-test`, its original schema and
 
 After removal, `conference-test` passed `npm test` and `npm run stage`; its staged site again passed the Chromium and Firefox online/offline smoke test. The companion Node 22 unit suite passed, including extraction, validation and staging of all three generated data-only deployment ZIPs. The final Playwright run passed **150 of 150 cases**: 75 Chromium and 75 Firefox. The scoped cache, engine update, Builder export and PWA asset cases passed in both browsers after the v1.2.14 cache version bump.
 
-WebKit could not launch on this host because `libavif.so.16` is missing. `playwright install-deps webkit` was attempted, but sudo requires a password unavailable in this environment. The GitHub Actions workflow installs browser dependencies before its full three-browser gate; no v1.2.14 Pages deployment has been run yet.
+WebKit could not launch on this host because `libavif.so.16` is missing. `playwright install-deps webkit` was attempted, but sudo requires a password unavailable in this environment. The engine Pages workflow [run 41408072423](https://github.com/anniantola/conference-companion/actions/runs/41408072423) installed the dependencies and passed all 225 browser cases before deploying commit `f829d7ca7536e521b959826c8251ce64a09d5d1a`. Conference Test [run 41409474674](https://github.com/anniantola/conference-test/actions/runs/41409474674) validated and deployed its separately pinned repository. Fresh Chromium and Firefox contexts verified both live packages, branding, PWA scopes, independent caches and private profiles, and offline launch.
+
+A disposable browser profile created before publication retained its raw profile records in both deployments after the upgrade. The older v1.2.12 Conference Test profile is not automatically visible in the new scoped store; a personal backup can be restored into that deployment. Without a backup, leave browser site data intact for assisted recovery rather than clearing it.
 
 ## v1.2.13 deployment isolation — 2026-10-30
 
