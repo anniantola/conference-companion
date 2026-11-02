@@ -16,7 +16,17 @@ export async function createPersonalBackup({conferenceId,state,profile,friends,p
     const type=cleanProfile.photoBlob.type||'image/jpeg',ext=type.includes('png')?'png':'jpg',name=`profile/profile.${ext}`;
     entries.push({name,data:await blobBytes(cleanProfile.photoBlob)});profilePhoto={file:name,type};delete cleanProfile.photoBlob;
   }
-  const payload={format:'conference-companion-backup',version:3,conferenceId,exportedAt:new Date().toISOString(),state,profile:cleanProfile,profilePhoto,friends,photos:photoMeta};
+  const cleanFriends=[];
+  for(const friend of friends||[]){
+    const clean={...friend};
+    if(clean.privatePhotoBlob instanceof Blob){
+      const name=`contacts/${encodeURIComponent(String(clean.id))}.jpg`,type=clean.privatePhotoBlob.type||'image/jpeg';
+      entries.push({name,data:await blobBytes(clean.privatePhotoBlob)});
+      clean.privatePhoto={file:name,type};delete clean.privatePhotoBlob;
+    }
+    cleanFriends.push(clean);
+  }
+  const payload={format:'conference-companion-backup',version:4,conferenceId,exportedAt:new Date().toISOString(),state,profile:cleanProfile,profilePhoto,friends:cleanFriends,photos:photoMeta};
   entries.unshift({name:'backup.json',data:JSON.stringify(payload,null,2)});
   return createStoredZip(entries);
 }
@@ -25,7 +35,7 @@ export async function parsePersonalBackup(file){
   let payload,entries=new Map();
   if(file.name?.toLowerCase().endsWith('.json')){
     payload=JSON.parse(await file.text());
-    if(payload?.profilePhoto?.file||payload?.photos?.length)throw new Error('JSON backups cannot contain the required photo files; import the complete ZIP backup');
+    if(payload?.profilePhoto?.file||payload?.photos?.length||payload?.friends?.some(friend=>friend.privatePhoto?.file))throw new Error('JSON backups cannot contain the required photo files; import the complete ZIP backup');
   }else{
     entries=await readStoredZip(file);
     payload=JSON.parse(textEntry(entries,'backup.json'));
@@ -43,6 +53,12 @@ export async function parsePersonalBackup(file){
     if(!bytes)throw new Error('Backup profile photo is missing');
     assertImageBytes(bytes,payload.profilePhoto.type||'image/jpeg',payload.profilePhoto.file);
     payload.profile||={};payload.profile.photoBlob=new Blob([bytes],{type:payload.profilePhoto.type||'image/jpeg'});
+  }
+  for(const friend of payload.friends||[])if(friend.privatePhoto?.file){
+    const {file,type='image/jpeg'}=friend.privatePhoto,bytes=entries.get(file);
+    if(!bytes)throw new Error(`Backup contact photo is missing: ${file}`);
+    assertImageBytes(bytes,type,file);
+    friend.privatePhotoBlob=new Blob([bytes],{type});delete friend.privatePhoto;
   }
   return {payload,photoFiles};
 }
@@ -84,7 +100,7 @@ function assertImageBytes(bytes,type,name){
 
 export function validateBackupPayload(payload){
   assertObject(payload,'Backup');
-  if(payload.format!=='conference-companion-backup'||!Number.isInteger(payload.version)||payload.version<1||payload.version>3)throw new Error('Unsupported Conference Companion backup format or version');
+  if(payload.format!=='conference-companion-backup'||!Number.isInteger(payload.version)||payload.version<1||payload.version>4)throw new Error('Unsupported Conference Companion backup format or version');
   if(typeof payload.conferenceId!=='string'||!payload.conferenceId)throw new Error('Backup conference ID is missing');
   assertObject(payload.state,'Backup state');
   for(const key of ['favorites','posterFavorites'])if(payload.state[key]!=null&&(!Array.isArray(payload.state[key])||payload.state[key].some(id=>typeof id!=='string')))throw new Error(`Backup state.${key} must be an array of IDs`);
@@ -105,6 +121,11 @@ export function validateBackupPayload(payload){
       if(friend.id!=null){if(typeof friend.id!=='string'||!friend.id||friendIds.has(friend.id))throw new Error('Backup contains an invalid or duplicate contact ID');friendIds.add(friend.id);}
       for(const field of ['privateNotes','metAt','metAtEventId'])if(friend[field]!=null&&typeof friend[field]!=='string')throw new Error(`Backup friend ${index+1}.${field} must be text`);
       if(friend.tags!=null&&(!Array.isArray(friend.tags)||friend.tags.some(tag=>typeof tag!=='string')))throw new Error(`Backup friend ${index+1}.tags must be an array of text`);
+      if(friend.directoryLinkDismissed!=null&&typeof friend.directoryLinkDismissed!=='boolean')throw new Error(`Backup friend ${index+1}.directoryLinkDismissed must be a flag`);
+      if(friend.privatePhoto!=null){
+        assertObject(friend.privatePhoto,'Backup contact photo');
+        if(typeof friend.privatePhoto.file!=='string'||!/^contacts\/[A-Za-z0-9%._-]+\.jpg$/.test(friend.privatePhoto.file))throw new Error('Backup contact photo reference is invalid');
+      }
     });
   }
   if(payload.photos!=null){

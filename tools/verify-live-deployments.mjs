@@ -38,7 +38,7 @@ async function verifyOnline(page, deployment) {
     };
   });
   assert.equal(live.name, deployment.conference.name);
-  assert.equal(live.engineVersion,'1.2.15');
+  assert.equal(live.engineVersion,'1.2.16');
   assert.equal(live.id, deployment.conference.id);
   assert.equal(live.sessions, deployment.programme.sessions.length);
   assert.equal(live.presentations, deployment.programme.presentations.length);
@@ -58,7 +58,7 @@ async function verifyOnline(page, deployment) {
     assert.deepEqual(await response.body(), expected, `${file} differs from local repository`);
   }
   console.log(`Conference files match ${deployment.url.href}`);
-  for (const file of ['app.js', 'bootstrap.js', 'service-worker.js', 'styles.css', 'src/package-store.js', 'src/vcard.js', 'src/qrcode.js', 'src/publications.js', 'src/friend-contact.js', 'src/vendor/qrcode-generator/qrcode.js']) {
+  for (const file of ['app.js', 'bootstrap.js', 'service-worker.js', 'styles.css', 'src/package-store.js', 'src/vcard.js', 'src/qrcode.js', 'src/publications.js', 'src/friend-contact.js', 'src/friend-directory.js', 'src/vendor/qrcode-generator/qrcode.js']) {
     const expected = await readFile(join(deployments[0].root, file));
     const response = await page.request.get(new URL(file, deployment.url).href);
     assert.equal(response.status(), 200, `${deployment.url.href}${file}`);
@@ -86,7 +86,13 @@ async function verifySharingUi(page,name){
   });
   assert.ok(decoded.includes('X-PAPER:Live DOI paper | https://doi.org/10.1234/live-test'));
   await page.locator('#shareQrClose').click();
-  console.log(`Friend Book links and Full QR sharing OK for ${name}`);
+  assert.ok((await page.locator('#profilePersonId option').count())>1,'My Card conference identity choices are missing');
+  await page.locator('#addFriendBtn').click();
+  await page.locator('#addFriendForm [name="name"]').fill(`${name} contact`);
+  await page.locator('#addFriendForm [name="affiliation"]').fill('Local notes');
+  await page.locator('#addFriendForm button[type="submit"]').click();
+  await page.locator('.friend-card-main strong').filter({hasText:`${name} contact`}).waitFor();
+  console.log(`Friend Book, manual contact and Full QR sharing OK for ${name}`);
 }
 
 for (const [browserName, browserType] of Object.entries({chromium, firefox})) {
@@ -107,6 +113,8 @@ for (const [browserName, browserType] of Object.entries({chromium, firefox})) {
       await page.waitForFunction(name => window.CONFERENCE_PACKAGE?.conference?.name === name && !!document.querySelector('#programList')?.textContent?.trim(), deployment.conference.name);
       const profile = await page.evaluate(() => window.CONFERENCE_SERVICES.userStore.getProfile());
       assert.equal(profile.name, `Engine verification ${index === 0 ? 'A' : 'B'}`);
+      await page.locator('[data-target="friends"]').click();
+      assert.equal(await page.locator('.friend-card').count(),1,'Manual Friend Book contact was not available offline');
     }
     await context.setOffline(false);
     await context.close();

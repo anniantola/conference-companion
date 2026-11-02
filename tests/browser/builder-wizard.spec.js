@@ -13,6 +13,28 @@ async function importSynthetic(page){
   await page.locator('[data-goto-step="3"]').click();await expect(page.locator('#reviewTable tbody tr')).toHaveCount(91);
 }
 
+test('organizer People photographs are compressed and attached to stable person IDs',async({page})=>{
+  await page.goto('/builder.html');await importSynthetic(page);
+  await page.locator('[data-goto-step="4"]').click();
+  await page.locator('#peopleSearch').fill('Researcher 08');
+  await page.locator('#peoplePreview .person-row').click();
+  await expect(page.locator('#personEditor')).toContainText('Upload only with permission');
+  const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=','base64');
+  await page.locator('#personPhotoDraft').setInputFiles({name:'portrait.png',mimeType:'image/png',buffer:png});
+  await page.locator('#personEditForm button[type="submit"]').click();
+  await expect(page.locator('#personEditor')).toBeHidden();
+  await expect(page.locator('#builderSaveStatus')).toHaveText('Project saved locally');
+  const photo=await page.evaluate(async()=>{
+    const {loadProject}=await import('/src/builder/project-store.js');
+    const {buildPackage}=await import('/src/builder/package.js');
+    const project=await loadProject(),{pkg}=await buildPackage(project);
+    const [id,asset]=Object.entries(project.peoplePhotos)[0];
+    return {id,type:asset.type,size:asset.bytes.length,path:pkg.people.people.find(person=>person.id===id)?.photoUrl};
+  });
+  expect(photo.type).toBe('image/jpeg');expect(photo.size).toBeLessThan(100000);
+  expect(photo.path).toContain(`person-${photo.id}.jpg`);
+});
+
 test('eight Builder steps preserve edits, active step and validation links',async({page})=>{
   await page.goto('/builder.html');
   await expect(page.locator('[data-step]:visible')).toHaveCount(1);

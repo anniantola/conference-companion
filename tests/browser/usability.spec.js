@@ -23,7 +23,7 @@ test('PWA assets, Pages scope, native prompt and offline QR fallback are operati
     for(const icon of manifest.icons){const bitmap=await createImageBitmap(await fetch(icon.src).then(r=>r.blob()));dimensions.push([bitmap.width,bitmap.height]);bitmap.close();}
     return {manifest,scope:registration.scope,dimensions,caches:await window.caches.keys()};
   });
-  const cacheName=`conference-companion-engine:${encodeURIComponent(result.scope)}:1.2.15`;
+  const cacheName=`conference-companion-engine:${encodeURIComponent(result.scope)}:1.2.16`;
   expect(result.manifest).toMatchObject({id:'./',start_url:'./',scope:'./',display:'standalone'});
   expect(result.scope).toBe('http://127.0.0.1:8080/');
   expect(result.dimensions).toEqual([[192,192],[512,512]]);
@@ -118,7 +118,8 @@ test('Friend Book is an alphabetical, keyboard-accessible expandable list',async
   ];
   for(const [name,buffer] of cards)await page.locator('#friendVcardInput').setInputFiles({name,mimeType:'text/vcard',buffer:Buffer.from(buffer)});
   await expect(page.locator('[data-friend-toggle]')).toHaveCount(2);
-  expect(await page.locator('[data-friend-toggle]').allTextContents()).toEqual(['Amy Person⌄','Zeta Person⌄']);
+  await expect(page.locator('.friend-card-main strong')).toHaveText(['Amy Person','Zeta Person']);
+  await expect(page.locator('.friend-card-main small')).toHaveText(['Alpha Lab','Zeta Lab']);
   await expect(page.locator('.friend-card-details:visible')).toHaveCount(0);
   const amy=page.locator('[data-friend-toggle]').first();await amy.focus();await amy.press('Enter');await expect(amy).toHaveAttribute('aria-expanded','true');
   const details=page.locator('.friend-card-details:visible');await expect(details).toContainText('Professor');await expect(details).toContainText('Alpha Lab');await expect(details).toContainText('amy@example.test');await expect(details).toContainText('Research profile');await expect(details.locator('[data-friend-note]')).toBeEditable();

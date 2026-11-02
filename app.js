@@ -3,6 +3,7 @@ import {normalizeEmail,normalizeOrcid,normalizeExternalLink,normalizeWebUrl} fro
 import {encodeStoredValue,decodeStoredValue,attendeeStorageId} from './src/user-store.js';
 import {publicationParts,publicationReference,publicationText} from './src/publications.js';
 import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
+import {validConferenceIdentity,identityCandidates,automaticIdentity,personActivities} from './src/friend-directory.js';
 
 (() => {
   const CONFIG = window.CONFERENCE_CONFIG || {};
@@ -60,6 +61,7 @@ import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
   let friends = [];
   let profilePhotoUrl = "";
   let friendProfilePhotoUrl = "";
+  let friendPhotoUrls = [];
   let profileDraft = null;
   let qrScanner = null;
   let qrScanStarting = false;
@@ -138,6 +140,19 @@ import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
     if(!value)return "";if(CONFIG.builderPreview&&String(value).startsWith('blob:'))return String(value);const safe=normalizeWebUrl(value,{allowRelative:true});if(!safe)return "";if(/^https:/i.test(safe))return safe;return `${CONFIG.packageBase||"./conference"}/${safe.replace(/^\/+/,"")}`;
   }
 
+  function safeDirectoryPhoto(person) {
+    const value=person?.photoUrl;
+    if(CONFIG.builderPreview&&String(value||'').startsWith('blob:'))return value;
+    if(!value||!/^[A-Za-z0-9_./-]+$/.test(value)||String(value).startsWith('/')||String(value).includes('..'))return '';
+    return packageAssetUrl(value);
+  }
+
+  function currentIdentity(contact) {return validConferenceIdentity(contact?.conferenceIdentity,CONFERENCE,MODEL);}
+  function shareIdentity() {return currentIdentity(profile);}
+  function personOptions(selected='',includeBlank=true) {
+    return `${includeBlank?'<option value="">Leave unlinked</option>':''}${(MODEL?.people?.people||[]).slice().sort((a,b)=>a.name.localeCompare(b.name)).map(person=>`<option value="${esc(person.id)}" ${person.id===selected?'selected':''}>${esc(person.name)} · ${esc((person.affiliations||[]).join('; ')||person.id)}</option>`).join('')}`;
+  }
+
 
   function noteKey(type, id) {
     return `${type}:${id}`;
@@ -193,11 +208,11 @@ import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
     let includeWebsite=true,card;
     const maxVersion=window.innerWidth<=400?14:SERVICES.qr.MAX_QR_VERSION;
     try {
-      card=SERVICES.vcard.profileToVCard(profile,{compact});
+      card=SERVICES.vcard.profileToVCard(profile,{compact,conferenceIdentity:shareIdentity()});
       try{SERVICES.qr.qrDetails(card,{maxVersion});}catch(error){
         if(!compact||!profile.website)throw error;
         includeWebsite=false;
-        card=SERVICES.vcard.profileToVCard(profile,{compact,includeWebsite:false});
+        card=SERVICES.vcard.profileToVCard(profile,{compact,includeWebsite:false,conferenceIdentity:shareIdentity()});
       }
       SERVICES.qr.qrDetails(card,{maxVersion});
       SERVICES.qr.drawQr(canvas,card,{scale:7,margin:4});
@@ -208,7 +223,7 @@ import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
       canvas.hidden=true;fallback.hidden=false;
       hint.textContent=String(error.message||'Card cannot fit in a scannable QR code.')+' Download the full vCard instead.';
     }
-    fields.textContent=`Included: ${SERVICES.vcard.sharedFieldLabels(profile,{compact,includeWebsite}).join(', ')}.`;
+    fields.textContent=`Included: ${[...SERVICES.vcard.sharedFieldLabels(profile,{compact,includeWebsite}),...(shareIdentity()?['Conference identity']:[])].join(', ')}.`;
     $('#shareQrPhotoNote').hidden=!(profile.photoBlob instanceof Blob);
   }
 
@@ -481,6 +496,24 @@ import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
     } catch {
       return blob;
     }
+  }
+
+  async function prepareContactPhotoBlob(file) {
+    if(!file?.type?.startsWith('image/'))throw new Error('Choose an image file');
+    let image,url;
+    try{
+      try{if(typeof createImageBitmap==='function')image=await createImageBitmap(file);}catch{}
+      if(!image){url=URL.createObjectURL(file);image=new Image();image.src=url;await image.decode();}
+      const sourceWidth=image.width,sourceHeight=image.height;
+      if(!sourceWidth||!sourceHeight)throw new Error('Image could not be read');
+      const canvas=document.createElement('canvas');canvas.width=224;canvas.height=224;
+      const context=canvas.getContext('2d');if(!context)throw new Error('Image processing is unavailable');
+      const side=Math.min(sourceWidth,sourceHeight);
+      context.drawImage(image,(sourceWidth-side)/2,(sourceHeight-side)/2,side,side,0,0,224,224);
+      const result=await new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(new Error('Image conversion failed')),'image/jpeg',0.78));
+      if(result.size>350000)throw new Error('Photo is too large after processing');
+      return result;
+    }finally{image?.close?.();if(url)URL.revokeObjectURL(url);}
   }
 
   async function persistPhotoThumbnail(photoId, thumbnailBlob) {
@@ -1851,11 +1884,12 @@ import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
   function openEvent(id) {
     const e = byId.get(id); if (!e) return;
     currentModal = {type:"event",id};
-    const speakerPhoto=e.speakers?.find(person=>person?.photoUrl)?.photoUrl || "";
+    $('#modalStar').hidden=false;
+    const speakerPhoto=e.speakers?.map(safeDirectoryPhoto).find(Boolean)||"";
     $("#modalContent").innerHTML = `
       <div class="modal-kicker">${locationPill(e.locationId)}${e.session?`<span class="pill">${esc(e.session)}</span>`:""}<span class="pill">${esc(e.weekday)} ${esc(e.dateLabel)}</span></div>
       <div class="modal-title">${esc(e.title)}</div>
-      ${speakerPhoto?`<img class="modal-speaker-photo" src="${esc(packageAssetUrl(speakerPhoto))}" alt="${esc(e.speaker||'Speaker')}">`:""}
+      ${speakerPhoto?`<img class="modal-speaker-photo" src="${esc(speakerPhoto)}" alt="${esc(e.speaker||'Speaker')}">`:""}
       ${e.speaker?`<div class="modal-person">${esc(e.speaker)}</div>`:""}
       ${e.affiliation?`<div class="modal-aff">${esc(e.affiliation)}</div>`:""}
       <div class="modal-details">
@@ -1876,6 +1910,7 @@ import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
   function openPoster(id) {
     const p = posterById.get(id); if (!p) return;
     currentModal = {type:"poster",id};
+    $('#modalStar').hidden=false;
     const abstractHtml = (p.abstract || "").split(/\n\s*\n/).filter(Boolean).map(x=>`<p>${esc(x)}</p>`).join("");
     $("#modalContent").innerHTML = `
       <div class="modal-kicker"><span class="pill">Poster #${p.number}</span><span class="pill">${esc(p.category)}</span><span class="pill">Abstract p. ${p.abstractBookPage}</span></div>
@@ -1897,6 +1932,15 @@ import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
     refreshModalStar();
     $("#detailModal").showModal();
     renderModalPhotos();
+  }
+
+  function openSession(id){
+    const session=MODEL.session(id);if(!session)return;
+    currentModal={type:'session',id};$('#modalStar').hidden=true;
+    const chairs=(session.chairIds||[]).map(personId=>MODEL.person(personId)?.name).filter(Boolean).join(', ');
+    const presentations=(session.presentationIds||[]).map(presentationId=>MODEL.presentation(presentationId)?.title).filter(Boolean);
+    $('#modalContent').innerHTML=`<div class="modal-kicker">${locationPill(session.locationId)}<span class="pill">${esc(session.date)}</span></div><div class="modal-title">${esc(session.title)}</div><div class="modal-details"><div class="detail-box"><span>Time</span><strong>${esc(fmtTime(session))}–${esc(fmtTime(session,'end'))}</strong></div>${venueBoxHtml(resolvedVenue(session.locationId),session.locationId||'')}${chairs?`<div class="detail-box"><span>Session chair</span><strong>${esc(chairs)}</strong></div>`:''}</div>${presentations.length?`<section class="abstract-section"><h3>Presentations</h3>${presentations.map(title=>`<p>${esc(title)}</p>`).join('')}</section>`:''}`;
+    $('#detailModal').showModal();
   }
 
   function showView(name) {
@@ -2363,6 +2407,7 @@ import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
     $("#profileWebsite").value=source.website||"";
     $("#profileBio").value=source.bio||"";
     $("#profilePapers").value=(source.papers||[]).map(x=>typeof x==='string'?x:publicationText(x)).filter(Boolean).join("\n");
+    $("#profilePersonId").innerHTML=personOptions(currentIdentity(source)?.personId||'');
     renderProfilePhoto(source);
   }
 
@@ -2384,6 +2429,9 @@ import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
 
   async function saveProfile() {
     const next=profileFromForm();
+    const personId=$('#profilePersonId')?.value||'';
+    if(personId)next.conferenceIdentity=validConferenceIdentity({conferenceId:CONFERENCE.id,personId},CONFERENCE,MODEL);
+    else delete next.conferenceIdentity;
     if(next.email&&!normalizeEmail(next.email)){toast('Enter a valid email address');$('#profileEmail').focus();return;}
     if(next.orcid){const value=normalizeOrcid(next.orcid);if(!value){toast('Enter a valid ORCID identifier');$('#profileOrcid').focus();return;}next.orcid=value;}
     for(const field of ['website','linkedin'])if(next[field]){const value=normalizeWebUrl(next[field]);if(!value){toast(`${field==='website'?'Website':'LinkedIn'} must use a safe HTTPS URL`);$(`#profile${field==='website'?'Website':'Linkedin'}`).focus();return;}next[field]=value;}
@@ -2402,6 +2450,15 @@ import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
   }
 
   function friendContactHtml(friend,events) {
+    const identity=currentIdentity(friend),person=identity?MODEL.person(identity.personId):null;
+    const candidates=friend.directoryLinkDismissed?[]:identityCandidates(friend,CONFERENCE,MODEL);
+    const activities=identity?personActivities(identity.personId,MODEL):[];
+    const next=activities.find(activity=>activity.date&&activity.start&&zonedLocalDate(activity.date,activity.start,CONFERENCE.timezone||'UTC').getTime()>=Date.now());
+    const today=new Intl.DateTimeFormat('sv-SE',{timeZone:CONFERENCE.timezone||'UTC',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+    const nextLabel=next?`${next.role==='Oral presentation'?'🎤':next.role==='Poster presentation'?'▣':'🎙'} ${next.date===today?'Today':next.date}, ${fmtTime(next)}`:'';
+    let photo='';
+    if(friend.privatePhotoBlob instanceof Blob){photo=URL.createObjectURL(friend.privatePhotoBlob);friendPhotoUrls.push(photo);}
+    else photo=safeDirectoryPhoto(person);
     const emails=[...new Set([...(friend.emails||[]),friend.email].map(normalizeEmail).filter(Boolean))];
     const affiliations=[...new Set([...(friend.affiliations||[]),friend.affiliation].filter(Boolean))];
     const linkRows=[
@@ -2414,8 +2471,15 @@ import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
     const papers=papersHtml(friend.papers);
     const eventOptions=events.map(e=>`<option value="${esc(e.id)}" ${e.id===friend.metAtEventId?'selected':''}>${esc(`${e.date} ${e.start} · ${e.title}`)}</option>`).join("");
     const expanded=expandedFriendIds.has(friend.id),detailsId=`friend-details-${String(friend.id).replace(/[^a-zA-Z0-9_-]/g,"-")}`;
+    const activityHtml=activities.map(activity=>{
+      const openType=activity.type==='poster'?'poster':activity.type==='session'?'session':'event';
+      const favorite=activity.type==='poster'?state.posterFavorites.includes(activity.id):activity.type==='event'&&state.favorites.includes(activity.id);
+      const location=activity.locationId?locationLabel(activity.locationId):'';
+      return `<li class="friend-activity"><button type="button" data-friend-activity="${esc(activity.id)}" data-activity-type="${esc(openType)}"><strong>${esc(activity.role)}</strong> · ${esc(activity.title)}${activity.posterNumber?` · #${esc(activity.posterNumber)}`:''}<small>${esc(activity.date)} · ${esc(fmtTime(activity))}–${esc(fmtTime(activity,'end'))}${location?` · ${esc(location)}`:''}</small></button>${activity.type!=='session'?`<button type="button" class="friend-activity-star" data-friend-favorite="${esc(activity.id)}" data-activity-type="${esc(openType)}" aria-label="${favorite?'Remove':'Add'} ${esc(activity.title)} ${favorite?'from':'to'} favorites">${favorite?'★':'☆'}</button>`:''}</li>`;
+    }).join('');
+    const suggested=candidates.length?`<small>${esc(candidates.map(row=>`${row.person.name} (${row.reason})`).join(' · '))}</small>`:'';
     return `<article class="friend-card${expanded?' expanded':''}" data-friend-id="${esc(friend.id)}">
-      <button class="friend-card-toggle" data-friend-toggle="${esc(friend.id)}" type="button" aria-expanded="${expanded}" aria-controls="${esc(detailsId)}"><span>${esc(friend.name||"Contact")}</span><span class="friend-expand-icon" aria-hidden="true">⌄</span></button>
+      <button class="friend-card-toggle" data-friend-toggle="${esc(friend.id)}" type="button" aria-expanded="${expanded}" aria-controls="${esc(detailsId)}"><span class="friend-card-main">${photo?`<img class="friend-avatar" src="${esc(photo)}" alt="">`:'<span class="friend-avatar friend-avatar-placeholder" aria-hidden="true">●</span>'}<span><strong>${esc(friend.name||"Contact")}</strong>${affiliations.length?`<small>${esc(affiliations[0])}</small>`:''}${nextLabel?`<small>${esc(nextLabel)}</small>`:''}</span></span><span class="friend-expand-icon" aria-hidden="true">⌄</span></button>
       <div id="${esc(detailsId)}" class="friend-card-details" ${expanded?'':'hidden'}>
         ${friend.position?`<p><strong>Position</strong><span>${esc(friend.position)}</span></p>`:""}
         ${affiliations.length?`<p><strong>Affiliation</strong><span>${esc(affiliations.join(" · "))}</span></p>`:""}
@@ -2423,6 +2487,9 @@ import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
         ${links?`<p><strong>Links</strong><span>${links}</span></p>`:""}
         ${friend.bio?`<p><strong>About</strong><span>${esc(friend.bio)}</span></p>`:""}
         ${papers?`<p><strong>Papers</strong><span>${papers}</span></p>`:""}
+        <div class="friend-identity"><label>Conference person<select data-friend-person="${esc(friend.id)}">${personOptions(identity?.personId||'')}</select></label><button type="button" class="secondary-btn" data-friend-link="${esc(friend.id)}">Confirm selection</button>${identity?`<button type="button" class="secondary-btn" data-friend-unlink="${esc(friend.id)}">Remove link</button>`:''}${!identity?suggested:''}</div>
+        ${activities.length?`<section class="friend-activities"><h4>Conference activities</h4><ul>${activityHtml}</ul></section>`:''}
+        <div class="friend-photo-actions"><strong>Private contact photo</strong><span>Saved only on this device and in your backup.</span><label class="secondary-btn">Take photo<input type="file" accept="image/*" capture="environment" data-friend-photo="${esc(friend.id)}" hidden></label><label class="secondary-btn">Choose photo<input type="file" accept="image/*" data-friend-photo="${esc(friend.id)}" hidden></label>${friend.privatePhotoBlob?`<button type="button" class="secondary-btn" data-friend-photo-remove="${esc(friend.id)}">Remove photo</button>`:''}</div>
         <div class="friend-private"><label>Met at<select data-friend-event="${esc(friend.id)}"><option value="">— conference generally —</option>${eventOptions}</select></label><label>Met at note<input data-friend-met-at="${esc(friend.id)}" value="${esc(friend.metAt||CONFERENCE.shortName||CONFERENCE.name||"")}" placeholder="Poster session, conference dinner…"></label><label>Private notes<textarea rows="2" data-friend-note="${esc(friend.id)}">${esc(friend.privateNotes||"")}</textarea></label><label>Private tags<input data-friend-tags="${esc(friend.id)}" value="${esc((friend.tags||[]).join(", "))}" placeholder="met at dinner, memristors"></label></div>
         <div class="friend-card-footer"><span>Saved locally · ${esc(friend.metAtConferenceId||CONFERENCE.id||"")}</span><button class="friend-delete" data-friend-delete="${esc(friend.id)}" type="button">Delete contact</button></div>
       </div>
@@ -2431,6 +2498,7 @@ import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
 
   function renderFriendBook() {
     if (!CONFERENCE.features?.friendBook) return;
+    for(const url of friendPhotoUrls)URL.revokeObjectURL(url);friendPhotoUrls=[];
     const summary=$("#myCardSummary");
     if(friendProfilePhotoUrl){URL.revokeObjectURL(friendProfilePhotoUrl);friendProfilePhotoUrl="";}
     if(summary){
@@ -2449,7 +2517,7 @@ import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
     }
     const editor=$("#profileSection");if(editor&&profileDraft===null)editor.hidden=true;
     friends.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""),undefined,{sensitivity:"base"}));
-    const list=$("#friendList");if(list){const events=friends.length?MODEL.calendarItems().slice().sort((a,b)=>`${a.date}|${a.start}`.localeCompare(`${b.date}|${b.start}`)):[];list.innerHTML=friends.length?friends.map(friend=>friendContactHtml(friend,events)).join(""):`<div class="empty-state"><strong>No contacts saved yet</strong>Scan a conference card QR or import a .vcf file.</div>`;}
+    const list=$("#friendList");if(list){const events=friends.length?MODEL.calendarItems().slice().sort((a,b)=>`${a.date}|${a.start}`.localeCompare(`${b.date}|${b.start}`)):[];list.innerHTML=friends.length?friends.map(friend=>friendContactHtml(friend,events)).join(""):`<div class="empty-state"><strong>No contacts saved yet</strong>Scan a card, import a .vcf file, or add someone you met.</div>`;}
     if($("#friendCount")) $("#friendCount").textContent=String(friends.length);
   }
 
@@ -2463,14 +2531,59 @@ import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
     friends[idx]=await trackPersonalWrite(USER_STORE.saveFriend(friend));
   }
 
+  async function updateFriend(id,change){
+    const index=friends.findIndex(friend=>friend.id===id);if(index<0)return;
+    const saved=await trackPersonalWrite(USER_STORE.saveFriend({...friends[index],...change}));
+    friends[index]=saved;renderFriendBook();
+  }
+
+  async function reconcileSavedFriendIdentities(){
+    for(let index=0;index<friends.length;index++){
+      const friend=friends[index];
+      if(friend.directoryLinkDismissed||currentIdentity(friend))continue;
+      const identity=automaticIdentity(friend,CONFERENCE,MODEL,{external:true});
+      if(identity)friends[index]=await trackPersonalWrite(USER_STORE.saveFriend({...friend,conferenceIdentity:identity}));
+    }
+  }
+
+  async function addManualFriend(event){
+    event.preventDefault();
+    const form=event.currentTarget,data=new FormData(form),name=String(data.get('name')||'').trim();
+    const email=String(data.get('email')||'').trim(),orcid=String(data.get('orcid')||'').trim();
+    if(!name)return;
+    if(email&&!normalizeEmail(email)){toast('Enter a valid email address');return;}
+    if(orcid&&!normalizeOrcid(orcid)){toast('Enter a valid ORCID identifier');return;}
+    const affiliation=String(data.get('affiliation')||'').trim();
+    const incoming={name,email,emails:email?[email]:[],orcid:orcid?normalizeOrcid(orcid):'',affiliation,affiliations:affiliation?[affiliation]:[],links:[],papers:[]};
+    const personId=String(data.get('personId')??'auto');
+    if(personId==='auto')incoming.conferenceIdentity=automaticIdentity(incoming,CONFERENCE,MODEL);
+    else if(personId)incoming.conferenceIdentity=validConferenceIdentity({conferenceId:CONFERENCE.id,personId},CONFERENCE,MODEL);
+    else incoming.directoryLinkDismissed=true;
+    const existing=findMatchingFriend(friends,incoming);
+    if(existing&&!confirm(`A contact with this ORCID or email is already saved as ${existing.name}. Update that contact?`))return;
+    const friend=mergeFriendContact(existing,incoming,{conferenceId:CONFERENCE.id,conferenceName:CONFERENCE.shortName||CONFERENCE.name||''});
+    if(personId===''){friend.conferenceIdentity=null;friend.directoryLinkDismissed=true;}
+    else if(incoming.conferenceIdentity){friend.conferenceIdentity=incoming.conferenceIdentity;friend.directoryLinkDismissed=false;}
+    const saved=await trackPersonalWrite(USER_STORE.saveFriend(friend));
+    friends=existing?friends.map(row=>row.id===saved.id?saved:row):[...friends,saved];expandedFriendIds.add(saved.id);
+    $('#addFriendDialog').close();form.reset();renderFriendBook();toast('Contact saved to Friend Book');
+  }
+
   async function addFriendFromVCard(text) {
     try {
       const parsed=SERVICES.vcard.parseVCard(text);
       const existing=findMatchingFriend(friends,parsed);
       const merged=mergeFriendContact(existing,parsed,{conferenceId:CONFERENCE.id,conferenceName:CONFERENCE.shortName||CONFERENCE.name||''});
+      if(!merged.directoryLinkDismissed&&!currentIdentity(merged)){
+        const linked=automaticIdentity(parsed,CONFERENCE,MODEL,{external:true});
+        if(linked)merged.conferenceIdentity=linked;
+      }
       const saved=await trackPersonalWrite(USER_STORE.saveFriend(merged));
       friends=existing?friends.map(x=>x.id===saved.id?saved:x):[...friends,saved];
+      const suggestions=!saved.directoryLinkDismissed&&!currentIdentity(saved)&&identityCandidates(saved,CONFERENCE,MODEL).length;
+      if(suggestions)expandedFriendIds.add(saved.id);
       renderFriendBook();toast(existing?"Contact updated":"Contact saved to Friend Book");
+      if(suggestions)toast('Possible conference match: choose a person to link this contact');
       return true;
     } catch(err){console.error(err);toast("Could not read that vCard");return false;}
   }
@@ -2516,7 +2629,7 @@ import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
 
   function downloadMyVcard() {
     if(!profile?.name)return toast("Create your conference card first");
-    SERVICES.vcard.downloadVCard(profile,`${safeFilenamePart(profile.name)}-${safeFilenamePart(CONFERENCE.id||"conference")}.vcf`);
+    SERVICES.vcard.downloadVCard(profile,`${safeFilenamePart(profile.name)}-${safeFilenamePart(CONFERENCE.id||"conference")}.vcf`,{conferenceIdentity:shareIdentity()});
   }
 
   function calendarLocationLabel(locationId) {
@@ -2928,6 +3041,9 @@ import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
     $("#downloadVcardBtn")?.addEventListener("click",downloadMyVcard);
     $("#scanFriendBtn")?.addEventListener("click",openFriendQrScan);
     $("#importVcardBtn")?.addEventListener("click",()=>$("#friendVcardInput")?.click());
+    $('#addFriendBtn')?.addEventListener('click',()=>{const dialog=$('#addFriendDialog');dialog.querySelector('[name="personId"]').innerHTML='<option value="auto">Match by ORCID or public email</option>'+personOptions();dialog.showModal();dialog.querySelector('[name="name"]').focus();});
+    $('#cancelAddFriendBtn')?.addEventListener('click',()=>$('#addFriendDialog').close());
+    $('#addFriendForm')?.addEventListener('submit',addManualFriend);
     $("#friendVcardInput")?.addEventListener("change",async e=>{const f=e.target.files[0];if(f)await addFriendFromVCard(await f.text());e.target.value="";});
     $("#qrScanClose")?.addEventListener("click",()=>stopFriendQrScan());
     $("#qrScanCancel")?.addEventListener("click",()=>stopFriendQrScan());
@@ -2943,13 +3059,23 @@ import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
     });
     $("#friendList")?.addEventListener("click",async e=>{
       const toggle=e.target.closest("[data-friend-toggle]");if(toggle){const id=toggle.dataset.friendToggle;if(expandedFriendIds.has(id))expandedFriendIds.delete(id);else expandedFriendIds.add(id);renderFriendBook();return;}
+      const activity=e.target.closest('[data-friend-activity]');if(activity){if(activity.dataset.activityType==='poster')openPoster(activity.dataset.friendActivity);else if(activity.dataset.activityType==='session')openSession(activity.dataset.friendActivity);else openEvent(activity.dataset.friendActivity);return;}
+      const favorite=e.target.closest('[data-friend-favorite]');if(favorite){if(favorite.dataset.activityType==='poster')togglePosterFavorite(favorite.dataset.friendFavorite);else toggleEventFavorite(favorite.dataset.friendFavorite);renderFriendBook();return;}
+      const link=e.target.closest('[data-friend-link]');if(link){const selected=$(`[data-friend-person="${CSS.escape(link.dataset.friendLink)}"]`)?.value||'';await updateFriend(link.dataset.friendLink,{conferenceIdentity:selected?{conferenceId:CONFERENCE.id,personId:selected}:null,directoryLinkDismissed:!selected});toast(selected?'Conference person linked':'Contact left unlinked');return;}
+      const unlink=e.target.closest('[data-friend-unlink]');if(unlink){await updateFriend(unlink.dataset.friendUnlink,{conferenceIdentity:null,claimedConferenceIdentity:null,directoryLinkDismissed:true});toast('Conference link removed');return;}
+      const removePhoto=e.target.closest('[data-friend-photo-remove]');if(removePhoto){await updateFriend(removePhoto.dataset.friendPhotoRemove,{privatePhotoBlob:null});toast('Private photo removed');return;}
       const del=e.target.closest("[data-friend-delete]");if(!del)return;if(confirm("Delete this Friend Book contact?")){await trackPersonalWrite(USER_STORE.deleteFriend(del.dataset.friendDelete));friends=friends.filter(x=>x.id!==del.dataset.friendDelete);expandedFriendIds.delete(del.dataset.friendDelete);renderFriendBook();toast("Contact deleted");}
+    });
+    $('#friendList')?.addEventListener('change',async event=>{
+      const input=event.target.closest('[data-friend-photo]');if(!input?.files?.[0])return;
+      try{const epoch=personalDataEpoch,photo=await prepareContactPhotoBlob(input.files[0]);if(epoch!==personalDataEpoch||personalDataDeleting)return;await updateFriend(input.dataset.friendPhoto,{privatePhotoBlob:photo});toast('Private photo saved');}
+      catch(error){console.error(error);toast(error.message||'Could not process photograph');}
     });
 
     $("#shareQrClose").addEventListener("click", closeShareQr);
     $("#shareQrCompact").addEventListener("change",renderShareQr);
     $("#shareQrFull").addEventListener("change",renderShareQr);
-    $("#shareVcardFallback").addEventListener("click",()=>SERVICES.vcard.downloadVCard(profile));
+    $("#shareVcardFallback").addEventListener("click",()=>SERVICES.vcard.downloadVCard(profile,'conference-contact.vcf',{conferenceIdentity:shareIdentity()}));
     $("#shareQrViewer").addEventListener("click", e => {
       if (e.target === $("#shareQrViewer")) closeShareQr();
     });
@@ -3168,7 +3294,8 @@ import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
     $("#detailModal").addEventListener("close",()=>{if(!photoViewerReturnToDetail)currentModal=null;});
     $("#modalStar").addEventListener("click",()=>{
       if (!currentModal) return;
-      currentModal.type==="event" ? toggleEventFavorite(currentModal.id) : togglePosterFavorite(currentModal.id);
+      if(currentModal.type==='event')toggleEventFavorite(currentModal.id);
+      else if(currentModal.type==='poster')togglePosterFavorite(currentModal.id);
     });
 
     matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change",()=>{if(state.theme==="system")applyTheme();});
@@ -3196,6 +3323,7 @@ import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
   async function init() {
     profile=await USER_STORE?.getProfile().catch(()=>({})) || {};
     friends=await USER_STORE?.listFriends().catch(()=>([])) || [];
+    await reconcileSavedFriendIdentities();
     state.day = state.day || detectConferenceDay();
     setupConferenceUi();
     await setupDataReleaseUi();

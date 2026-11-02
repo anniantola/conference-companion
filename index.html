@@ -153,6 +153,7 @@
               <label>LinkedIn<input id="profileLinkedin" type="url"></label>
               <label>Website<input id="profileWebsite" type="url"></label>
               <label>Profile photo<input id="profilePhotoInput" type="file" accept="image/*"></label>
+              <label class="profile-wide">Conference directory identity<select id="profilePersonId"><option value="">Not linked</option></select><small>Only your confirmed conference identity is included in shared cards.</small></label>
               <div class="profile-photo-cell"><img id="profilePhotoPreview" alt="Profile preview" hidden><button id="clearProfilePhotoBtn" class="secondary-btn" type="button" hidden>Remove photo</button></div>
               <label class="profile-wide">Research interests / bio<textarea id="profileBio" rows="3"></textarea></label>
               <label class="profile-wide">Selected papers / DOI links <small>One per line. Use “Title | DOI or HTTPS link” to show a paper title.</small><textarea id="profilePapers" rows="3"></textarea></label>
@@ -163,8 +164,10 @@
         <div class="button-row friend-actions friend-import-actions">
           <button id="scanFriendBtn" class="secondary-btn" type="button">Scan QR</button>
           <button id="importVcardBtn" class="secondary-btn" type="button">Import vCard</button>
+          <button id="addFriendBtn" class="secondary-btn" type="button">Add contact</button>
           <input id="friendVcardInput" type="file" accept="text/vcard,.vcf,text/plain" hidden>
         </div>
+        <dialog id="addFriendDialog" aria-labelledby="addFriendTitle"><form id="addFriendForm" method="dialog" class="friend-manual-form"><h3 id="addFriendTitle">Add someone you met</h3><label>Name<input name="name" required autocomplete="name"></label><label>Affiliation<input name="affiliation" autocomplete="organization"></label><label>Email<input name="email" type="email" autocomplete="email"></label><label>ORCID<input name="orcid"></label><label>Conference person<select name="personId"><option value="auto">Match by ORCID or public email</option><option value="">Leave unlinked</option></select></label><div class="button-row"><button class="primary-btn" type="submit">Save contact</button><button class="secondary-btn" type="button" id="cancelAddFriendBtn">Cancel</button></div></form></dialog>
         <div id="friendList" class="friend-list"></div>
       </section>
 

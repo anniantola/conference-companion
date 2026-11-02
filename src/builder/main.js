@@ -440,7 +440,7 @@ function openPersonEditor(id){
   const person=latestPackage?.people.people.find(p=>p.id===id);if(!person)return;
   openPersonId=id;const asset=project.peoplePhotos?.[id],extra=(project.extraPeople||[]).some(x=>x.id===id);
   const input=(field,label,type='text',value=person[field]||'')=>`<label>${label}<input data-edit-field="${field}" type="${type}" value="${escapeHtml(value)}"></label>`;
-  $('#personEditor').innerHTML=`<form id="personEditForm"><h3>Edit ${escapeHtml(person.name)}</h3><p class="muted">Person ID: ${escapeHtml(id)}</p><div class="entity-editor-grid">${input('name','Name')}${input('affiliation','Affiliation(s), separated by semicolons','text',(person.affiliations||[]).join('; '))}</div><details><summary>Additional details</summary><div class="entity-editor-grid">${input('position','Position')}${input('publicEmail','Public email','email')}${input('orcid','ORCID')}${input('website','Website','url',(person.links||[]).find(x=>x.label==='Website')?.url||'')}${input('photoUrl','Photo URL or asset path')}<label>Upload profile photograph<input id="personPhotoDraft" type="file" accept="image/png,image/jpeg,image/webp"><span class="muted">${escapeHtml(asset?.name||'No uploaded photograph')}</span></label></div></details><div class="person-editor-actions"><button class="primary-btn" type="submit">Save person</button><button class="secondary-btn" type="button" id="cancelPersonEdit">Cancel</button>${extra?'<button class="secondary-btn" type="button" id="removeExtraPerson">Delete added person</button>':''}</div></form>`;
+  $('#personEditor').innerHTML=`<form id="personEditForm"><h3>Edit ${escapeHtml(person.name)}</h3><p class="muted">Person ID: ${escapeHtml(id)}</p><div class="entity-editor-grid">${input('name','Name')}${input('affiliation','Affiliation(s), separated by semicolons','text',(person.affiliations||[]).join('; '))}</div><details><summary>Additional details</summary><div class="entity-editor-grid">${input('position','Position')}${input('publicEmail','Public email','email')}${input('orcid','ORCID')}${input('website','Website','url',(person.links||[]).find(x=>x.label==='Website')?.url||'')}${input('photoUrl','Photo asset path')}<label>Upload profile photograph<input id="personPhotoDraft" type="file" accept="image/png,image/jpeg,image/webp"><span class="muted">${escapeHtml(asset?.name||'No uploaded photograph')} · Published with this conference. Upload only with permission.</span></label></div></details><div class="person-editor-actions"><button class="primary-btn" type="submit">Save person</button><button class="secondary-btn" type="button" id="cancelPersonEdit">Cancel</button>${extra?'<button class="secondary-btn" type="button" id="removeExtraPerson">Delete added person</button>':''}</div></form>`;
   $('#personEditor').hidden=false;$('#personEditor').scrollIntoView({block:'nearest'});$('#personEditor [data-edit-field="name"]').focus();
 }
 const duplicateGroupKey=group=>JSON.stringify(group.candidates.map(person=>person.id).sort());
@@ -553,7 +553,7 @@ function initPeopleUi(){
   $('#personMergeDialog').addEventListener('cancel',()=>{pendingPersonMerge=null;});
   $('#personMergeConfirm').addEventListener('click',confirmPersonMerge);
   $('#personEditor').addEventListener('click',event=>{if(event.target.id==='cancelPersonEdit'){$('#personEditor').hidden=true;openPersonId='';}if(event.target.id==='removeExtraPerson'&&openPersonId){project.extraPeople=project.extraPeople.filter(x=>x.id!==openPersonId);if(project.peoplePhotos)delete project.peoplePhotos[openPersonId];$('#personEditor').hidden=true;openPersonId='';peopleListSignature='';scheduleSave();renderDerived();}});
-  $('#personEditor').addEventListener('submit',async event=>{event.preventDefault();const id=openPersonId;if(!id)return;const fields=Object.fromEntries([...event.target.querySelectorAll('[data-edit-field]')].map(el=>[el.dataset.editField,el.value]));const extra=(project.extraPeople||[]).find(p=>p.id===id);if(extra)Object.assign(extra,fields);else project.peopleOverrides[id]={...(project.peopleOverrides[id]||{}),...fields};const photo=$('#personPhotoDraft').files?.[0];if(photo)project.peoplePhotos={...(project.peoplePhotos||{}),[id]:await assetFromFile(photo)};$('#personEditor').hidden=true;openPersonId='';peopleListSignature='';scheduleSave();await renderDerived();toast('Person saved');});
+  $('#personEditor').addEventListener('submit',async event=>{event.preventDefault();const id=openPersonId;if(!id)return;try{const fields=Object.fromEntries([...event.target.querySelectorAll('[data-edit-field]')].map(el=>[el.dataset.editField,el.value]));const photo=$('#personPhotoDraft').files?.[0],photoAsset=photo?await personPhotoAsset(photo):null;const extra=(project.extraPeople||[]).find(p=>p.id===id);if(extra)Object.assign(extra,fields);else project.peopleOverrides[id]={...(project.peopleOverrides[id]||{}),...fields};if(photoAsset)project.peoplePhotos={...(project.peoplePhotos||{}),[id]:photoAsset};$('#personEditor').hidden=true;openPersonId='';peopleListSignature='';scheduleSave();await renderDerived();toast('Person saved');}catch(error){toast(error.message||'Could not process profile photo');}});
 }
 
 function renderLocationEditor(locations,tracks){
@@ -651,6 +651,18 @@ async function doImport(){
 }
 
 async function assetFromFile(file){if(!file)return null;const bytes=new Uint8Array(await file.arrayBuffer());const ext=file.type.includes('svg')?'.svg':file.type.includes('jpeg')?'.jpg':file.type.includes('webp')?'.webp':'.png';return{name:file.name,type:file.type,extension:ext,bytes};}
+async function personPhotoAsset(file){
+  if(!/^image\/(?:jpeg|png|webp)$/.test(file.type))throw new Error('Choose a JPEG, PNG, or WebP photograph');
+  let image,url;
+  try{
+    try{if(typeof createImageBitmap==='function')image=await createImageBitmap(file);}catch{}
+    if(!image){url=URL.createObjectURL(file);image=new Image();image.src=url;await image.decode();}
+    const side=Math.min(image.width,image.height),canvas=document.createElement('canvas');canvas.width=canvas.height=320;
+    canvas.getContext('2d').drawImage(image,(image.width-side)/2,(image.height-side)/2,side,side,0,0,320,320);
+    const blob=await new Promise((resolve,reject)=>canvas.toBlob(value=>value?resolve(value):reject(new Error('Photo conversion failed')),'image/jpeg',0.78));
+    return {...await assetFromFile(blob),name:`${file.name.replace(/\.[^.]+$/,'')}.jpg`};
+  }finally{image?.close?.();if(url)URL.revokeObjectURL(url);}
+}
 async function chooseLogo(file){pendingPreviewAssets++;try{project.logo=await assetFromFile(file);scheduleSave();toast(project.logo?'Logo stored in Builder project':'Logo cleared');}finally{finishPreviewAssetRead();}}
 async function chooseAppIcon(file){project.appIcon=await assetFromFile(file);scheduleSave();syncBrandingControls();toast(project.appIcon?'App icon artwork stored':'App icon cleared');}
 async function chooseSponsors(files){pendingPreviewAssets++;try{project.sponsorFiles=[];for(const file of files||[])project.sponsorFiles.push(await assetFromFile(file));scheduleSave();toast(`${project.sponsorFiles.length} sponsor asset${project.sponsorFiles.length===1?'':'s'} stored`);}finally{finishPreviewAssetRead();}}

@@ -12,8 +12,8 @@
   ],
   "checksums": {
     "conference.json": "d85a8c6202a544f780ba306d8e800036f9af0df1aa0a6f2047f3e5e87aa18128",
-    "programme.json": "04450d2a460766f24b104f7a0aa4b860c01553b5284e74884fe6d373640fb78c",
-    "people.json": "d868a1979ed5993c97692d7bdb8750d0eb1d3543d661505dcd5dd478ae1e1988",
+    "programme.json": "6497c2b5bf3e3be092a4d9b5847fa588e17190d9be6d34a85a7971dbfe425512",
+    "people.json": "909b059a563992e12b7a371d1011e4b7124810da76ec36013b7e882eff8e39bc",
     "locations.json": "113263a33a0bb1c6edd793246d9f3f40441b410e7e7c4ca2dbf3310d4fcf27d8",
     "branding.json": "f64986e9879d15d41d0fe8d5b75fd3288b2a7609d45ffec994f6684d354a4b76"
   },

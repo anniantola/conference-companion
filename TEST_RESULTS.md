@@ -1,5 +1,11 @@
 # Conference Companion test results
 
+## v1.2.16 personal Friend Book and directory links — 2026-11-02
+
+The Node 22 unit suite passed, including conference-scoped identity matching, ambiguous name suggestions, dynamic oral/poster/chair activities, vCard identity round trips, non-destructive compact rescans, binary IndexedDB encoding, and version 4 photo backups with earlier backup support. The complete local browser suite passed **89 of 89 Chromium** and **89 of 89 Firefox** cases. New browser cases cover manual-only contact creation, identity confirmation and removal, older-contact reconciliation, untrusted QR IDs, session navigation and favorites, private and directory photos, Builder photo compression, backup restoration, mobile layout and offline activity/photo loading. Local WebKit cannot launch because `libavif.so.16` is absent; the Actions release workflow installs system dependencies and runs all three browser engines before deployment.
+
+A disposable persistent browser profile was seeded in both v1.2.15 live applications with a My Card profile, Friend Book contact, private note, tags and binary photo. The same profile will be checked after both v1.2.16 deployments.
+
 ## v1.2.15 Friend Book sharing — 2026-11-02
 
 The Node 22 unit suite passed, including new DOI/HTTPS safety, compact/full vCard round trips, QR size limits, non-destructive merges, legacy vCards and personal backups. The complete local Playwright suites passed **80 of 80 Chromium** and **80 of 80 Firefox** cases. New browser cases decode QR cards with the bundled scanner, decode a Full card from its rendered 320px image, import and rescan contacts without losing public or private information, verify the mobile vCard fallback, and reject unsafe links. The existing deployment, offline, Builder and PWA cases also passed.

@@ -25,7 +25,7 @@ export function sharedFieldLabels(profile,{compact=false,includeWebsite=true}={}
   return fields;
 }
 
-export function profileToVCard(profile, {compact=false,includeWebsite=true}={}) {
+export function profileToVCard(profile, {compact=false,includeWebsite=true,conferenceIdentity=null}={}) {
   const name=String(profile.name||'').trim();
   if(!name) throw new Error('Name is required for a profile card');
   const website=includeWebsite&&profile.website?normalizeWebUrl(profile.website):'';
@@ -38,6 +38,11 @@ export function profileToVCard(profile, {compact=false,includeWebsite=true}={}) 
   if(profile.orcid&&!orcid)throw new Error('ORCID must be a valid ORCID identifier');
   if(emails.some(email=>!normalizeEmail(email)))throw new Error('Email address is invalid');
   const lines=['BEGIN:VCARD','VERSION:4.0',`FN:${esc(name)}`];
+  if(conferenceIdentity?.conferenceId&&conferenceIdentity?.personId){
+    for(const value of [conferenceIdentity.conferenceId,conferenceIdentity.personId])if(!/^[\w.-]{1,160}$/.test(value))throw new Error('Conference identity is invalid');
+    lines.push(`X-CONFERENCE-COMPANION-ID:${esc(conferenceIdentity.conferenceId)}`);
+    lines.push(`X-CONFERENCE-COMPANION-PERSON-ID:${esc(conferenceIdentity.personId)}`);
+  }
   if(profile.position) lines.push(`TITLE:${esc(profile.position)}`);
   for(const affiliation of compact?org.slice(0,1):org)lines.push(`ORG:${esc(affiliation)}`);
   for(const email of compact?emails.slice(0,1):emails)lines.push(`EMAIL:${esc(email)}`);
@@ -73,6 +78,8 @@ export function parseVCard(text) {
     const key=line.slice(0,idx), value=unesc(line.slice(idx+1));
     const base=key.split(';')[0].toUpperCase();
     if(base==='FN') out.name=value;
+    else if(base==='X-CONFERENCE-COMPANION-ID') {if(!/^[\w.-]{1,160}$/.test(value))throw new Error('vCard contains an invalid conference ID');out.claimedConferenceIdentity={...(out.claimedConferenceIdentity||{}),conferenceId:value};}
+    else if(base==='X-CONFERENCE-COMPANION-PERSON-ID') {if(!/^[\w.-]{1,160}$/.test(value))throw new Error('vCard contains an invalid person ID');out.claimedConferenceIdentity={...(out.claimedConferenceIdentity||{}),personId:value};}
     else if(base==='TITLE') out.position=value;
     else if(base==='ORG') {if(value)out.affiliations.push(value);}
     else if(base==='EMAIL') {
@@ -102,12 +109,13 @@ export function parseVCard(text) {
     }
   }
   if(!out.name) throw new Error('vCard has no name');
+  if(out.claimedConferenceIdentity&&(!out.claimedConferenceIdentity.conferenceId||!out.claimedConferenceIdentity.personId))delete out.claimedConferenceIdentity;
   out.email=out.emails[0]||'';
   out.affiliation=out.affiliations[0]||'';
   return out;
 }
 
-export function downloadVCard(profile, filename='conference-contact.vcf') {
-  const blob=new Blob([profileToVCard(profile)],{type:'text/vcard;charset=utf-8'});
+export function downloadVCard(profile, filename='conference-contact.vcf',options={}) {
+  const blob=new Blob([profileToVCard(profile,options)],{type:'text/vcard;charset=utf-8'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }

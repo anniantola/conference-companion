@@ -3,6 +3,9 @@
     {
       "id": "tp-1",
       "name": "Morgan Lee",
+      "orcid": "0000-0000-0000-0001",
+      "publicEmail": "morgan@example.org",
+      "photoUrl": "assets/person-tp-1.png",
       "affiliations": [
         "Independent Institute for Engineering"
       ]

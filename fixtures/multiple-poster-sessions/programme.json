@@ -31,7 +31,7 @@
       "end": "09:30",
       "locationId": "hall-a",
       "trackId": "common",
-      "chairIds": [],
+      "chairIds": ["tp-1"],
       "presentationIds": [
         "tt-1"
       ]

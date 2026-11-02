@@ -2,7 +2,6 @@ import {normalizeEmail,normalizeOrcid} from './safe-url.js';
 
 const values=(contact,plural,singular)=>[...(Array.isArray(contact?.[plural])?contact[plural]:[]),contact?.[singular]].filter(Boolean);
 const emails=contact=>new Set(values(contact,'emails','email').map(normalizeEmail).filter(Boolean).map(x=>x.toLowerCase()));
-const affiliations=contact=>new Set(values(contact,'affiliations','affiliation').map(x=>String(x).trim().toLowerCase()).filter(Boolean));
 const intersects=(a,b)=>[...a].some(value=>b.has(value));
 const union=(a,b)=>{
   const result=[],seen=new Set();
@@ -28,12 +27,9 @@ export function findMatchingFriend(friends,incoming) {
   });
   if(strong.length===1)return strong[0];
   if(strong.length>1)return null;
-  const name=String(incoming.name||'').trim().toLowerCase(),incomingAffiliations=affiliations(incoming);
-  if(!name||!incomingAffiliations.size)return null;
-  const weak=friends.filter(friend=>compatible(friend)
-    && String(friend.name||'').trim().toLowerCase()===name
-    && intersects(incomingAffiliations,affiliations(friend)));
-  return weak.length===1?weak[0]:null;
+  // Matching names and affiliations may still belong to different attendees.
+  // Keep them as separate contacts unless an ORCID or email confirms identity.
+  return null;
 }
 
 export function mergeFriendContact(existing,incoming,{conferenceId='',conferenceName=''}={}) {
