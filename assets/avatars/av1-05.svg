@@ -1,1 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Illustrated profile avatar"><rect width="128" height="128" rx="26" fill="#f9dce3"/><circle cx="64" cy="57" r="51" fill="#fff" opacity=".22"/><path d="M24 128q3-34 27-38l13 9 13-9q24 4 27 38" fill="#2e716e"/><path d="M57 87h14v18q-7 9-14 0Z" fill="#b97750"/><path d="M55 94l9 12 9-12 7 34H48Z" fill="#f7f5f2"/><path d="M30 68Q25 23 63 17Q101 15 99 69L91 91H36Z" fill="#2d2634"/><ellipse cx="35" cy="66" rx="5" ry="8" fill="#b97750"/><ellipse cx="93" cy="66" rx="5" ry="8" fill="#b97750"/><ellipse cx="64" cy="62" rx="29" ry="37" fill="#b97750"/><circle cx="67" cy="16" r="15" fill="#2d2634"/><path d="M34 63Q30 24 61 23Q94 18 95 62L88 49Q76 39 66 34Q50 47 38 48Z" fill="#2d2634"/><path d="M46 54q5-3 10-1M73 53q5-2 10 1" stroke="#2d2634" stroke-width="2.5" fill="none" stroke-linecap="round"/><path d="M48 62q4 3 8 0M73 62q4 3 8 0" stroke="#3a3030" stroke-width="2.4" fill="none" stroke-linecap="round"/><path d="M64 65l-2 9q2 2 5 0" fill="none" stroke="#9a695b" stroke-width="1.7" stroke-linecap="round"/><path d="M57 81q7 5 14 0" fill="none" stroke="#954f58" stroke-width="2" stroke-linecap="round"/><path d="M24 128q3-27 20-34l9 34M104 128q-3-27-20-34l-9 34" fill="none" stroke="#fff" stroke-opacity=".15" stroke-width="3"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+<title>Wave Tiles — geometric conference avatar</title>
+<defs><clipPath id="round"><rect width="128" height="128" rx="24"/></clipPath></defs>
+<g clip-path="url(#round)">
+<rect width="128" height="128" fill="#F8E5F0"/>
+<rect x="17" y="15" width="45" height="45" rx="9" fill="#C56FA8"/><rect x="66" y="15" width="45" height="45" rx="9" fill="#F2C16A"/>
+<rect x="17" y="64" width="45" height="45" rx="9" fill="#448F82"/><rect x="66" y="64" width="45" height="45" rx="9" fill="#613B56"/>
+<path d="M14 43Q32 18 49 43T84 43T118 43" stroke="#613B56" stroke-width="6" fill="none" stroke-linecap="round"/>
+<path d="M14 86Q32 62 49 86T84 86T118 86" stroke="#FFFFFF" stroke-width="5" fill="none" opacity=".85" stroke-linecap="round"/>
+</g>
+<rect x="1" y="1" width="126" height="126" rx="23" fill="none" stroke="#613B56" stroke-opacity=".13" stroke-width="2"/>
+</svg>

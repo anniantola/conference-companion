@@ -1,1 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Illustrated profile avatar"><rect width="128" height="128" rx="26" fill="#f2e2ce"/><circle cx="64" cy="57" r="51" fill="#fff" opacity=".22"/><path d="M24 128q3-34 27-38l13 9 13-9q24 4 27 38" fill="#314e69"/><path d="M57 87h14v18q-7 9-14 0Z" fill="#e9b98d"/><path d="M55 94l9 12 9-12 7 34H48Z" fill="#f7f5f2"/><path d="M30 68Q25 23 63 17Q101 15 99 69L91 91H36Z" fill="#553a31"/><ellipse cx="35" cy="66" rx="5" ry="8" fill="#e9b98d"/><ellipse cx="93" cy="66" rx="5" ry="8" fill="#e9b98d"/><ellipse cx="64" cy="62" rx="29" ry="37" fill="#e9b98d"/><path d="M36 48Q40 23 63 22Q88 22 91 45Q78 39 66 31Q53 40 36 48Z" fill="#553a31"/><path d="M46 55l10-2M73 53l10 2" stroke="#553a31" stroke-width="2.5" stroke-linecap="round"/><ellipse cx="52" cy="62" rx="2" ry="2.6" fill="#322a2c"/><ellipse cx="77" cy="62" rx="2" ry="2.6" fill="#322a2c"/><path d="M64 65l-2 9q2 2 5 0" fill="none" stroke="#9a695b" stroke-width="1.7" stroke-linecap="round"/><path d="M57 81q7 5 14 0" fill="none" stroke="#954f58" stroke-width="2" stroke-linecap="round"/><path d="M24 128q3-27 20-34l9 34M104 128q-3-27-20-34l-9 34" fill="none" stroke="#fff" stroke-opacity=".15" stroke-width="3"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+<title>Floating Stones — geometric conference avatar</title>
+<defs><clipPath id="round"><rect width="128" height="128" rx="24"/></clipPath></defs>
+<g clip-path="url(#round)">
+<rect width="128" height="128" fill="#DBEFF8"/>
+<path d="M21 33Q34 8 65 23Q75 40 55 58Q29 66 21 47Z" fill="#48A2BB"/>
+<path d="M71 21Q96 10 112 33Q119 61 89 66Q62 57 71 21Z" fill="#F2A267"/>
+<path d="M18 84Q36 61 63 78Q71 104 50 112Q23 114 18 84Z" fill="#2F4D69"/>
+<path d="M73 81Q103 65 115 90Q116 110 92 114Q69 106 73 81Z" fill="#BCA7DF"/>
+<circle cx="64" cy="63" r="4" fill="#2F4D69"/>
+</g>
+<rect x="1" y="1" width="126" height="126" rx="23" fill="none" stroke="#2F4D69" stroke-opacity=".13" stroke-width="2"/>
+</svg>

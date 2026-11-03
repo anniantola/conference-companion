@@ -1,1 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Illustrated profile avatar"><rect width="128" height="128" rx="26" fill="#f2e2ce"/><circle cx="64" cy="57" r="51" fill="#fff" opacity=".22"/><path d="M24 128q3-34 27-38l13 9 13-9q24 4 27 38" fill="#2e716e"/><path d="M57 87h14v18q-7 9-14 0Z" fill="#e9b98d"/><path d="M55 94l9 12 9-12 7 34H48Z" fill="#f7f5f2"/><path d="M30 68Q25 23 63 17Q101 15 99 69L91 91H36Z" fill="#302d3e"/><ellipse cx="35" cy="66" rx="5" ry="8" fill="#e9b98d"/><ellipse cx="93" cy="66" rx="5" ry="8" fill="#e9b98d"/><ellipse cx="64" cy="62" rx="29" ry="37" fill="#e9b98d"/><path d="M36 48Q40 23 63 22Q88 22 91 45Q78 39 66 31Q53 40 36 48Z" fill="#302d3e"/><path d="M46 54q5-3 10-1M73 53q5-2 10 1" stroke="#302d3e" stroke-width="2.5" fill="none" stroke-linecap="round"/><ellipse cx="52" cy="62" rx="2" ry="2.6" fill="#322a2c"/><ellipse cx="77" cy="62" rx="2" ry="2.6" fill="#322a2c"/><path d="M64 65l-2 9q2 2 5 0" fill="none" stroke="#9a695b" stroke-width="1.7" stroke-linecap="round"/><path d="M57 81q7 5 14 0" fill="none" stroke="#954f58" stroke-width="2" stroke-linecap="round"/><path d="M24 128q3-27 20-34l9 34M104 128q-3-27-20-34l-9 34" fill="none" stroke="#fff" stroke-opacity=".15" stroke-width="3"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+<title>Bubble Balance — geometric conference avatar</title>
+<defs><clipPath id="round"><rect width="128" height="128" rx="24"/></clipPath></defs>
+<g clip-path="url(#round)">
+<rect width="128" height="128" fill="#DBEFF8"/>
+<circle cx="43" cy="47" r="29" fill="#48A2BB"/><circle cx="88" cy="35" r="16" fill="#BCA7DF"/>
+<circle cx="80" cy="89" r="32" fill="#2F4D69"/><circle cx="27" cy="96" r="12" fill="#F2A267"/>
+<circle cx="43" cy="47" r="15" fill="none" stroke="#FFFFFF" stroke-width="4" opacity=".85"/>
+<circle cx="80" cy="89" r="17" fill="none" stroke="#F2A267" stroke-width="5"/>
+<circle cx="104" cy="66" r="5" fill="#BCA7DF"/>
+</g>
+<rect x="1" y="1" width="126" height="126" rx="23" fill="none" stroke="#2F4D69" stroke-opacity=".13" stroke-width="2"/>
+</svg>
