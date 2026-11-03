@@ -1,5 +1,13 @@
 # Conference Companion test results
 
+## v1.2.17 Friend Book activities, avatars and private galleries — 2026-11-03
+
+The Node 22 unit, schema, semantic validation, Builder, deployment and backup suites passed. The complete local browser suite passed **291 of 291 cases** across Chromium, Firefox and WebKit. WebKit used codec libraries unpacked only into `/tmp`; no system packages were changed. The focused Friend Book suites also passed **48 of 48** cases across the three browsers, followed by **3 of 3** directory-photo privacy checks.
+
+The new cases cover Compact and Full QR avatar transfer, cross-instance contact import, My Card identity and activities, non-destructive rescanning, private multi-photo captions and covers, ZIP backup and restore, legacy photo migration, quota failures, previous-activity fallback, 320/375/768/1280 px layouts, offline avatars and contact data, and no request for an official directory photograph. Unit checks cover unique ORCID/public-email identity, conflicting claimed IDs, co-presented activity deduplication, programme time updates, unknown avatar IDs, binary IndexedDB round trips, version 5 backups and version 4 restoration.
+
+Conference Test's staged DEMO package passed schema and semantic validation with 39 sessions, 57 presentations and 18 posters. A disposable browser context intentionally imported Mira Koskinen and Yuna Sato. Both linked through synthetic public identifiers; their shared keynote appeared once with both names, while oral, poster and chair activities appeared from the programme. Both contacts and avatars remained available after offline reload. A separate disposable persistent browser profile was seeded in the v1.2.16 live deployments with a profile, contact, notes, tags and a legacy private photograph for the post-release migration check.
+
 ## v1.2.16 personal Friend Book and directory links — 2026-11-02
 
 The Node 22 unit suite passed, including conference-scoped identity matching, ambiguous name suggestions, dynamic oral/poster/chair activities, vCard identity round trips, non-destructive compact rescans, binary IndexedDB encoding, and version 4 photo backups with earlier backup support. The complete local browser suite passed **89 of 89 Chromium** and **89 of 89 Firefox** cases. New browser cases cover manual-only contact creation, identity confirmation and removal, older-contact reconciliation, untrusted QR IDs, session navigation and favorites, private and directory photos, Builder photo compression, backup restoration, mobile layout and offline activity/photo loading. Local WebKit cannot launch because `libavif.so.16` is absent; the Actions release workflow installs system dependencies and runs all three browser engines before deployment.

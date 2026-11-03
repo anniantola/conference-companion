@@ -1,6 +1,6 @@
 // CacheStorage is origin-wide, even though this worker controls only its scope.
 const CACHE_PREFIX = `conference-companion-engine:${encodeURIComponent(self.registration.scope)}:`;
-const CACHE = `${CACHE_PREFIX}1.2.16`;
+const CACHE = `${CACHE_PREFIX}1.2.17`;
 const ENGINE_ASSETS = [
   "./",
   "./index.html",
@@ -23,6 +23,9 @@ const ENGINE_ASSETS = [
   "./src/publications.js",
   "./src/friend-contact.js",
   "./src/friend-directory.js",
+  "./src/friend-activities.js",
+  "./src/friend-gallery.js",
+  "./src/avatars.js",
   "./src/qrcode.js",
   "./src/vendor/qrcode-generator/qrcode.js",
   "./src/vendor/qr-scanner/qr-scanner.min.js",
@@ -38,6 +41,7 @@ const ENGINE_ASSETS = [
   "./schemas/locations.schema.json",
   "./schemas/branding.schema.json"
 ];
+for(let index=1;index<=24;index++)ENGINE_ASSETS.push(`./assets/avatars/av1-${String(index).padStart(2,'0')}.svg`);
 
 self.addEventListener("install", event => {
   // Do not call skipWaiting(): an engine update should activate on a clean launch,

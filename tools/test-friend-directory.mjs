@@ -5,6 +5,7 @@ import {findMatchingFriend,mergeFriendContact} from '../src/friend-contact.js';
 import {profileToVCard,parseVCard} from '../src/vcard.js';
 import {createPersonalBackup,parsePersonalBackup} from '../src/backup.js';
 import {encodeStoredValue,decodeStoredValue} from '../src/user-store.js';
+import {galleryForContact} from '../src/friend-gallery.js';
 
 const conference={id:'meeting-a',timezone:'Europe/Helsinki'};
 const people={people:[
@@ -54,5 +55,5 @@ const backup=await createPersonalBackup({conferenceId:conference.id,state:{favor
 const restored=(await parsePersonalBackup(backup)).payload.friends[0];
 assert.deepEqual(restored.conferenceIdentity,identity);
 assert.equal(restored.privateNotes,'Met after talk');
-assert.deepEqual(new Uint8Array(await restored.privatePhotoBlob.arrayBuffer()),new Uint8Array(await first.privatePhotoBlob.arrayBuffer()));
+assert.deepEqual(new Uint8Array(await galleryForContact(restored)[0].blob.arrayBuffer()),new Uint8Array(await first.privatePhotoBlob.arrayBuffer()));
 console.log('Friend directory identity, live activities, vCard, binary storage and backup regressions passed');

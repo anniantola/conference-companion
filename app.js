@@ -4,6 +4,9 @@ import {encodeStoredValue,decodeStoredValue,attendeeStorageId} from './src/user-
 import {publicationParts,publicationReference,publicationText} from './src/publications.js';
 import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
 import {validConferenceIdentity,identityCandidates,automaticIdentity,personActivities} from './src/friend-directory.js';
+import {AVATAR_IDS,avatarAssetPath,normalizeAvatarId} from './src/avatars.js';
+import {galleryForContact,coverPhoto,galleryChange} from './src/friend-gallery.js';
+import {aggregateFriendActivities} from './src/friend-activities.js';
 
 (() => {
   const CONFIG = window.CONFERENCE_CONFIG || {};
@@ -60,13 +63,15 @@ import {validConferenceIdentity,identityCandidates,automaticIdentity,personActiv
   let profile = {};
   let friends = [];
   let profilePhotoUrl = "";
-  let friendProfilePhotoUrl = "";
   let friendPhotoUrls = [];
   let profileDraft = null;
   let qrScanner = null;
   let qrScanStarting = false;
   let qrScanProcessing = false;
   const expandedFriendIds = new Set();
+  let friendsActivitiesExpanded=false;
+  let identityTarget=null;
+  let selectedPersonId='';
   const pendingPersonalWrites = new Set();
   let personalDataEpoch = 0;
   let personalDataDeleting = false;
@@ -140,19 +145,18 @@ import {validConferenceIdentity,identityCandidates,automaticIdentity,personActiv
     if(!value)return "";if(CONFIG.builderPreview&&String(value).startsWith('blob:'))return String(value);const safe=normalizeWebUrl(value,{allowRelative:true});if(!safe)return "";if(/^https:/i.test(safe))return safe;return `${CONFIG.packageBase||"./conference"}/${safe.replace(/^\/+/,"")}`;
   }
 
-  function safeDirectoryPhoto(person) {
-    const value=person?.photoUrl;
-    if(CONFIG.builderPreview&&String(value||'').startsWith('blob:'))return value;
-    if(!value||!/^[A-Za-z0-9_./-]+$/.test(value)||String(value).startsWith('/')||String(value).includes('..'))return '';
-    return packageAssetUrl(value);
-  }
-
   function currentIdentity(contact) {return validConferenceIdentity(contact?.conferenceIdentity,CONFERENCE,MODEL);}
-  function shareIdentity() {return currentIdentity(profile);}
-  function personOptions(selected='',includeBlank=true) {
-    return `${includeBlank?'<option value="">Leave unlinked</option>':''}${(MODEL?.people?.people||[]).slice().sort((a,b)=>a.name.localeCompare(b.name)).map(person=>`<option value="${esc(person.id)}" ${person.id===selected?'selected':''}>${esc(person.name)} · ${esc((person.affiliations||[]).join('; ')||person.id)}</option>`).join('')}`;
+  function avatarHtml(contact,cssClass='friend-avatar'){
+    const asset=avatarAssetPath(contact?.avatarId);
+    return asset?`<img class="${cssClass}" src="${esc(asset)}" alt="">`:`<span class="${cssClass} friend-avatar-placeholder" aria-hidden="true">●</span>`;
   }
-
+  function contactPhotoHtml(contact,cssClass='friend-avatar'){
+    const cover=coverPhoto(contact);
+    if(!cover)return avatarHtml(contact,cssClass);
+    const url=URL.createObjectURL(cover.thumbnailBlob||cover.blob);friendPhotoUrls.push(url);
+    return `<img class="${cssClass}" src="${esc(url)}" alt="">`;
+  }
+  function shareIdentity() {return currentIdentity(profile);}
 
   function noteKey(type, id) {
     return `${type}:${id}`;
@@ -498,21 +502,24 @@ import {validConferenceIdentity,identityCandidates,automaticIdentity,personActiv
     }
   }
 
-  async function prepareContactPhotoBlob(file) {
+  async function prepareContactPhoto(file) {
     if(!file?.type?.startsWith('image/'))throw new Error('Choose an image file');
     let image,url;
     try{
-      try{if(typeof createImageBitmap==='function')image=await createImageBitmap(file);}catch{}
+      try{if(typeof createImageBitmap==='function')image=await createImageBitmap(file,{imageOrientation:'from-image'});}catch{}
       if(!image){url=URL.createObjectURL(file);image=new Image();image.src=url;await image.decode();}
       const sourceWidth=image.width,sourceHeight=image.height;
       if(!sourceWidth||!sourceHeight)throw new Error('Image could not be read');
-      const canvas=document.createElement('canvas');canvas.width=224;canvas.height=224;
+      const scale=Math.min(1,1200/Math.max(sourceWidth,sourceHeight));
+      const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(sourceWidth*scale));canvas.height=Math.max(1,Math.round(sourceHeight*scale));
       const context=canvas.getContext('2d');if(!context)throw new Error('Image processing is unavailable');
-      const side=Math.min(sourceWidth,sourceHeight);
-      context.drawImage(image,(sourceWidth-side)/2,(sourceHeight-side)/2,side,side,0,0,224,224);
-      const result=await new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(new Error('Image conversion failed')),'image/jpeg',0.78));
-      if(result.size>350000)throw new Error('Photo is too large after processing');
-      return result;
+      context.drawImage(image,0,0,canvas.width,canvas.height);
+      const blob=await new Promise((resolve,reject)=>canvas.toBlob(value=>value?resolve(value):reject(new Error('Image conversion failed')),'image/jpeg',0.8));
+      const thumbnail=document.createElement('canvas');thumbnail.width=160;thumbnail.height=160;
+      const thumbContext=thumbnail.getContext('2d');if(!thumbContext)throw new Error('Thumbnail processing is unavailable');
+      const side=Math.min(sourceWidth,sourceHeight);thumbContext.drawImage(image,(sourceWidth-side)/2,(sourceHeight-side)/2,side,side,0,0,160,160);
+      const thumbnailBlob=await new Promise((resolve,reject)=>thumbnail.toBlob(value=>value?resolve(value):reject(new Error('Thumbnail conversion failed')),'image/jpeg',0.76));
+      return {blob,thumbnailBlob};
     }finally{image?.close?.();if(url)URL.revokeObjectURL(url);}
   }
 
@@ -1583,7 +1590,7 @@ import {validConferenceIdentity,identityCandidates,automaticIdentity,personActiv
 
   function fmtTime(event, which="start") {
     const raw = event[which];
-    if (state.timeMode === "conference" || !raw) return raw;
+    if (state.timeMode === "conference" || !raw || !/^\d{4}-\d{2}-\d{2}$/.test(event.date||'')) return raw;
     const dt = zonedLocalDate(event.date, raw, CONFERENCE.timezone || "UTC");
     return new Intl.DateTimeFormat(undefined, {hour:"2-digit", minute:"2-digit"}).format(dt);
   }
@@ -1885,11 +1892,9 @@ import {validConferenceIdentity,identityCandidates,automaticIdentity,personActiv
     const e = byId.get(id); if (!e) return;
     currentModal = {type:"event",id};
     $('#modalStar').hidden=false;
-    const speakerPhoto=e.speakers?.map(safeDirectoryPhoto).find(Boolean)||"";
     $("#modalContent").innerHTML = `
       <div class="modal-kicker">${locationPill(e.locationId)}${e.session?`<span class="pill">${esc(e.session)}</span>`:""}<span class="pill">${esc(e.weekday)} ${esc(e.dateLabel)}</span></div>
       <div class="modal-title">${esc(e.title)}</div>
-      ${speakerPhoto?`<img class="modal-speaker-photo" src="${esc(speakerPhoto)}" alt="${esc(e.speaker||'Speaker')}">`:""}
       ${e.speaker?`<div class="modal-person">${esc(e.speaker)}</div>`:""}
       ${e.affiliation?`<div class="modal-aff">${esc(e.affiliation)}</div>`:""}
       <div class="modal-details">
@@ -2392,6 +2397,7 @@ import {validConferenceIdentity,identityCandidates,automaticIdentity,personActiv
   function renderProfilePhoto(source=profile) {
     if(profilePhotoUrl){URL.revokeObjectURL(profilePhotoUrl);profilePhotoUrl="";}
     const img=$("#profilePhotoPreview"),clear=$("#clearProfilePhotoBtn");if(!img)return;
+    const legacy=$('.legacy-photo');if(legacy&&source?.photoBlob instanceof Blob)legacy.open=true;
     if(source?.photoBlob instanceof Blob){profilePhotoUrl=URL.createObjectURL(source.photoBlob);img.src=profilePhotoUrl;img.hidden=false;if(clear)clear.hidden=false;}
     else{img.removeAttribute("src");img.hidden=true;if(clear)clear.hidden=true;}
   }
@@ -2407,8 +2413,56 @@ import {validConferenceIdentity,identityCandidates,automaticIdentity,personActiv
     $("#profileWebsite").value=source.website||"";
     $("#profileBio").value=source.bio||"";
     $("#profilePapers").value=(source.papers||[]).map(x=>typeof x==='string'?x:publicationText(x)).filter(Boolean).join("\n");
-    $("#profilePersonId").innerHTML=personOptions(currentIdentity(source)?.personId||'');
+    const choices=$("#avatarChoices"),avatar=normalizeAvatarId(source.avatarId);
+    if(choices)choices.innerHTML=`<label class="avatar-choice"><input type="radio" name="myAvatar" value="" ${!avatar?'checked':''}><span class="friend-avatar friend-avatar-placeholder" aria-hidden="true">●</span><small>None</small></label>`+AVATAR_IDS.map(id=>`<label class="avatar-choice"><input type="radio" name="myAvatar" value="${id}" ${avatar===id?'checked':''}><img src="${esc(avatarAssetPath(id))}" alt=""><small>${id.slice(-2)}</small></label>`).join('');
+    renderAvatarPreview();
+    renderProfileIdentityStatus(source);
     renderProfilePhoto(source);
+  }
+
+  function renderAvatarPreview(){
+    const target=$('#avatarPreview');if(!target)return;
+    const avatarId=normalizeAvatarId($('input[name="myAvatar"]:checked')?.value);
+    target.innerHTML=`${avatarHtml({avatarId})}<span>${avatarId?`Avatar ${avatarId.slice(-2)} selected`:'Default placeholder selected'}</span>`;
+  }
+
+  function renderProfileIdentityStatus(source=profile){
+    const status=$('#profileIdentityStatus'),identity=currentIdentity(source);
+    if(status)status.textContent=identity?`Linked to conference: ${MODEL.person(identity.personId)?.name||'Conference person'}`:identityCandidates(source,CONFERENCE,MODEL).length?'Suggested match — confirmation required':'Not linked';
+    if($('#profileUnlinkButton'))$('#profileUnlinkButton').hidden=!identity;
+  }
+
+  function identityTargetContact(){return identityTarget?.kind==='profile'?(profileDraft||profile):friends.find(friend=>friend.id===identityTarget?.id);}
+
+  function renderIdentityPicker(){
+    const contact=identityTargetContact(),query=($('#identitySearch')?.value||'').trim().toLocaleLowerCase();if(!contact)return;
+    const candidates=identityCandidates(contact,CONFERENCE,MODEL,{external:identityTarget?.kind==='friend'});
+    const people=(MODEL.people?.people||[]).filter(person=>!query||`${person.name} ${(person.affiliations||[]).join(' ')}`.toLocaleLowerCase().includes(query));
+    const sorted=people.slice().sort((a,b)=>(candidates.find(row=>row.person.id===a.id)?.rank??9)-(candidates.find(row=>row.person.id===b.id)?.rank??9)||a.name.localeCompare(b.name)).slice(0,30);
+    $('#identityDialogStatus').textContent=currentIdentity(contact)?'Linked to conference':candidates.length?'Suggested match — confirmation required':'Not linked';
+    $('#identityResults').innerHTML=sorted.length?sorted.map(person=>{const reason=candidates.find(row=>row.person.id===person.id)?.reason;return `<button type="button" class="identity-result" role="option" aria-selected="${person.id===selectedPersonId}" data-identity-person="${esc(person.id)}"><strong>${esc(person.name)}</strong><small>${esc((person.affiliations||[]).join(' · ')||'Affiliation unavailable')}${reason?` · ${esc(reason)} match`:''}</small></button>`}).join(''):'<p>No matching conference people found.</p>';
+    const person=selectedPersonId?MODEL.person(selectedPersonId):null;
+    const activities=person?personActivities(person.id,MODEL):[];
+    $('#identitySelected').innerHTML=person?`<strong>${esc(person.name)}</strong><p>${esc((person.affiliations||[]).join(' · ')||'Affiliation unavailable')}</p><h4>Conference activities (${activities.length})</h4>${activities.length?`<ul>${activities.map(activity=>`<li>${esc(activity.role)} · ${esc(activity.title)} · ${esc(activity.date||'Date to be announced')}</li>`).join('')}</ul>`:'<p>No programme activities currently assigned.</p>'}`:'<p>Select a person to review their conference activities.</p>';
+    $('#identityConfirm').disabled=!person;
+  }
+
+  function openIdentityPicker(kind,id=''){
+    identityTarget={kind,id};const contact=identityTargetContact();selectedPersonId=currentIdentity(contact)?.personId||identityCandidates(contact,CONFERENCE,MODEL,{external:kind==='friend'})[0]?.person.id||'';
+    $('#identitySearch').value='';renderIdentityPicker();$('#identityDialog').showModal();$('#identitySearch').focus();
+  }
+
+  async function applyIdentitySelection(personId){
+    const identity=personId?validConferenceIdentity({conferenceId:CONFERENCE.id,personId},CONFERENCE,MODEL):null;
+    if(personId&&!identity){toast('That conference person is unavailable');return;}
+    if(identityTarget?.kind==='profile'){
+      profileDraft={...(profileDraft||profile),conferenceIdentity:identity};renderProfileIdentityStatus(profileDraft);
+    }else if(identityTarget?.kind==='friend'){
+      await updateFriend(identityTarget.id,{conferenceIdentity:identity,claimedConferenceIdentity:null,directoryLinkDismissed:!identity});
+      expandedFriendIds.add(identityTarget.id);
+      renderFriendBook();
+    }
+    $('#identityDialog').close();toast(identity?'Linked to conference':'Conference link removed');
   }
 
   function beginProfileEdit() {
@@ -2429,9 +2483,8 @@ import {validConferenceIdentity,identityCandidates,automaticIdentity,personActiv
 
   async function saveProfile() {
     const next=profileFromForm();
-    const personId=$('#profilePersonId')?.value||'';
-    if(personId)next.conferenceIdentity=validConferenceIdentity({conferenceId:CONFERENCE.id,personId},CONFERENCE,MODEL);
-    else delete next.conferenceIdentity;
+    next.avatarId=normalizeAvatarId($('input[name="myAvatar"]:checked')?.value);
+    next.conferenceIdentity=validConferenceIdentity(profileDraft?profileDraft.conferenceIdentity:profile.conferenceIdentity,CONFERENCE,MODEL);
     if(next.email&&!normalizeEmail(next.email)){toast('Enter a valid email address');$('#profileEmail').focus();return;}
     if(next.orcid){const value=normalizeOrcid(next.orcid);if(!value){toast('Enter a valid ORCID identifier');$('#profileOrcid').focus();return;}next.orcid=value;}
     for(const field of ['website','linkedin'])if(next[field]){const value=normalizeWebUrl(next[field]);if(!value){toast(`${field==='website'?'Website':'LinkedIn'} must use a safe HTTPS URL`);$(`#profile${field==='website'?'Website':'Linkedin'}`).focus();return;}next[field]=value;}
@@ -2450,15 +2503,9 @@ import {validConferenceIdentity,identityCandidates,automaticIdentity,personActiv
   }
 
   function friendContactHtml(friend,events) {
-    const identity=currentIdentity(friend),person=identity?MODEL.person(identity.personId):null;
+    const identity=currentIdentity(friend);
     const candidates=friend.directoryLinkDismissed?[]:identityCandidates(friend,CONFERENCE,MODEL);
     const activities=identity?personActivities(identity.personId,MODEL):[];
-    const next=activities.find(activity=>activity.date&&activity.start&&zonedLocalDate(activity.date,activity.start,CONFERENCE.timezone||'UTC').getTime()>=Date.now());
-    const today=new Intl.DateTimeFormat('sv-SE',{timeZone:CONFERENCE.timezone||'UTC',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-    const nextLabel=next?`${next.role==='Oral presentation'?'🎤':next.role==='Poster presentation'?'▣':'🎙'} ${next.date===today?'Today':next.date}, ${fmtTime(next)}`:'';
-    let photo='';
-    if(friend.privatePhotoBlob instanceof Blob){photo=URL.createObjectURL(friend.privatePhotoBlob);friendPhotoUrls.push(photo);}
-    else photo=safeDirectoryPhoto(person);
     const emails=[...new Set([...(friend.emails||[]),friend.email].map(normalizeEmail).filter(Boolean))];
     const affiliations=[...new Set([...(friend.affiliations||[]),friend.affiliation].filter(Boolean))];
     const linkRows=[
@@ -2475,11 +2522,13 @@ import {validConferenceIdentity,identityCandidates,automaticIdentity,personActiv
       const openType=activity.type==='poster'?'poster':activity.type==='session'?'session':'event';
       const favorite=activity.type==='poster'?state.posterFavorites.includes(activity.id):activity.type==='event'&&state.favorites.includes(activity.id);
       const location=activity.locationId?locationLabel(activity.locationId):'';
-      return `<li class="friend-activity"><button type="button" data-friend-activity="${esc(activity.id)}" data-activity-type="${esc(openType)}"><strong>${esc(activity.role)}</strong> · ${esc(activity.title)}${activity.posterNumber?` · #${esc(activity.posterNumber)}`:''}<small>${esc(activity.date)} · ${esc(fmtTime(activity))}–${esc(fmtTime(activity,'end'))}${location?` · ${esc(location)}`:''}</small></button>${activity.type!=='session'?`<button type="button" class="friend-activity-star" data-friend-favorite="${esc(activity.id)}" data-activity-type="${esc(openType)}" aria-label="${favorite?'Remove':'Add'} ${esc(activity.title)} ${favorite?'from':'to'} favorites">${favorite?'★':'☆'}</button>`:''}</li>`;
+      const when=activity.date?`${activity.date}${activity.start?` · ${fmtTime(activity)}`:''}${activity.end?`–${fmtTime(activity,'end')}`:''}`:'Time to be announced';
+      return `<li class="friend-activity"><button type="button" data-friend-activity="${esc(activity.id)}" data-activity-type="${esc(openType)}"><strong>${esc(activity.role)}</strong> · ${esc(activity.title)}${activity.posterNumber?` · #${esc(activity.posterNumber)}`:''}<small>${esc(when)}${location?` · ${esc(location)}`:''}${/cancel/i.test(activity.status||'')?' · Canceled':''}</small></button>${activity.type!=='session'?`<button type="button" class="friend-activity-star" data-friend-favorite="${esc(activity.id)}" data-activity-type="${esc(openType)}" aria-label="${favorite?'Remove':'Add'} ${esc(activity.title)} ${favorite?'from':'to'} favorites">${favorite?'★':'☆'}</button>`:''}</li>`;
     }).join('');
-    const suggested=candidates.length?`<small>${esc(candidates.map(row=>`${row.person.name} (${row.reason})`).join(' · '))}</small>`:'';
+    const suggested=candidates.length?`<small>${esc(candidates.slice(0,3).map(row=>`${row.person.name} (${row.reason})`).join(' · '))}</small>`:'';
+    const photos=galleryForContact(friend),gallery=expanded&&photos.length?`<div class="friend-photo-gallery">${photos.map(photo=>{const url=URL.createObjectURL(photo.blob);friendPhotoUrls.push(url);return `<figure><img src="${esc(url)}" alt="${esc(photo.caption||'Private contact photograph')}"><figcaption><input data-friend-photo-caption="${esc(friend.id)}" data-photo-id="${esc(photo.id)}" value="${esc(photo.caption||'')}" aria-label="Photo caption" placeholder="Add caption"><div class="button-row"><button type="button" class="secondary-btn" data-friend-photo-cover="${esc(friend.id)}" data-photo-id="${esc(photo.id)}" ${friend.privateCoverPhotoId===photo.id?'disabled':''}>${friend.privateCoverPhotoId===photo.id?'Cover photo':'Make cover'}</button><label class="secondary-btn">Replace<input type="file" accept="image/*" data-friend-photo-replace="${esc(friend.id)}" data-photo-id="${esc(photo.id)}" hidden></label><button type="button" class="secondary-btn" data-friend-photo-delete="${esc(friend.id)}" data-photo-id="${esc(photo.id)}">Remove</button></div></figcaption></figure>`}).join('')}</div>`:'';
     return `<article class="friend-card${expanded?' expanded':''}" data-friend-id="${esc(friend.id)}">
-      <button class="friend-card-toggle" data-friend-toggle="${esc(friend.id)}" type="button" aria-expanded="${expanded}" aria-controls="${esc(detailsId)}"><span class="friend-card-main">${photo?`<img class="friend-avatar" src="${esc(photo)}" alt="">`:'<span class="friend-avatar friend-avatar-placeholder" aria-hidden="true">●</span>'}<span><strong>${esc(friend.name||"Contact")}</strong>${affiliations.length?`<small>${esc(affiliations[0])}</small>`:''}${nextLabel?`<small>${esc(nextLabel)}</small>`:''}</span></span><span class="friend-expand-icon" aria-hidden="true">⌄</span></button>
+      <button class="friend-card-toggle" data-friend-toggle="${esc(friend.id)}" type="button" aria-expanded="${expanded}" aria-controls="${esc(detailsId)}"><span class="friend-card-main">${contactPhotoHtml(friend)}<span><strong>${esc(friend.name||"Contact")}</strong>${affiliations.length?`<small>${esc(affiliations[0])}</small>`:''}</span></span><span class="friend-expand-icon" aria-hidden="true">⌄</span></button>
       <div id="${esc(detailsId)}" class="friend-card-details" ${expanded?'':'hidden'}>
         ${friend.position?`<p><strong>Position</strong><span>${esc(friend.position)}</span></p>`:""}
         ${affiliations.length?`<p><strong>Affiliation</strong><span>${esc(affiliations.join(" · "))}</span></p>`:""}
@@ -2487,22 +2536,53 @@ import {validConferenceIdentity,identityCandidates,automaticIdentity,personActiv
         ${links?`<p><strong>Links</strong><span>${links}</span></p>`:""}
         ${friend.bio?`<p><strong>About</strong><span>${esc(friend.bio)}</span></p>`:""}
         ${papers?`<p><strong>Papers</strong><span>${papers}</span></p>`:""}
-        <div class="friend-identity"><label>Conference person<select data-friend-person="${esc(friend.id)}">${personOptions(identity?.personId||'')}</select></label><button type="button" class="secondary-btn" data-friend-link="${esc(friend.id)}">Confirm selection</button>${identity?`<button type="button" class="secondary-btn" data-friend-unlink="${esc(friend.id)}">Remove link</button>`:''}${!identity?suggested:''}</div>
+        <div class="friend-identity"><strong>${identity?'Linked to conference':candidates.length?'Suggested match — confirmation required':'Not linked'}</strong><button type="button" class="secondary-btn" data-friend-identity="${esc(friend.id)}">${identity?'Change conference identity':'Find conference identity'}</button>${identity?`<button type="button" class="secondary-btn" data-friend-unlink="${esc(friend.id)}">Remove link</button>`:''}${!identity?suggested:''}</div>
         ${activities.length?`<section class="friend-activities"><h4>Conference activities</h4><ul>${activityHtml}</ul></section>`:''}
-        <div class="friend-photo-actions"><strong>Private contact photo</strong><span>Saved only on this device and in your backup.</span><label class="secondary-btn">Take photo<input type="file" accept="image/*" capture="environment" data-friend-photo="${esc(friend.id)}" hidden></label><label class="secondary-btn">Choose photo<input type="file" accept="image/*" data-friend-photo="${esc(friend.id)}" hidden></label>${friend.privatePhotoBlob?`<button type="button" class="secondary-btn" data-friend-photo-remove="${esc(friend.id)}">Remove photo</button>`:''}</div>
+        <div class="friend-photo-actions"><strong>Private photograph gallery</strong><span>Only on this device and in your personal backup. Never shared by card.</span><label class="secondary-btn">Take photo<input type="file" accept="image/*" capture="environment" data-friend-photo="${esc(friend.id)}" hidden></label><label class="secondary-btn">Choose photos<input type="file" accept="image/*" multiple data-friend-photo="${esc(friend.id)}" hidden></label>${photos.length?`<button type="button" class="secondary-btn" data-friend-photo-remove="${esc(friend.id)}">Remove all photos</button>`:''}</div>${gallery}
         <div class="friend-private"><label>Met at<select data-friend-event="${esc(friend.id)}"><option value="">— conference generally —</option>${eventOptions}</select></label><label>Met at note<input data-friend-met-at="${esc(friend.id)}" value="${esc(friend.metAt||CONFERENCE.shortName||CONFERENCE.name||"")}" placeholder="Poster session, conference dinner…"></label><label>Private notes<textarea rows="2" data-friend-note="${esc(friend.id)}">${esc(friend.privateNotes||"")}</textarea></label><label>Private tags<input data-friend-tags="${esc(friend.id)}" value="${esc((friend.tags||[]).join(", "))}" placeholder="met at dinner, memristors"></label></div>
         <div class="friend-card-footer"><span>Saved locally · ${esc(friend.metAtConferenceId||CONFERENCE.id||"")}</span><button class="friend-delete" data-friend-delete="${esc(friend.id)}" type="button">Delete contact</button></div>
       </div>
     </article>`;
   }
 
+  function activityIsUpcoming(activity){
+    if(/cancel/i.test(activity.status||''))return false;
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(activity.date||'')||!/^\d{2}:\d{2}$/.test(activity.start||''))return false;
+    const when=zonedLocalDate(activity.date,activity.start,CONFERENCE.timezone||'UTC').getTime();
+    return Number.isFinite(when)&&when>=Date.now();
+  }
+
+  function activityRowHtml(activity,{showFriends=true}={}){
+    const icon=activity.type==='poster'?'📌':activity.type==='session'?'🎙':'🎤';
+    const time=activity.date?`${activity.date}${activity.start?`, ${fmtTime(activity)}`:''}${activity.end?`–${fmtTime(activity,'end')}`:''}`:'Time to be announced';
+    const friendButtons=showFriends?`<div class="friend-activity-people">${activity.friends.map(member=>{const friend=friends.find(row=>row.id===member.id);return `<button type="button" data-friend-jump="${esc(member.id)}">${contactPhotoHtml(friend||member,'friend-avatar')}<span>${esc(member.name)}</span></button>`}).join('')}</div>`:'';
+    const favorite=activity.type==='poster'?state.posterFavorites.includes(activity.id):state.favorites.includes(activity.id);
+    const phase=/cancel/i.test(activity.status||'')?'Canceled':activityIsUpcoming(activity)?'Upcoming':activity.date?'Previous':'Time pending';
+    return `<li class="friend-activity aggregate-activity"><div class="aggregate-activity-content">${friendButtons}<button type="button" data-friend-activity="${esc(activity.id)}" data-activity-type="${esc(activity.type)}"><small>${esc(time)} · ${esc(activity.role)} · ${phase}</small><strong>${icon} ${esc(activity.posterNumber?`Poster ${activity.posterNumber}: `:'')}${esc(activity.title||'Untitled activity')}</strong><small>${esc(activity.locationId?locationLabel(activity.locationId):'Location to be announced')}</small></button></div>${activity.type!=='session'?`<button type="button" class="friend-activity-star" data-friend-favorite="${esc(activity.id)}" data-activity-type="${esc(activity.type)}" aria-label="${favorite?'Remove':'Add'} ${esc(activity.title)} ${favorite?'from':'to'} favorites">${favorite?'★':'☆'}</button>`:''}</li>`;
+  }
+
+  function renderFriendsConferenceActivities(){
+    const target=$('#friendsConferenceActivities');if(!target)return;
+    const all=aggregateFriendActivities(friends,CONFERENCE,MODEL),upcoming=all.filter(activityIsUpcoming);
+    const previous=all.filter(activity=>/^\d{4}-\d{2}-\d{2}$/.test(activity.date||'')&&!activityIsUpcoming(activity)&&!/cancel/i.test(activity.status||''));
+    const compact=upcoming.length?upcoming.slice(0,2):previous.length?previous.slice(-2).reverse():all.slice(0,2);
+    const displayed=friendsActivitiesExpanded?all:compact;
+    if(!all.length){target.innerHTML=friends.length?'<p>No conference activities found for your friends. Link a saved contact to their conference profile to see their presentations here.</p><button type="button" class="secondary-btn" data-friend-manage-identity>Manage identity links</button>':'<p>Save a contact you have met to see their conference activities here.</p><button type="button" class="secondary-btn" data-friend-manage-identity>Add a contact</button>';return;}
+    target.innerHTML=`<h4>${upcoming.length?'Upcoming activities':previous.length?'Previous conference activities':'Conference activities'}</h4><ul class="friend-activities-list">${displayed.map(activity=>activityRowHtml(activity)).join('')}</ul>${all.length>2?`<button type="button" class="secondary-btn" data-friends-activities-toggle aria-expanded="${friendsActivitiesExpanded}">${friendsActivitiesExpanded?'Collapse':`View all friend activities (${all.length}) ▼`}</button>`:''}`;
+  }
+
+  function renderMyConferenceActivities(){
+    const target=$('#myConferenceActivities');if(!target)return;
+    const identity=currentIdentity(profile),activities=identity?personActivities(identity.personId,MODEL):[];
+    target.innerHTML=`<h4>My conference activities</h4>${activities.length?`<ul class="friend-activities-list">${activities.map(activity=>activityRowHtml(activity,{showFriends:false})).join('')}</ul>`:`<p>${identity?'No programme activities are currently assigned to this conference person.':'Link your conference identity to see your activities here.'}</p>`}`;
+  }
+
   function renderFriendBook() {
     if (!CONFERENCE.features?.friendBook) return;
     for(const url of friendPhotoUrls)URL.revokeObjectURL(url);friendPhotoUrls=[];
     const summary=$("#myCardSummary");
-    if(friendProfilePhotoUrl){URL.revokeObjectURL(friendProfilePhotoUrl);friendProfilePhotoUrl="";}
     if(summary){
-      const photo=profile?.photoBlob instanceof Blob?(friendProfilePhotoUrl=URL.createObjectURL(profile.photoBlob),`<img class="friend-profile-photo" src="${esc(friendProfilePhotoUrl)}" alt="">`):"";
+      const photo=avatarHtml(profile,'friend-profile-photo');
       const details=[
         profile.position?`<p>${esc(profile.position)}</p>`:"",
         (profile.affiliation||(profile.affiliations||[])[0])?`<p>${esc(profile.affiliation||(profile.affiliations||[])[0])}</p>`:"",
@@ -2513,10 +2593,11 @@ import {validConferenceIdentity,identityCandidates,automaticIdentity,personActiv
         profile.bio?`<p>${esc(profile.bio)}</p>`:"",
         (profile.papers||[]).length?`<p><strong>Selected papers</strong><br>${papersHtml(profile.papers)}</p>`:""
       ].filter(Boolean).join("");
-      summary.innerHTML=profile?.name?`<div class="my-card-summary-layout ${photo?'with-photo':'no-photo'}">${photo}<div><h4>${esc(profile.name)}</h4>${details}</div></div>`:`<h4>Create your conference card</h4><p>Add your details with Edit, then share them by QR or vCard.</p>`;
+      summary.innerHTML=profile?.name?`<div class="my-card-summary-layout with-photo">${photo}<div><h4>${esc(profile.name)}</h4><strong>${currentIdentity(profile)?'Linked to conference':'Not linked'}</strong>${details}</div></div>`:`<h4>Create your conference card</h4><p>Add your details with Edit, then share them by QR or vCard.</p>`;
     }
     const editor=$("#profileSection");if(editor&&profileDraft===null)editor.hidden=true;
     friends.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""),undefined,{sensitivity:"base"}));
+    renderFriendsConferenceActivities();renderMyConferenceActivities();
     const list=$("#friendList");if(list){const events=friends.length?MODEL.calendarItems().slice().sort((a,b)=>`${a.date}|${a.start}`.localeCompare(`${b.date}|${b.start}`)):[];list.innerHTML=friends.length?friends.map(friend=>friendContactHtml(friend,events)).join(""):`<div class="empty-state"><strong>No contacts saved yet</strong>Scan a card, import a .vcf file, or add someone you met.</div>`;}
     if($("#friendCount")) $("#friendCount").textContent=String(friends.length);
   }
@@ -2537,9 +2618,17 @@ import {validConferenceIdentity,identityCandidates,automaticIdentity,personActiv
     friends[index]=saved;renderFriendBook();
   }
 
+  async function saveFriendGallery(friend,photos,coverId){
+    try{await updateFriend(friend.id,galleryChange(friend,photos,coverId));return true;}
+    catch(error){console.error(error);toast(error?.name==='QuotaExceededError'?'Device storage is full. Existing photos are safe.':'Could not update the private photo gallery');return false;}
+  }
+
   async function reconcileSavedFriendIdentities(){
     for(let index=0;index<friends.length;index++){
-      const friend=friends[index];
+      let friend=friends[index];
+      if(friend.privatePhotoBlob instanceof Blob){
+        try{friend=friends[index]=await trackPersonalWrite(USER_STORE.saveFriend(galleryChange(friend,galleryForContact(friend),friend.privateCoverPhotoId)));}catch(error){console.error('Legacy photo migration deferred',error);}
+      }
       if(friend.directoryLinkDismissed||currentIdentity(friend))continue;
       const identity=automaticIdentity(friend,CONFERENCE,MODEL,{external:true});
       if(identity)friends[index]=await trackPersonalWrite(USER_STORE.saveFriend({...friend,conferenceIdentity:identity}));
@@ -2555,14 +2644,13 @@ import {validConferenceIdentity,identityCandidates,automaticIdentity,personActiv
     if(orcid&&!normalizeOrcid(orcid)){toast('Enter a valid ORCID identifier');return;}
     const affiliation=String(data.get('affiliation')||'').trim();
     const incoming={name,email,emails:email?[email]:[],orcid:orcid?normalizeOrcid(orcid):'',affiliation,affiliations:affiliation?[affiliation]:[],links:[],papers:[]};
-    const personId=String(data.get('personId')??'auto');
-    if(personId==='auto')incoming.conferenceIdentity=automaticIdentity(incoming,CONFERENCE,MODEL);
-    else if(personId)incoming.conferenceIdentity=validConferenceIdentity({conferenceId:CONFERENCE.id,personId},CONFERENCE,MODEL);
-    else incoming.directoryLinkDismissed=true;
+    const leaveUnlinked=data.has('leaveUnlinked');
+    if(leaveUnlinked)incoming.directoryLinkDismissed=true;
+    else incoming.conferenceIdentity=automaticIdentity(incoming,CONFERENCE,MODEL);
     const existing=findMatchingFriend(friends,incoming);
     if(existing&&!confirm(`A contact with this ORCID or email is already saved as ${existing.name}. Update that contact?`))return;
     const friend=mergeFriendContact(existing,incoming,{conferenceId:CONFERENCE.id,conferenceName:CONFERENCE.shortName||CONFERENCE.name||''});
-    if(personId===''){friend.conferenceIdentity=null;friend.directoryLinkDismissed=true;}
+    if(leaveUnlinked){friend.conferenceIdentity=null;friend.directoryLinkDismissed=true;}
     else if(incoming.conferenceIdentity){friend.conferenceIdentity=incoming.conferenceIdentity;friend.directoryLinkDismissed=false;}
     const saved=await trackPersonalWrite(USER_STORE.saveFriend(friend));
     friends=existing?friends.map(row=>row.id===saved.id?saved:row):[...friends,saved];expandedFriendIds.add(saved.id);
@@ -2582,8 +2670,10 @@ import {validConferenceIdentity,identityCandidates,automaticIdentity,personActiv
       friends=existing?friends.map(x=>x.id===saved.id?saved:x):[...friends,saved];
       const suggestions=!saved.directoryLinkDismissed&&!currentIdentity(saved)&&identityCandidates(saved,CONFERENCE,MODEL).length;
       if(suggestions)expandedFriendIds.add(saved.id);
-      renderFriendBook();toast(existing?"Contact updated":"Contact saved to Friend Book");
-      if(suggestions)toast('Possible conference match: choose a person to link this contact');
+      renderFriendBook();
+      const status=currentIdentity(saved)?'Linked to conference':suggestions?'Suggested match — confirmation required':'Not linked: no matching conference person found';
+      if($('#friendImportStatus'))$('#friendImportStatus').textContent=`${saved.name}: ${status}. ${suggestions?'Open this contact to review the suggested identity.':''}`;
+      toast(`${existing?'Contact updated':'Contact saved'} · ${status}`);
       return true;
     } catch(err){console.error(err);toast("Could not read that vCard");return false;}
   }
@@ -3033,6 +3123,25 @@ import {validConferenceIdentity,identityCandidates,automaticIdentity,personActiv
     });
 
     $("#editProfileBtn")?.addEventListener("click",beginProfileEdit);
+    $('#avatarChoices')?.addEventListener('change',renderAvatarPreview);
+    $('#profileIdentityButton')?.addEventListener('click',()=>openIdentityPicker('profile'));
+    $('#profileUnlinkButton')?.addEventListener('click',()=>{profileDraft={...(profileDraft||profile),conferenceIdentity:null};renderProfileIdentityStatus(profileDraft);});
+    $('#identitySearch')?.addEventListener('input',renderIdentityPicker);
+    $('#identityResults')?.addEventListener('click',event=>{const choice=event.target.closest('[data-identity-person]');if(!choice)return;selectedPersonId=choice.dataset.identityPerson;renderIdentityPicker();});
+    $('#identityConfirm')?.addEventListener('click',()=>applyIdentitySelection(selectedPersonId));
+    $('#identityRemove')?.addEventListener('click',()=>applyIdentitySelection(''));
+    $('#identityClose')?.addEventListener('click',()=>$('#identityDialog').close());
+    const activityClick=event=>{
+      const jump=event.target.closest('[data-friend-jump]');if(jump){expandedFriendIds.add(jump.dataset.friendJump);renderFriendBook();document.querySelector(`[data-friend-id="${CSS.escape(jump.dataset.friendJump)}"]`)?.scrollIntoView({block:'start'});return;}
+      const activity=event.target.closest('[data-friend-activity]');if(activity){if(activity.dataset.activityType==='poster')openPoster(activity.dataset.friendActivity);else if(activity.dataset.activityType==='session')openSession(activity.dataset.friendActivity);else openEvent(activity.dataset.friendActivity);return;}
+      const favorite=event.target.closest('[data-friend-favorite]');if(favorite){if(favorite.dataset.activityType==='poster')togglePosterFavorite(favorite.dataset.friendFavorite);else toggleEventFavorite(favorite.dataset.friendFavorite);renderFriendBook();}
+    };
+    $('#friendsConferenceActivities')?.addEventListener('click',event=>{
+      const toggle=event.target.closest('[data-friends-activities-toggle]');if(toggle){friendsActivitiesExpanded=!friendsActivitiesExpanded;renderFriendBook();return;}
+      const manage=event.target.closest('[data-friend-manage-identity]');if(manage){const friend=friends.find(row=>!currentIdentity(row))||friends[0];if(friend){expandedFriendIds.add(friend.id);renderFriendBook();document.querySelector(`[data-friend-id="${CSS.escape(friend.id)}"]`)?.scrollIntoView({block:'start'});}else $('#addFriendBtn')?.click();return;}
+      activityClick(event);
+    });
+    $('#myConferenceActivities')?.addEventListener('click',activityClick);
     $("#saveProfileBtn")?.addEventListener("click",saveProfile);
     $("#cancelProfileBtn")?.addEventListener("click",cancelProfileEdit);
     $("#profilePhotoInput")?.addEventListener("change",async e=>{const file=e.target.files?.[0];if(!file)return;const epoch=personalDataEpoch,photoBlob=await prepareImageBlob(file);if(personalDataDeleting||epoch!==personalDataEpoch)return;profileDraft={...(profileDraft||profile),photoBlob};renderProfilePhoto(profileDraft);e.target.value="";});
@@ -3041,7 +3150,7 @@ import {validConferenceIdentity,identityCandidates,automaticIdentity,personActiv
     $("#downloadVcardBtn")?.addEventListener("click",downloadMyVcard);
     $("#scanFriendBtn")?.addEventListener("click",openFriendQrScan);
     $("#importVcardBtn")?.addEventListener("click",()=>$("#friendVcardInput")?.click());
-    $('#addFriendBtn')?.addEventListener('click',()=>{const dialog=$('#addFriendDialog');dialog.querySelector('[name="personId"]').innerHTML='<option value="auto">Match by ORCID or public email</option>'+personOptions();dialog.showModal();dialog.querySelector('[name="name"]').focus();});
+    $('#addFriendBtn')?.addEventListener('click',()=>{const dialog=$('#addFriendDialog');dialog.showModal();dialog.querySelector('[name="name"]').focus();});
     $('#cancelAddFriendBtn')?.addEventListener('click',()=>$('#addFriendDialog').close());
     $('#addFriendForm')?.addEventListener('submit',addManualFriend);
     $("#friendVcardInput")?.addEventListener("change",async e=>{const f=e.target.files[0];if(f)await addFriendFromVCard(await f.text());e.target.value="";});
@@ -3061,15 +3170,31 @@ import {validConferenceIdentity,identityCandidates,automaticIdentity,personActiv
       const toggle=e.target.closest("[data-friend-toggle]");if(toggle){const id=toggle.dataset.friendToggle;if(expandedFriendIds.has(id))expandedFriendIds.delete(id);else expandedFriendIds.add(id);renderFriendBook();return;}
       const activity=e.target.closest('[data-friend-activity]');if(activity){if(activity.dataset.activityType==='poster')openPoster(activity.dataset.friendActivity);else if(activity.dataset.activityType==='session')openSession(activity.dataset.friendActivity);else openEvent(activity.dataset.friendActivity);return;}
       const favorite=e.target.closest('[data-friend-favorite]');if(favorite){if(favorite.dataset.activityType==='poster')togglePosterFavorite(favorite.dataset.friendFavorite);else toggleEventFavorite(favorite.dataset.friendFavorite);renderFriendBook();return;}
-      const link=e.target.closest('[data-friend-link]');if(link){const selected=$(`[data-friend-person="${CSS.escape(link.dataset.friendLink)}"]`)?.value||'';await updateFriend(link.dataset.friendLink,{conferenceIdentity:selected?{conferenceId:CONFERENCE.id,personId:selected}:null,directoryLinkDismissed:!selected});toast(selected?'Conference person linked':'Contact left unlinked');return;}
+      const link=e.target.closest('[data-friend-identity]');if(link){openIdentityPicker('friend',link.dataset.friendIdentity);return;}
       const unlink=e.target.closest('[data-friend-unlink]');if(unlink){await updateFriend(unlink.dataset.friendUnlink,{conferenceIdentity:null,claimedConferenceIdentity:null,directoryLinkDismissed:true});toast('Conference link removed');return;}
-      const removePhoto=e.target.closest('[data-friend-photo-remove]');if(removePhoto){await updateFriend(removePhoto.dataset.friendPhotoRemove,{privatePhotoBlob:null});toast('Private photo removed');return;}
+      const cover=e.target.closest('[data-friend-photo-cover]');if(cover){const friend=friends.find(row=>row.id===cover.dataset.friendPhotoCover);if(await saveFriendGallery(friend,galleryForContact(friend),cover.dataset.photoId))toast('Cover photo changed');return;}
+      const deletePhoto=e.target.closest('[data-friend-photo-delete]');if(deletePhoto){const friend=friends.find(row=>row.id===deletePhoto.dataset.friendPhotoDelete),photos=galleryForContact(friend).filter(row=>row.id!==deletePhoto.dataset.photoId);if(await saveFriendGallery(friend,photos,friend.privateCoverPhotoId))toast('Photo removed');return;}
+      const removePhoto=e.target.closest('[data-friend-photo-remove]');if(removePhoto){const friend=friends.find(row=>row.id===removePhoto.dataset.friendPhotoRemove);if(await saveFriendGallery(friend,[],''))toast('All private photos removed');return;}
       const del=e.target.closest("[data-friend-delete]");if(!del)return;if(confirm("Delete this Friend Book contact?")){await trackPersonalWrite(USER_STORE.deleteFriend(del.dataset.friendDelete));friends=friends.filter(x=>x.id!==del.dataset.friendDelete);expandedFriendIds.delete(del.dataset.friendDelete);renderFriendBook();toast("Contact deleted");}
     });
     $('#friendList')?.addEventListener('change',async event=>{
-      const input=event.target.closest('[data-friend-photo]');if(!input?.files?.[0])return;
-      try{const epoch=personalDataEpoch,photo=await prepareContactPhotoBlob(input.files[0]);if(epoch!==personalDataEpoch||personalDataDeleting)return;await updateFriend(input.dataset.friendPhoto,{privatePhotoBlob:photo});toast('Private photo saved');}
-      catch(error){console.error(error);toast(error.message||'Could not process photograph');}
+      const caption=event.target.closest('[data-friend-photo-caption]');
+      if(caption){const friend=friends.find(row=>row.id===caption.dataset.friendPhotoCaption);if(!friend)return;const photos=galleryForContact(friend).map(photo=>photo.id===caption.dataset.photoId?{...photo,caption:caption.value.trim()}:photo);await saveFriendGallery(friend,photos,friend.privateCoverPhotoId);return;}
+      const input=event.target.closest('[data-friend-photo],[data-friend-photo-replace]');if(!input?.files?.length)return;
+      const id=input.dataset.friendPhoto||input.dataset.friendPhotoReplace,replaceId=input.dataset.photoId||'';
+      let savedCount=0,failed=false;
+      for(const file of input.files){
+        try{
+          const epoch=personalDataEpoch,processed=await prepareContactPhoto(file);if(epoch!==personalDataEpoch||personalDataDeleting)return;
+          const friend=friends.find(row=>row.id===id);if(!friend)return;
+          const photos=galleryForContact(friend),old=photos.find(photo=>photo.id===replaceId);
+          const photo={id:old?.id||crypto.randomUUID(),...processed,caption:old?.caption||'',createdAt:old?old.createdAt:Math.max(Date.now(),(photos.at(-1)?.createdAt||0)+1)};
+          if(old)photos.splice(photos.indexOf(old),1,photo);else photos.push(photo);
+          await updateFriend(id,galleryChange(friend,photos,friend.privateCoverPhotoId||photo.id));
+          savedCount++;
+        }catch(error){console.error(error);toast(error?.name==='QuotaExceededError'?'Device storage is full. Earlier photographs are safe.':error.message||'Could not save photograph');failed=true;break;}
+      }
+      if(!failed&&savedCount)toast(`${savedCount} private photograph${savedCount===1?'':'s'} saved`);
     });
 
     $("#shareQrClose").addEventListener("click", closeShareQr);

@@ -1,6 +1,6 @@
 # Conference Companion
 
-Current engine release: **v1.2.16**.
+Current engine release: **v1.2.17**.
 
 Conference Companion is a standalone, offline-first conference PWA plus a browser-based Conference Builder. The attendee engine is stable and conference content is published as a normalized, versioned data package rather than being hard-coded into the UI.
 
@@ -26,7 +26,7 @@ Builder Step 2 now provides a source manager, explicit merge/replace-source/repl
 - PPTX export for notes and presentation photos.
 - Personal-data ZIP backup and restore, including favorites, notes, Friend Book contacts and private photos, My Card photo and conference photos. Version 4 backups retain support for earlier exports.
 - Standards-based `.ics` export for one programme item, starred schedule or full programme, including `VTIMEZONE`, immutable calendar UIDs and `SEQUENCE` support. New Builder-created UIDs use persistent `urn:uuid:<UUIDv4>`; already published UIDs remain unchanged.
-- Personal Friend Book with manual contacts, safe QR/vCard import, private notes/tags and “met at” context. Contacts may link to a person in this conference by ID, ORCID, public email, or explicit selection; the current programme supplies oral, poster and chair activities with favorites and navigation. Compact cards show a local private photo or a conference directory photo, affiliation and next activity. QR/vCard sharing can carry a confirmed conference identity while keeping Friend Book private data and photos local. DOI/publication links, Compact and Full cards and oversized-card export remain supported.
+- Personal Friend Book with manual contacts, safe QR/vCard import, private notes/tags and “met at” context. Contacts are linked through a searchable conference-person picker or unique ORCID/public-email matching; the current programme supplies oral, poster and chair activities with favorites and navigation. A page-level section aggregates linked friends' activities without creating contacts from the directory. Compact cards show a shared illustrated avatar or a private gallery cover, name and affiliation. My Card shares a versioned avatar ID in Compact and Full cards. Private contact photographs, captions and cover choices stay in IndexedDB and personal backups; existing single photographs migrate without duplication. DOI/publication links and oversized-card export remain supported.
 - Announcements.
 - Generic conference branding, track/location colors, typography, logo and sponsor assets.
 - Installable PWA with a service worker that does not force-reload an attendee while an engine update is waiting.

@@ -11,7 +11,7 @@ export function validConferenceIdentity(identity,conference,model){
 
 export function identityCandidates(contact,conference,model,{external=false}={}){
   const people=model?.people?.people||[],orcid=normalizeOrcid(contact?.orcid),emails=new Set(emailValues(contact));
-  const explicit=validConferenceIdentity(contact?.conferenceIdentity||contact?.claimedConferenceIdentity,conference,model);
+  const explicit=validConferenceIdentity(contact?.conferenceIdentity,conference,model)||validConferenceIdentity(contact?.claimedConferenceIdentity,conference,model);
   const rows=people.map(person=>{
     const personOrcid=normalizeOrcid(person.orcid),personEmail=normalizeEmail(person.publicEmail);
     const orcidMatch=!!(orcid&&personOrcid&&orcid===personOrcid);
@@ -29,23 +29,31 @@ export function identityCandidates(contact,conference,model,{external=false}={})
 }
 
 export function automaticIdentity(contact,conference,model,{external=false}={}){
-  const candidates=identityCandidates(contact,conference,model,{external});
-  const best=candidates[0];
-  if(!best?.automatic||candidates.filter(row=>row.rank===best.rank).length!==1)return null;
-  // Conflicting external IDs need a person to resolve the disagreement.
-  const claimed=validConferenceIdentity(contact?.claimedConferenceIdentity,conference,model);
-  if(external&&claimed&&claimed.personId!==best.person.id)return null;
-  return {conferenceId:conference.id,personId:best.person.id};
+  const orcid=normalizeOrcid(contact?.orcid),emails=new Set(emailValues(contact));
+  const people=model?.people?.people||[];
+  const orcidMatches=orcid?people.filter(person=>normalizeOrcid(person.orcid)===orcid):[];
+  const emailMatches=emails.size?people.filter(person=>emails.has(clean(normalizeEmail(person.publicEmail)))):[];
+  const verified=orcidMatches.length===1?orcidMatches[0]:emailMatches.length===1?emailMatches[0]:null;
+  if(orcidMatches.length>1||emailMatches.length>1)return null;
+  if(orcidMatches.length===1&&emailMatches.length===1&&orcidMatches[0].id!==emailMatches[0].id)return null;
+  if(external){
+    const claim=validConferenceIdentity(contact?.claimedConferenceIdentity,conference,model);
+    if(claim&&verified&&claim.personId!==verified.id)return null;
+    return verified?{conferenceId:conference.id,personId:verified.id}:null;
+  }
+  const explicit=validConferenceIdentity(contact?.conferenceIdentity,conference,model);
+  if(explicit)return explicit;
+  return verified?{conferenceId:conference.id,personId:verified.id}:null;
 }
 
 export function personActivities(personId,model){
   if(!personId||!model)return [];
   const activities=[];
-  for(const item of model.items||[])if(item.entityType==='presentation'&&item.speakerIds?.includes(personId))activities.push({role:'Oral presentation',type:'event',id:item.id,title:item.title,date:item.date,start:item.start,end:item.end,locationId:item.locationId});
+  for(const item of model.items||[])if(item.entityType==='presentation'&&item.speakerIds?.includes(personId))activities.push({role:'Oral presentation',type:'event',id:item.id,title:item.title,date:item.date,start:item.start,end:item.end,locationId:item.locationId,status:item.status||''});
   for(const poster of model.posters||[])if(poster.authorIds?.includes(personId)){
     const session=poster.posterSession;
-    activities.push({role:'Poster presentation',type:'poster',id:poster.id,title:poster.title,date:session?.date||'',start:session?.start||'',end:session?.end||'',locationId:session?.locationId||'',posterNumber:poster.number});
+    activities.push({role:'Poster presentation',type:'poster',id:poster.id,title:poster.title,date:session?.date||'',start:session?.start||'',end:session?.end||'',locationId:session?.locationId||'',posterNumber:poster.number,status:poster.status||session?.status||''});
   }
-  for(const session of model.programme?.sessions||[])if(session.chairIds?.includes(personId))activities.push({role:'Session chair',type:'session',id:session.id,title:session.title,date:session.date,start:session.start,end:session.end,locationId:session.locationId});
+  for(const session of model.programme?.sessions||[])if(session.chairIds?.includes(personId))activities.push({role:'Session chair',type:'session',id:session.id,title:session.title,date:session.date,start:session.start,end:session.end,locationId:session.locationId,status:session.status||''});
   return activities.sort((a,b)=>`${a.date}|${a.start}|${a.role}|${a.id}`.localeCompare(`${b.date}|${b.start}|${b.role}|${b.id}`));
 }

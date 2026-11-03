@@ -1,4 +1,5 @@
 import {normalizeEmail,normalizeOrcid} from './safe-url.js';
+import {normalizeAvatarId} from './avatars.js';
 
 const values=(contact,plural,singular)=>[...(Array.isArray(contact?.[plural])?contact[plural]:[]),contact?.[singular]].filter(Boolean);
 const emails=contact=>new Set(values(contact,'emails','email').map(normalizeEmail).filter(Boolean).map(x=>x.toLowerCase()));
@@ -40,6 +41,8 @@ export function mergeFriendContact(existing,incoming,{conferenceId='',conference
   const merged={...existing};
   for(const field of ['name','position','affiliation','email','orcid','website','linkedin','bio'])
     if(incoming[field])merged[field]=incoming[field];
+  if(normalizeAvatarId(incoming.avatarId))merged.avatarId=incoming.avatarId;
+  if(incoming.claimedConferenceIdentity)merged.claimedConferenceIdentity=incoming.claimedConferenceIdentity;
   for(const field of ['emails','affiliations','links','papers'])
     merged[field]=union(existing[field]||[],incoming[field]||[]);
   if(!merged.email)merged.email=merged.emails?.[0]||'';

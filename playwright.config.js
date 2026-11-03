@@ -5,7 +5,7 @@ export default defineConfig({
   projects:[
     {name:'chromium',use:{browserName:'chromium'}},
     {name:'firefox',use:{browserName:'firefox'}},
-    {name:'webkit',use:{browserName:'webkit'}}
+    {name:'webkit',use:{browserName:'webkit',launchOptions:process.env.CONFERENCE_WEBKIT_EXECUTABLE?{executablePath:process.env.CONFERENCE_WEBKIT_EXECUTABLE}:{}}}
   ],
   webServer:{command:'node tools/serve.mjs',url:'http://127.0.0.1:8080',reuseExistingServer:false}
 });

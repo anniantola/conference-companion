@@ -161,12 +161,14 @@ Calendar `SEQUENCE` is bumped for affected child presentations when a session-le
 
 The offline Friend Book uses standards-based local sharing:
 
-- personal card: name, position, affiliation, email, ORCID, LinkedIn, website, papers/bio and optional local photo;
-- compact vCard 4.0 + QR sharing;
+- personal card: name, position, affiliation, email, ORCID, LinkedIn, website, papers/bio and a locally bundled, versioned avatar ID;
+- Compact and Full vCard 4.0 + QR sharing, with the avatar in `X-CONFERENCE-COMPANION-AVATAR`;
 - `.vcf` import/export;
-- QR image scanning where `BarcodeDetector` is available;
-- local snapshot of saved contacts;
+- offline QR image and camera scanning;
+- local snapshot of intentionally saved contacts, with optional conference-scoped person identity;
 - `metAtConferenceId`, optional `metAtEventId`, private notes, tags and free-text met-at context.
+
+The directory enriches saved contacts but never creates them. Conference activities are derived from the validated programme's `speakerIds`, `authorIds`, and `chairIds` and aggregated by activity ID. Contact photos are a private IndexedDB gallery with one cover, captions, 1200-pixel viewing images and 160-pixel thumbnails. Backup ZIP version 5 contains every gallery image and retains version 1–4 restoration; legacy `privatePhotoBlob` migrates to a stable `legacy-cover` gallery entry. Neither gallery photos nor legacy My Card photos enter vCards or QR payloads. Directory photographs remain in the schema and Builder but are not fetched by the attendee Friend Book.
 
 Large photos/paper payloads are intentionally not embedded in QR codes.
 
