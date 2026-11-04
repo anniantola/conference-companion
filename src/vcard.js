@@ -1,6 +1,6 @@
 import {normalizeEmail, normalizeOrcid, normalizeWebUrl} from './safe-url.js';
 import {publicationReference,publicationText} from './publications.js';
-import {normalizeAvatarId} from './avatars.js';
+import {DEFAULT_AVATAR_COLOR,normalizeAvatarColor} from './avatar-color.js';
 
 function esc(value='') { return String(value).replace(/\\/g,'\\\\').replace(/\n/g,'\\n').replace(/,/g,'\\,').replace(/;/g,'\\;'); }
 function unesc(value='') { return String(value).replace(/\\n/gi,'\n').replace(/\\,/g,',').replace(/\\;/g,';').replace(/\\\\/g,'\\'); }
@@ -10,7 +10,7 @@ function fieldValues(profile,plural,singular) { return unique([...(Array.isArray
 
 export function sharedFieldLabels(profile,{compact=false,includeWebsite=true}={}) {
   const fields=['Name'];
-  if(normalizeAvatarId(profile.avatarId))fields.push('Avatar');
+  fields.push('Avatar');
   if(profile.position)fields.push('Position');
   if(fieldValues(profile,'affiliations','affiliation').length)fields.push('Affiliation');
   if(fieldValues(profile,'emails','email').length)fields.push('Email');
@@ -40,7 +40,7 @@ export function profileToVCard(profile, {compact=false,includeWebsite=true,confe
   if(profile.orcid&&!orcid)throw new Error('ORCID must be a valid ORCID identifier');
   if(emails.some(email=>!normalizeEmail(email)))throw new Error('Email address is invalid');
   const lines=['BEGIN:VCARD','VERSION:4.0',`FN:${esc(name)}`];
-  if(normalizeAvatarId(profile.avatarId))lines.push(`X-CONFERENCE-COMPANION-AVATAR:${profile.avatarId}`);
+  if(profile.avatarColor!=null)lines.push(`X-CONFERENCE-COMPANION-AVATAR-COLOR:${normalizeAvatarColor(profile.avatarColor)}`);
   if(conferenceIdentity?.conferenceId&&conferenceIdentity?.personId){
     for(const value of [conferenceIdentity.conferenceId,conferenceIdentity.personId])if(!/^[\w.-]{1,160}$/.test(value))throw new Error('Conference identity is invalid');
     lines.push(`X-CONFERENCE-COMPANION-ID:${esc(conferenceIdentity.conferenceId)}`);
@@ -81,7 +81,7 @@ export function parseVCard(text) {
     const key=line.slice(0,idx), value=unesc(line.slice(idx+1));
     const base=key.split(';')[0].toUpperCase();
     if(base==='FN') out.name=value;
-    else if(base==='X-CONFERENCE-COMPANION-AVATAR')out.avatarId=normalizeAvatarId(value);
+    else if(base==='X-CONFERENCE-COMPANION-AVATAR-COLOR')out.avatarColor=/^#[\da-f]{6}$/i.test(value)?normalizeAvatarColor(value):DEFAULT_AVATAR_COLOR;
     else if(base==='X-CONFERENCE-COMPANION-ID') {if(!/^[\w.-]{1,160}$/.test(value))throw new Error('vCard contains an invalid conference ID');out.claimedConferenceIdentity={...(out.claimedConferenceIdentity||{}),conferenceId:value};}
     else if(base==='X-CONFERENCE-COMPANION-PERSON-ID') {if(!/^[\w.-]{1,160}$/.test(value))throw new Error('vCard contains an invalid person ID');out.claimedConferenceIdentity={...(out.claimedConferenceIdentity||{}),personId:value};}
     else if(base==='TITLE') out.position=value;

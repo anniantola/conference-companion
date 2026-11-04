@@ -39,7 +39,7 @@ async function verifyOnline(page, deployment) {
     };
   });
   assert.equal(live.name, deployment.conference.name);
-  assert.equal(live.engineVersion,'1.2.17');
+  assert.equal(live.engineVersion,'1.2.18');
   assert.equal(live.id, deployment.conference.id);
   assert.equal(live.sessions, deployment.programme.sessions.length);
   assert.equal(live.presentations, deployment.programme.presentations.length);
@@ -59,7 +59,7 @@ async function verifyOnline(page, deployment) {
     assert.deepEqual(await response.body(), expected, `${file} differs from local repository`);
   }
   console.log(`Conference files match ${deployment.url.href}`);
-  for (const file of ['app.js', 'bootstrap.js', 'service-worker.js', 'styles.css', 'src/package-store.js', 'src/vcard.js', 'src/qrcode.js', 'src/publications.js', 'src/friend-contact.js', 'src/friend-directory.js', 'src/friend-activities.js', 'src/friend-gallery.js', 'src/avatars.js', 'assets/avatars/av1-07.svg', 'src/vendor/qrcode-generator/qrcode.js']) {
+  for (const file of ['app.js', 'bootstrap.js', 'service-worker.js', 'styles.css', 'src/package-store.js', 'src/vcard.js', 'src/qrcode.js', 'src/publications.js', 'src/friend-contact.js', 'src/friend-directory.js', 'src/friend-activities.js', 'src/friend-gallery.js', 'src/avatar-color.js', 'src/vendor/qrcode-generator/qrcode.js']) {
     const expected = await readFile(join(deployments[0].root, file));
     const response = await page.request.get(new URL(file, deployment.url).href);
     assert.equal(response.status(), 200, `${deployment.url.href}${file}`);
@@ -75,9 +75,9 @@ async function verifySharingUi(page,name,personId){
   await page.locator('#profileName').fill(name);
   await page.locator('#profileEmail').fill('verification@example.org');
   await page.locator('#profilePapers').fill('Live DOI paper | doi:10.1234/live-test');
-  await page.locator('#avatarChoices input[value="av1-07"]').check();
+  await page.locator('#profileAvatarHex').fill('#397AA5');
   await page.locator('#saveProfileBtn').click();
-  assert.match(await page.locator('#myCardSummary .friend-profile-photo').getAttribute('src'),/av1-07\.svg/);
+  assert.match(await page.locator('#myCardSummary .friend-profile-photo').getAttribute('style'),/--avatar-background:#397AA5/);
   await page.locator('#myCardSummary a[href="https://doi.org/10.1234/live-test"]').waitFor();
   await page.locator('#friendShareBtn').click();
   assert.equal(await page.locator('#shareQrCompact').isChecked(),true);
@@ -88,7 +88,7 @@ async function verifySharingUi(page,name,personId){
     return Scanner.scanImage(document.querySelector('#shareQrCanvas'));
   });
   assert.ok(decoded.includes('X-PAPER:Live DOI paper | https://doi.org/10.1234/live-test'));
-  assert.ok(decoded.includes('X-CONFERENCE-COMPANION-AVATAR:av1-07'));
+  assert.ok(decoded.includes('X-CONFERENCE-COMPANION-AVATAR-COLOR:#397AA5'));
   await page.locator('#shareQrClose').click();
   await page.locator('#editProfileBtn').click();
   await page.locator('#profileIdentityButton').click();
@@ -102,11 +102,11 @@ async function verifySharingUi(page,name,personId){
   await page.locator('#addFriendForm [name="email"]').fill(email);
   await page.locator('#addFriendForm button[type="submit"]').click();
   await page.locator('.friend-card-main strong').filter({hasText:`${name} contact`}).waitFor();
-  const sharedAvatar=`BEGIN:VCARD\r\nVERSION:4.0\r\nFN:${name} contact\r\nEMAIL:${email}\r\nX-CONFERENCE-COMPANION-AVATAR:av1-07\r\nEND:VCARD`;
+  const sharedAvatar=`BEGIN:VCARD\r\nVERSION:4.0\r\nFN:${name} contact\r\nEMAIL:${email}\r\nX-CONFERENCE-COMPANION-AVATAR-COLOR:#397AA5\r\nEND:VCARD`;
   await page.locator('#friendVcardInput').setInputFiles({name:'contact.vcf',mimeType:'text/vcard',buffer:Buffer.from(sharedAvatar)});
-  await page.locator('.friend-card-toggle .friend-avatar[src*="av1-07"]').waitFor();
+  await page.locator('.friend-card-toggle .custom-avatar').waitFor();
   assert.equal(await page.locator('.friend-card').count(),1);
-  assert.match(await page.locator('.friend-card-toggle .friend-avatar').getAttribute('src'),/av1-07\.svg/);
+  assert.match(await page.locator('.friend-card-toggle .custom-avatar').getAttribute('style'),/--avatar-background:#397AA5/);
   await page.locator('[data-friend-identity]').click();
   await page.locator(`[data-identity-person="${personId}"]`).click();
   await page.locator('#identityConfirm').click();
@@ -128,7 +128,7 @@ for (const [browserName, browserType] of Object.entries({chromium, firefox})) {
     await verifySharingUi(page,'Engine verification B',deployments[1].people.people[0].id);
     const demoPartner=deployments[1].people.people.find(person=>person.name==='Yuna Sato');
     if(demoPartner){
-      const partnerCard=`BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Yuna Sato\r\nEMAIL:yuna.sato@demo.example\r\nURL;TYPE=ORCID:https://orcid.org/0000-0000-0000-0036\r\nX-CONFERENCE-COMPANION-AVATAR:av1-15\r\nEND:VCARD`;
+      const partnerCard=`BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Yuna Sato\r\nEMAIL:yuna.sato@demo.example\r\nURL;TYPE=ORCID:https://orcid.org/0000-0000-0000-0036\r\nX-CONFERENCE-COMPANION-AVATAR-COLOR:#B65F56\r\nEND:VCARD`;
       await page.locator('#friendVcardInput').setInputFiles({name:'demo-partner.vcf',mimeType:'text/vcard',buffer:Buffer.from(partnerCard)});
       await page.locator('.friend-card').nth(1).waitFor();
       assert.match(await page.locator('#friendImportStatus').textContent(),/Linked to conference/);
@@ -147,7 +147,7 @@ for (const [browserName, browserType] of Object.entries({chromium, firefox})) {
       assert.equal(profile.name, `Engine verification ${index === 0 ? 'A' : 'B'}`);
       await page.locator('[data-target="friends"]').click();
       assert.equal(await page.locator('.friend-card').count(),index===0?1:2,'Saved Friend Book contacts were not available offline');
-      assert.ok(await page.locator('.friend-card-toggle .friend-avatar').evaluate(img=>img.complete&&img.naturalWidth>0),'Shared avatar was not available offline');
+      assert.ok(await page.locator('.friend-card-toggle .custom-avatar').evaluateAll(nodes=>nodes.length>0&&nodes.every(node=>getComputedStyle(node).backgroundColor!=='rgba(0, 0, 0, 0)')),'Generated avatar was not available offline');
     }
     await context.setOffline(false);
     await context.close();

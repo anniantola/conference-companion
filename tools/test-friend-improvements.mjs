@@ -1,28 +1,42 @@
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
 import {createConferenceModel} from '../src/model.js';
-import {AVATAR_IDS,avatarAssetPath,normalizeAvatarId} from '../src/avatars.js';
+import {AVATAR_PRESETS,DEFAULT_AVATAR_COLOR,avatarColors,cleanAvatarRecord,contrastRatio,normalizeAvatarColor} from '../src/avatar-color.js';
 import {galleryForContact,coverPhoto,galleryChange} from '../src/friend-gallery.js';
 import {aggregateFriendActivities} from '../src/friend-activities.js';
 import {automaticIdentity} from '../src/friend-directory.js';
-import {profileToVCard,parseVCard} from '../src/vcard.js';
+import {profileToVCard,parseVCard,sharedFieldLabels} from '../src/vcard.js';
 import {createPersonalBackup,parsePersonalBackup} from '../src/backup.js';
 import {encodeStoredValue,decodeStoredValue} from '../src/user-store.js';
 import {createStoredZip} from '../src/zip.js';
 
-assert.equal(AVATAR_IDS.length,24);
-assert.equal(normalizeAvatarId('av1-07'),'av1-07');
-assert.equal(normalizeAvatarId('av1-99'),'');
-for(const id of AVATAR_IDS)assert.match(await readFile(new URL(`../${avatarAssetPath(id).slice(2)}`,import.meta.url),'utf8'),/<svg /);
-const source={name:'Example Scientist',avatarId:'av1-07',email:'scientist@demo.example',bio:'Materials & memory',papers:['Paper | 10.1000/abc']};
+assert.equal(AVATAR_PRESETS.length,10);
+assert.equal(normalizeAvatarColor('#8264b5'),'#8264B5');
+assert.equal(normalizeAvatarColor('#fff'),'#8264B5');
+assert.equal(normalizeAvatarColor('red'),'#8264B5');
+for(const color of ['#000000','#FFFFFF','#FF00FF','#00FFFF','#FFFF00',...AVATAR_PRESETS.map(row=>row.color)]){
+  const avatar=avatarColors(color);
+  assert.equal(avatar.background,normalizeAvatarColor(color));
+  assert.ok(contrastRatio(avatar.background,avatar.silhouette)>=3,`${color} contrast was ${avatar.contrast}`);
+  assert.deepEqual(avatarColors(color),avatarColors(color),'A color must render deterministically');
+}
+assert.ok(avatarColors('#000000').silhouette!=='#000000');
+assert.ok(avatarColors('#FFFFFF').silhouette!=='#FFFFFF');
+const source={name:'Example Scientist',avatarColor:'#397AA5',email:'scientist@demo.example',bio:'Materials & memory',papers:['Paper | 10.1000/abc']};
 for(const compact of [true,false]){
   const card=profileToVCard(source,{compact});
-  assert.match(card,/X-CONFERENCE-COMPANION-AVATAR:av1-07/);
-  assert.equal(parseVCard(card).avatarId,'av1-07');
+  assert.match(card,/X-CONFERENCE-COMPANION-AVATAR-COLOR:#397AA5/);
+  assert.equal(parseVCard(card).avatarColor,'#397AA5');
   assert.equal(card.includes('X-PAPER:'),!compact);
 }
-assert.equal(parseVCard(profileToVCard({...source,avatarId:''})).avatarId,undefined);
-assert.equal(parseVCard(profileToVCard(source).replace('av1-07','av1-99')).avatarId,'');
+assert.ok(sharedFieldLabels(source,{compact:true}).includes('Avatar'));
+assert.equal(parseVCard('BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Old contact\r\nEND:VCARD').avatarColor,undefined);
+assert.equal(parseVCard(profileToVCard(source).replace('#397AA5','#12AB')).avatarColor,DEFAULT_AVATAR_COLOR);
+const oldCard=parseVCard('BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Old contact\r\nX-CONFERENCE-COMPANION-AVATAR:av1-07\r\nEND:VCARD');
+assert.equal(oldCard.avatarId,undefined);
+assert.equal(oldCard.avatarColor,undefined);
+assert.deepEqual(cleanAvatarRecord({name:'Kept',avatarId:'av1-07',privateNotes:'Private',privatePhotos:[{id:'photo'}]}),{
+  name:'Kept',avatarColor:DEFAULT_AVATAR_COLOR,privateNotes:'Private',privatePhotos:[{id:'photo'}]
+});
 
 const conference={id:'meeting',timezone:'Europe/Helsinki'};
 const people={people:[
@@ -70,12 +84,17 @@ assert.deepEqual(parsed.friends[0].conferenceIdentity,{conferenceId:'meeting',pe
 const repeat=await createPersonalBackup({conferenceId:'meeting',state:parsed.state,profile:parsed.profile,friends:parsed.friends,photos:[]});
 assert.equal((await parsePersonalBackup(repeat)).payload.friends[0].privatePhotos.length,2);
 const oldBackup=createStoredZip([
-  {name:'backup.json',data:JSON.stringify({format:'conference-companion-backup',version:4,conferenceId:'meeting',state:{favorites:[],posterFavorites:[],notes:{}},profile:{name:'Old'},friends:[{id:'legacy',name:'Legacy',privatePhoto:{file:'contacts/legacy.jpg',type:'image/jpeg'},privateNotes:'Do not lose'}],photos:[]})},
+  {name:'backup.json',data:JSON.stringify({format:'conference-companion-backup',version:4,conferenceId:'meeting',state:{favorites:[],posterFavorites:[],notes:{}},profile:{name:'Old',avatarId:'retired-value'},friends:[{id:'legacy',name:'Legacy',avatarId:'retired-value',privatePhoto:{file:'contacts/legacy.jpg',type:'image/jpeg'},privateNotes:'Do not lose'}],photos:[]})},
   {name:'contacts/legacy.jpg',data:new Uint8Array(await legacyBlob.arrayBuffer())}
 ]);
 const oldRestored=(await parsePersonalBackup(oldBackup)).payload.friends[0];
 assert.equal(galleryForContact(oldRestored).length,1);
 assert.equal(galleryForContact(oldRestored)[0].id,'legacy-cover');
 assert.equal(oldRestored.privateNotes,'Do not lose');
+assert.equal(oldRestored.avatarId,undefined);
+assert.equal(oldRestored.avatarColor,DEFAULT_AVATAR_COLOR);
+const oldProfile=(await parsePersonalBackup(oldBackup)).payload.profile;
+assert.equal(oldProfile.avatarId,undefined);
+assert.equal(oldProfile.avatarColor,DEFAULT_AVATAR_COLOR);
 await assert.rejects(createPersonalBackup({conferenceId:'meeting',state:{},profile:{},friends:[{id:'bad',name:'Bad photo',privatePhotos:[{id:'broken',blob:{}}]}],photos:[]}),/cannot be backed up/);
 console.log('Friend avatar, gallery, identity, activity and backup improvements passed');

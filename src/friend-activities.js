@@ -8,7 +8,7 @@ export function aggregateFriendActivities(friends,conference,model){
     for(const activity of personActivities(identity.personId,model)){
       const key=`${activity.type}:${activity.id}`;
       if(!rows.has(key))rows.set(key,{...activity,friends:[]});
-      if(!rows.get(key).friends.some(item=>item.id===friend.id))rows.get(key).friends.push({id:friend.id,name:friend.name||'Contact',avatarId:friend.avatarId,privateCoverPhotoId:friend.privateCoverPhotoId});
+      if(!rows.get(key).friends.some(item=>item.id===friend.id))rows.get(key).friends.push({id:friend.id,name:friend.name||'Contact',avatarColor:friend.avatarColor,privateCoverPhotoId:friend.privateCoverPhotoId});
     }
   }
   return [...rows.values()].sort((a,b)=>`${a.date||'9999-12-31'}|${a.start||'99:99'}|${a.type}|${a.id}`.localeCompare(`${b.date||'9999-12-31'}|${b.start||'99:99'}|${b.type}|${b.id}`));

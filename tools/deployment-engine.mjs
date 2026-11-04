@@ -12,7 +12,7 @@ export const attendeeFiles = [
   'index.html', 'app.js', 'bootstrap.js', 'styles.css', 'service-worker.js',
   'src/package-store.js', 'src/calendar.js', 'src/validation.js',
   'src/backup.js', 'src/zip.js', 'src/qrcode.js', 'src/safe-url.js',
-  'src/publications.js', 'src/friend-contact.js', 'src/friend-directory.js', 'src/friend-activities.js', 'src/friend-gallery.js', 'src/avatars.js',
+  'src/publications.js', 'src/friend-contact.js', 'src/friend-directory.js', 'src/friend-activities.js', 'src/friend-gallery.js', 'src/avatar-color.js',
   'src/model.js', 'src/user-store.js', 'src/json-schema.js',
   'src/vcard.js', 'src/migrations.js',
   'src/vendor/qr-scanner/qr-scanner.min.js',
@@ -57,7 +57,7 @@ export async function stageDeployment(deploymentRoot, outputRoot) {
     await mkdir(dirname(target), {recursive: true});
     await cp(join(engineRoot, path), target);
   }
-  for (const path of ['assets/fonts', 'assets/avatars', 'schemas']) await cp(join(engineRoot, path), join(output, path), {recursive: true});
+  for (const path of ['assets/fonts', 'schemas']) await cp(join(engineRoot, path), join(output, path), {recursive: true});
   await cp(join(root, 'conference'), join(output, 'conference'), {recursive: true});
   for (const path of ['manifest.webmanifest', 'share-preview.svg', '.nojekyll']) {
     if (await exists(join(root, path))) await cp(join(root, path), join(output, path));
@@ -85,10 +85,7 @@ export async function verifyStagedDeployment(deploymentRoot, outputRoot) {
   for (const path of attendeeFiles.filter(path => path !== 'index.html')) {
     if (sha256(await readFile(join(output, path))) !== sha256(await readFile(join(engineRoot, path)))) throw new Error(`Staged engine differs from canonical source: ${path}`);
   }
-  for(const name of await readdir(join(engineRoot,'assets/avatars'))){
-    const path=`assets/avatars/${name}`;
-    if(sha256(await readFile(join(output,path)))!==sha256(await readFile(join(engineRoot,path))))throw new Error(`Staged avatar differs from canonical source: ${path}`);
-  }
+  if(await exists(join(output,'assets/avatars')))throw new Error('Obsolete avatar assets leaked into the staged deployment');
   for (const path of ['conference/conference-manifest.json', 'conference/conference.json', 'conference/programme.json', 'conference/people.json', 'conference/locations.json', 'conference/branding.json', 'manifest.webmanifest', 'share-preview.svg', '.nojekyll']) {
     if (!(await exists(join(output, path)))) throw new Error(`Staged deployment is missing ${path}`);
   }

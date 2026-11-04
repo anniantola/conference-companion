@@ -19,11 +19,11 @@ try{
   const context=await browser.newContext(),page=await context.newPage();
   await page.goto(url);await page.locator('#programList').waitFor();await page.locator('[data-target="friends"]').click();
   assert.equal(await page.locator('.friend-card').count(),0,'DEMO directory must not create contacts');
-  for(const [name,email,orcid,avatar] of [
-    ['Mira Koskinen','mira.koskinen@demo.example','0000-0000-0000-001X','av1-04'],
-    ['Yuna Sato','yuna.sato@demo.example','0000-0000-0000-0036','av1-15']
+  for(const [name,email,orcid,color] of [
+    ['Mira Koskinen','mira.koskinen@demo.example','0000-0000-0000-001X','#397AA5'],
+    ['Yuna Sato','yuna.sato@demo.example','0000-0000-0000-0036','#B65F56']
   ]){
-    const card=`BEGIN:VCARD\r\nVERSION:4.0\r\nFN:${name}\r\nEMAIL:${email}\r\nURL;TYPE=ORCID:https://orcid.org/${orcid}\r\nX-CONFERENCE-COMPANION-AVATAR:${avatar}\r\nEND:VCARD`;
+    const card=`BEGIN:VCARD\r\nVERSION:4.0\r\nFN:${name}\r\nEMAIL:${email}\r\nURL;TYPE=ORCID:https://orcid.org/${orcid}\r\nX-CONFERENCE-COMPANION-AVATAR-COLOR:${color}\r\nEND:VCARD`;
     await page.locator('#friendVcardInput').setInputFiles({name:'contact.vcf',mimeType:'text/vcard',buffer:Buffer.from(card)});
     await page.locator('.friend-card').last().waitFor();
     assert.match(await page.locator('#friendImportStatus').textContent(),/Linked to conference/);
@@ -38,7 +38,7 @@ try{
   assert.equal(await joint.locator('[data-friend-jump]').count(),2,'Both friends must appear on the keynote');
   const text=await page.locator('#friendsConferenceActivities').textContent();
   assert.match(text,/Oral presentation/);assert.match(text,/Session chair/);assert.match(text,/Poster presentation/);
-  assert.equal(await page.locator('.friend-card-toggle img[src*="av1-"]').count(),2);
+  assert.equal(await page.locator('.friend-card-toggle .custom-avatar').count(),2);
   await joint.locator('[data-friend-activity]').click();
   assert.match(await page.locator('#modalContent').textContent(),/Beyond von Neumann/);
   await page.locator('#detailModal').press('Escape');
@@ -48,7 +48,7 @@ try{
   await context.setOffline(true);await page.reload();await page.locator('[data-target="friends"]').click();
   assert.equal(await page.locator('.friend-card').count(),2,'Saved DEMO contacts must work offline');
   assert.ok(await page.locator('#friendsConferenceActivities .aggregate-activity').count()>=2);
-  assert.ok(await page.locator('.friend-card-toggle img[src*="av1-"]').first().evaluate(img=>img.complete&&img.naturalWidth>0));
+  assert.ok(await page.locator('.friend-card-toggle .custom-avatar').first().evaluate(node=>getComputedStyle(node).backgroundColor!=='rgba(0, 0, 0, 0)'));
   console.log(`DEMO staged application passed: ${url} — two linked friends, shared keynote, oral/poster/chair activities, avatars and offline reload`);
   await context.close();
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

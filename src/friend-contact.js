@@ -1,5 +1,5 @@
 import {normalizeEmail,normalizeOrcid} from './safe-url.js';
-import {normalizeAvatarId} from './avatars.js';
+import {cleanAvatarRecord,normalizeAvatarColor} from './avatar-color.js';
 
 const values=(contact,plural,singular)=>[...(Array.isArray(contact?.[plural])?contact[plural]:[]),contact?.[singular]].filter(Boolean);
 const emails=contact=>new Set(values(contact,'emails','email').map(normalizeEmail).filter(Boolean).map(x=>x.toLowerCase()));
@@ -34,14 +34,14 @@ export function findMatchingFriend(friends,incoming) {
 }
 
 export function mergeFriendContact(existing,incoming,{conferenceId='',conferenceName=''}={}) {
-  if(!existing)return {
+  if(!existing)return cleanAvatarRecord({
     ...incoming,id:crypto.randomUUID(),metAtConferenceId:conferenceId,metAtEventId:'',
     metAt:conferenceName,savedAt:Date.now(),privateNotes:'',tags:[]
-  };
-  const merged={...existing};
+  });
+  const merged=cleanAvatarRecord(existing);
   for(const field of ['name','position','affiliation','email','orcid','website','linkedin','bio'])
     if(incoming[field])merged[field]=incoming[field];
-  if(normalizeAvatarId(incoming.avatarId))merged.avatarId=incoming.avatarId;
+  if(incoming.avatarColor)merged.avatarColor=normalizeAvatarColor(incoming.avatarColor);
   if(incoming.claimedConferenceIdentity)merged.claimedConferenceIdentity=incoming.claimedConferenceIdentity;
   for(const field of ['emails','affiliations','links','papers'])
     merged[field]=union(existing[field]||[],incoming[field]||[]);

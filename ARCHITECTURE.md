@@ -161,8 +161,8 @@ Calendar `SEQUENCE` is bumped for affected child presentations when a session-le
 
 The offline Friend Book uses standards-based local sharing:
 
-- personal card: name, position, affiliation, email, ORCID, LinkedIn, website, papers/bio and a locally bundled, versioned avatar ID;
-- Compact and Full vCard 4.0 + QR sharing, with the avatar in `X-CONFERENCE-COMPANION-AVATAR`;
+- personal card: name, position, affiliation, email, ORCID, LinkedIn, website, papers/bio and a locally generated, color-customizable silhouette;
+- Compact and Full vCard 4.0 + QR sharing, with the avatar color in `X-CONFERENCE-COMPANION-AVATAR-COLOR`;
 - `.vcf` import/export;
 - offline QR image and camera scanning;
 - local snapshot of intentionally saved contacts, with optional conference-scoped person identity;

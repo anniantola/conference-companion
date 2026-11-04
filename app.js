@@ -4,7 +4,7 @@ import {encodeStoredValue,decodeStoredValue,attendeeStorageId} from './src/user-
 import {publicationParts,publicationReference,publicationText} from './src/publications.js';
 import {findMatchingFriend,mergeFriendContact} from './src/friend-contact.js';
 import {validConferenceIdentity,identityCandidates,automaticIdentity,personActivities} from './src/friend-directory.js';
-import {AVATAR_IDS,avatarAssetPath,normalizeAvatarId} from './src/avatars.js';
+import {AVATAR_PRESETS,DEFAULT_AVATAR_COLOR,avatarColors,cleanAvatarRecord,normalizeAvatarColor} from './src/avatar-color.js';
 import {galleryForContact,coverPhoto,galleryChange} from './src/friend-gallery.js';
 import {aggregateFriendActivities} from './src/friend-activities.js';
 
@@ -147,8 +147,8 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
 
   function currentIdentity(contact) {return validConferenceIdentity(contact?.conferenceIdentity,CONFERENCE,MODEL);}
   function avatarHtml(contact,cssClass='friend-avatar'){
-    const asset=avatarAssetPath(contact?.avatarId);
-    return asset?`<img class="${cssClass}" src="${esc(asset)}" alt="">`:`<span class="${cssClass} friend-avatar-placeholder" aria-hidden="true">●</span>`;
+    const {background,silhouette}=avatarColors(contact?.avatarColor);
+    return `<span class="${cssClass} custom-avatar" style="--avatar-background:${background};--avatar-silhouette:${silhouette}" role="img" aria-label="Profile silhouette"><svg viewBox="0 0 100 100" aria-hidden="true" focusable="false"><circle cx="50" cy="34" r="18"/><path d="M15 91c2-21 15-34 35-34s33 13 35 34v4H15z"/></svg></span>`;
   }
   function contactPhotoHtml(contact,cssClass='friend-avatar'){
     const cover=coverPhoto(contact);
@@ -2413,8 +2413,9 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     $("#profileWebsite").value=source.website||"";
     $("#profileBio").value=source.bio||"";
     $("#profilePapers").value=(source.papers||[]).map(x=>typeof x==='string'?x:publicationText(x)).filter(Boolean).join("\n");
-    const choices=$("#avatarChoices"),avatar=normalizeAvatarId(source.avatarId);
-    if(choices)choices.innerHTML=`<label class="avatar-choice"><input type="radio" name="myAvatar" value="" ${!avatar?'checked':''}><span class="friend-avatar friend-avatar-placeholder" aria-hidden="true">●</span><small>None</small></label>`+AVATAR_IDS.map(id=>`<label class="avatar-choice"><input type="radio" name="myAvatar" value="${id}" ${avatar===id?'checked':''}><img src="${esc(avatarAssetPath(id))}" alt=""><small>${id.slice(-2)}</small></label>`).join('');
+    const color=normalizeAvatarColor(source.avatarColor),picker=$('#profileAvatarColor'),hex=$('#profileAvatarHex'),presets=$('#avatarPresets');
+    if(picker)picker.value=color;if(hex)hex.value=color;
+    if(presets)presets.innerHTML=AVATAR_PRESETS.map(preset=>`<button type="button" class="avatar-preset" data-avatar-color="${preset.color}" aria-label="${preset.name}" aria-pressed="${preset.color===color}" title="${preset.name}" style="--preset-color:${preset.color}"><span aria-hidden="true"></span><small>${preset.name}</small></button>`).join('');
     renderAvatarPreview();
     renderProfileIdentityStatus(source);
     renderProfilePhoto(source);
@@ -2422,8 +2423,10 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
 
   function renderAvatarPreview(){
     const target=$('#avatarPreview');if(!target)return;
-    const avatarId=normalizeAvatarId($('input[name="myAvatar"]:checked')?.value);
-    target.innerHTML=`${avatarHtml({avatarId})}<span>${avatarId?`Avatar ${avatarId.slice(-2)} selected`:'Default placeholder selected'}</span>`;
+    const color=normalizeAvatarColor($('#profileAvatarHex')?.value||$('#profileAvatarColor')?.value||DEFAULT_AVATAR_COLOR);
+    const ratio=avatarColors(color).contrast.toFixed(1);
+    target.innerHTML=`${avatarHtml({avatarColor:color},'friend-avatar')}<span>Preview · ${color} · silhouette contrast ${ratio}:1</span>`;
+    for(const button of $$('.avatar-preset'))button.setAttribute('aria-pressed',String(button.dataset.avatarColor===color));
   }
 
   function renderProfileIdentityStatus(source=profile){
@@ -2483,7 +2486,8 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
 
   async function saveProfile() {
     const next=profileFromForm();
-    next.avatarId=normalizeAvatarId($('input[name="myAvatar"]:checked')?.value);
+    next.avatarColor=normalizeAvatarColor($('#profileAvatarHex')?.value||$('#profileAvatarColor')?.value);
+    delete next.avatarId;
     next.conferenceIdentity=validConferenceIdentity(profileDraft?profileDraft.conferenceIdentity:profile.conferenceIdentity,CONFERENCE,MODEL);
     if(next.email&&!normalizeEmail(next.email)){toast('Enter a valid email address');$('#profileEmail').focus();return;}
     if(next.orcid){const value=normalizeOrcid(next.orcid);if(!value){toast('Enter a valid ORCID identifier');$('#profileOrcid').focus();return;}next.orcid=value;}
@@ -2659,6 +2663,10 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
 
   async function addFriendFromVCard(text) {
     try {
+      // Persist debounced private edits before a rescan merges public card data.
+      // The merge is deliberately non-destructive, but it must see the latest
+      // in-memory notes and tags before saving the contact record.
+      await flushPendingPersonalDebounces();
       const parsed=SERVICES.vcard.parseVCard(text);
       const existing=findMatchingFriend(friends,parsed);
       const merged=mergeFriendContact(existing,parsed,{conferenceId:CONFERENCE.id,conferenceName:CONFERENCE.shortName||CONFERENCE.name||''});
@@ -3123,7 +3131,11 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     });
 
     $("#editProfileBtn")?.addEventListener("click",beginProfileEdit);
-    $('#avatarChoices')?.addEventListener('change',renderAvatarPreview);
+    $('#profileAvatarColor')?.addEventListener('input',event=>{const color=normalizeAvatarColor(event.currentTarget.value);$('#profileAvatarHex').value=color;renderAvatarPreview();});
+    $('#profileAvatarHex')?.addEventListener('input',event=>{if(/^#[\da-f]{6}$/i.test(event.currentTarget.value)){const color=normalizeAvatarColor(event.currentTarget.value);$('#profileAvatarColor').value=color;renderAvatarPreview();}});
+    $('#profileAvatarHex')?.addEventListener('change',event=>{if(!/^#[\da-f]{6}$/i.test(event.currentTarget.value)){event.currentTarget.value=normalizeAvatarColor($('#profileAvatarColor').value);}renderAvatarPreview();});
+    $('#avatarPresets')?.addEventListener('click',event=>{const preset=event.target.closest('[data-avatar-color]');if(!preset)return;$('#profileAvatarColor').value=preset.dataset.avatarColor;$('#profileAvatarHex').value=preset.dataset.avatarColor;renderAvatarPreview();});
+    $('#resetAvatarColor')?.addEventListener('click',()=>{$('#profileAvatarColor').value=DEFAULT_AVATAR_COLOR;$('#profileAvatarHex').value=DEFAULT_AVATAR_COLOR;renderAvatarPreview();});
     $('#profileIdentityButton')?.addEventListener('click',()=>openIdentityPicker('profile'));
     $('#profileUnlinkButton')?.addEventListener('click',()=>{profileDraft={...(profileDraft||profile),conferenceIdentity:null};renderProfileIdentityStatus(profileDraft);});
     $('#identitySearch')?.addEventListener('input',renderIdentityPicker);
@@ -3447,7 +3459,13 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
 
   async function init() {
     profile=await USER_STORE?.getProfile().catch(()=>({})) || {};
+    const cleanedProfile=cleanAvatarRecord(profile);
+    if(Object.keys(profile).length&&(Object.hasOwn(profile,'avatarId')||profile.avatarColor!==cleanedProfile.avatarColor)){profile=cleanedProfile;await USER_STORE?.saveProfile(profile).catch(error=>console.warn('Avatar preference migration deferred',error));}
     friends=await USER_STORE?.listFriends().catch(()=>([])) || [];
+    for(let index=0;index<friends.length;index++){
+      const friend=friends[index],cleaned=cleanAvatarRecord(friend);
+      if(Object.hasOwn(friend,'avatarId')||friend.avatarColor!==cleaned.avatarColor){friends[index]=cleaned;await USER_STORE?.saveFriend(cleaned).catch(error=>console.warn('Contact avatar migration deferred',error));}
+    }
     await reconcileSavedFriendIdentities();
     state.day = state.day || detectConferenceDay();
     setupConferenceUi();

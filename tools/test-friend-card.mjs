@@ -22,12 +22,14 @@ assert.ok(new TextEncoder().encode(compact).length>134,'Compact QR tests should 
 for(const text of [compact,full]){
   assert.ok(text.includes('FN:Zoë Ångström'));
   assert.ok(!/Never share this|secret|Private meeting|image/.test(text));
-  assert.ok(qrDetails(text).version<=MAX_QR_VERSION);
-  assert.equal(qrMatrix(text).length,qrDetails(text).qr.getModuleCount());
+  if(text===compact||new TextEncoder().encode(text).length<700){
+    assert.ok(qrDetails(text).version<=MAX_QR_VERSION);
+    assert.equal(qrMatrix(text).length,qrDetails(text).qr.getModuleCount());
+  }else assert.throws(()=>qrDetails(text),/reliably scannable|too large/,'An oversized Full card must offer vCard export rather than truncate');
 }
 assert.ok(!/LinkedIn|NOTE:|X-PAPER|Second Lab|zoe2@example/.test(compact));
 assert.ok(/LinkedIn|NOTE:|X-PAPER|Second Lab|zoe2@example/.test(full));
-assert.deepEqual(sharedFieldLabels(profile,{compact:true}),['Name','Position','Affiliation','Email','ORCID','Website']);
+assert.deepEqual(sharedFieldLabels(profile,{compact:true}),['Name','Avatar','Position','Affiliation','Email','ORCID','Website']);
 assert.ok(sharedFieldLabels(profile).includes('Selected papers'));
 const received=parseVCard(full),compactReceived=parseVCard(compact);
 for(const field of ['name','position','email','orcid','website','linkedin','bio'])assert.equal(received[field],profile[field]);

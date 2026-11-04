@@ -13,7 +13,7 @@ test('directory enriches met contacts without creating them',async({page})=>{
   await importCard(page);
   await expect(page.locator('.friend-card')).toHaveCount(1);
   await expect(page.locator('.friend-card-main')).toContainText('Independent Institute');
-  await expect(page.locator('.friend-avatar-placeholder').first()).toBeVisible();
+  await expect(page.locator('.custom-avatar').first()).toBeVisible();
   expect(directoryPhotoRequests).toEqual([]);
   await expect(page.locator('#friendsConferenceActivities .aggregate-activity')).toHaveCount(2);
   await expect(page.locator('#friendsConferenceActivities')).toContainText('View all friend activities (4)');
@@ -60,10 +60,10 @@ test('private contact photos survive reload and backup, then can be removed',asy
   await page.locator('[data-friend-photo][capture]').setInputFiles({name:'camera.png',mimeType:'image/png',buffer:png});
   await expect(page.locator('.friend-card-toggle .friend-avatar')).toHaveAttribute('src',/^blob:/);
   await page.locator('[data-friend-photo-remove]').click();
-  await expect(page.locator('.friend-avatar-placeholder').first()).toBeVisible();
+  await expect(page.locator('.custom-avatar').first()).toBeVisible();
 });
 
-test('shared avatars and linked activities remain available offline',async({page,context})=>{
+test('shared avatar colors and linked activities remain available offline',async({page,context})=>{
   await openFriends(page);await importCard(page);
   await page.locator('[data-friend-toggle]').click();
   await page.locator('[data-friend-photo]:not([capture])').setInputFiles({name:'friend.png',mimeType:'image/png',buffer:png});

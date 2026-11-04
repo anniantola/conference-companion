@@ -1,6 +1,6 @@
 # Conference Companion
 
-Current engine release: **v1.2.17**.
+Current engine release: **v1.2.18**.
 
 Conference Companion is a standalone, offline-first conference PWA plus a browser-based Conference Builder. The attendee engine is stable and conference content is published as a normalized, versioned data package rather than being hard-coded into the UI.
 

@@ -1,6 +1,7 @@
 import {createStoredZip,readStoredZip,textEntry} from './zip.js';
 import {normalizeEmail,normalizeOrcid,normalizeExternalLink,normalizeWebUrl} from './safe-url.js';
 import {galleryForContact,galleryChange} from './friend-gallery.js';
+import {cleanAvatarRecord} from './avatar-color.js';
 
 async function blobBytes(blob){return new Uint8Array(await blob.arrayBuffer());}
 
@@ -12,7 +13,7 @@ export async function createPersonalBackup({conferenceId,state,profile,friends,p
     entries.push({name,data:await blobBytes(photo.blob)});
     const {blob,thumbnailBlob,...meta}=photo;photoMeta.push({...meta,file:name,type:photo.blob?.type||photo.originalType||'image/jpeg'});
   }
-  const cleanProfile={...(profile||{})};let profilePhoto=null;
+  const cleanProfile=cleanAvatarRecord(profile||{});let profilePhoto=null;
   if(cleanProfile.photoBlob instanceof Blob){
     const type=cleanProfile.photoBlob.type||'image/jpeg',ext=type.includes('png')?'png':'jpg',name=`profile/profile.${ext}`;
     entries.push({name,data:await blobBytes(cleanProfile.photoBlob)});profilePhoto={file:name,type};delete cleanProfile.photoBlob;
@@ -20,7 +21,7 @@ export async function createPersonalBackup({conferenceId,state,profile,friends,p
   const cleanFriends=[];
   for(const friend of friends||[]){
     if(Array.isArray(friend.privatePhotos)&&friend.privatePhotos.some(photo=>photo?.id&&!(photo.blob instanceof Blob)))throw new Error(`Contact ${friend.name||friend.id||''} has a photo that cannot be backed up`);
-    const clean={...friend};
+    const clean=cleanAvatarRecord(friend);
     clean.privatePhotos=[];
     for(const [index,photo] of galleryForContact(friend).entries()){
       const file=`contacts/${encodeURIComponent(String(clean.id))}-${index}.jpg`;
@@ -86,7 +87,6 @@ function safeContact(contact,label){
   assertObject(contact,label);
   if(contact.name!=null&&typeof contact.name!=='string')throw new Error(`${label}.name must be text`);
   for(const field of ['position','affiliation','bio'])if(contact[field]!=null&&typeof contact[field]!=='string')throw new Error(`${label}.${field} must be text`);
-  if(contact.avatarId!=null&&typeof contact.avatarId!=='string')throw new Error(`${label}.avatarId must be text`);
   if(contact.affiliations!=null&&(!Array.isArray(contact.affiliations)||contact.affiliations.some(value=>typeof value!=='string')))throw new Error(`${label}.affiliations must be an array of text`);
   const emails=[...(Array.isArray(contact.emails)?contact.emails:[]),...(contact.email?[contact.email]:[])];
   if(contact.emails!=null&&!Array.isArray(contact.emails))throw new Error(`${label}.emails must be an array`);
@@ -131,11 +131,13 @@ export function validateBackupPayload(payload){
   if(payload.state.timeMode!=null&&!['conference','local'].includes(payload.state.timeMode))throw new Error('Backup time preference is invalid');
   if(payload.state.view!=null&&!['program','my','gallery','posters','friends','settings'].includes(payload.state.view))throw new Error('Backup view preference is invalid');
   if(payload.profile!=null)safeContact(payload.profile,'Backup profile');
+  if(payload.profile!=null)payload.profile=cleanAvatarRecord(payload.profile,{profile:true});
   if(payload.friends!=null){
     if(!Array.isArray(payload.friends))throw new Error('Backup friends must be an array');
     const friendIds=new Set();
     payload.friends.forEach((friend,index)=>{
       safeContact(friend,`Backup friend ${index+1}`);
+      payload.friends[index]=cleanAvatarRecord(friend);
       if(friend.id!=null){if(typeof friend.id!=='string'||!friend.id||friendIds.has(friend.id))throw new Error('Backup contains an invalid or duplicate contact ID');friendIds.add(friend.id);}
       for(const field of ['privateNotes','metAt','metAtEventId'])if(friend[field]!=null&&typeof friend[field]!=='string')throw new Error(`Backup friend ${index+1}.${field} must be text`);
       if(friend.tags!=null&&(!Array.isArray(friend.tags)||friend.tags.some(tag=>typeof tag!=='string')))throw new Error(`Backup friend ${index+1}.tags must be an array of text`);
