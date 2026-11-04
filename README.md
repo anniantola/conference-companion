@@ -1,6 +1,6 @@
 # Conference Companion
 
-Current engine release: **v1.2.18**.
+Current engine release: **v1.2.19**.
 
 Conference Companion is a standalone, offline-first conference PWA plus a browser-based Conference Builder. The attendee engine is stable and conference content is published as a normalized, versioned data package rather than being hard-coded into the UI.
 
@@ -306,7 +306,7 @@ worker otherwise; both runtime files are cached for offline use and included in
 Builder deployments. Manual `.vcf` import remains available. Contacts are sorted
 alphabetically and collapsed to keyboard-accessible name rows by default.
 
-Compact schedule mode now measurably reduces card height, padding, gaps and
+Compact layout now reduces card height, padding, gaps and
 typography in both Programme and My Schedule. A separate destructive Settings
 action deletes only the current conference's attendee state, photos, Friend Book,
 profile and preferences after an explicit warning. Pending writes are drained or

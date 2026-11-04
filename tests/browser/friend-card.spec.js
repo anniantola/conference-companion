@@ -90,14 +90,12 @@ test('oversized full cards show export fallback in a mobile accessible dialog',a
   await page.locator('#profileName').fill('Long Card');
   await page.locator('#profileEmail').fill('long@example.org');
   await page.locator('#profileBio').fill('Detailed public research statement '.repeat(70));
-  const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=','base64');
-  await page.locator('#profilePhotoInput').setInputFiles({name:'profile.png',mimeType:'image/png',buffer:png});
   await page.locator('#saveProfileBtn').click();
   await page.locator('#friendShareBtn').click();
   await expect(page.getByRole('group',{name:'Share card details'})).toBeVisible();
   await expect(page.locator('#shareQrCompact')).toBeChecked();
   await expect(page.locator('#shareQrCanvas')).toBeVisible();
-  await expect(page.locator('#shareQrPhotoNote')).toBeVisible();
+  await expect(page.locator('#shareQrPhotoNote')).toBeHidden();
   await page.locator('#shareQrFull').check();
   await expect(page.locator('#shareQrHint')).toContainText('too large');
   await expect(page.locator('#shareQrCanvas')).toBeHidden();

@@ -18,7 +18,7 @@ test('directory enriches met contacts without creating them',async({page})=>{
   await expect(page.locator('#friendsConferenceActivities .aggregate-activity')).toHaveCount(2);
   await expect(page.locator('#friendsConferenceActivities')).toContainText('View all friend activities (4)');
   await page.locator('[data-friend-toggle]').click();
-  await expect(page.locator('.friend-activities .friend-activity')).toHaveCount(4);
+  await expect(page.locator('.friend-card .friend-activities .friend-activity')).toHaveCount(4);
   await expect(page.locator('.friend-card .friend-activities')).toContainText('Session chair');
   await expect(page.locator('.friend-card .friend-activities')).toContainText('Oral presentation');
   await expect(page.locator('.friend-card .friend-activities')).toContainText('Poster presentation');
@@ -42,7 +42,7 @@ test('directory enriches met contacts without creating them',async({page})=>{
   await page.locator('[data-friend-identity]').click();
   await page.locator('[data-identity-person="tp-1"]').click();
   await page.locator('#identityConfirm').click();
-  await expect(page.locator('.friend-activities .friend-activity')).toHaveCount(4);
+  await expect(page.locator('.friend-card .friend-activities .friend-activity')).toHaveCount(4);
   await importCard(page,card.replace('EMAIL:morgan@example.org','EMAIL:morgan@example.org'));
   await expect(page.locator('.friend-card')).toHaveCount(1);
 });
@@ -75,7 +75,7 @@ test('shared avatar colors and linked activities remain available offline',async
   await expect(page.locator('.friend-card')).toHaveCount(1);
   await expect.poll(()=>page.locator('.friend-card-toggle .friend-avatar').evaluate(image=>image.complete&&image.naturalWidth)).toBeTruthy();
   await page.locator('[data-friend-toggle]').click();
-  await expect(page.locator('.friend-activities .friend-activity')).toHaveCount(4);
+  await expect(page.locator('.friend-card .friend-activities .friend-activity')).toHaveCount(4);
 });
 
 test('older saved contacts gain a unique ORCID directory link without adding contacts',async({page})=>{
@@ -84,7 +84,7 @@ test('older saved contacts gain a unique ORCID directory link without adding con
   await page.reload();await page.locator('[data-target="friends"]').click();
   await expect(page.locator('.friend-card')).toHaveCount(1);
   await page.locator('[data-friend-toggle]').click();
-  await expect(page.locator('.friend-activities .friend-activity')).toHaveCount(4);
+  await expect(page.locator('.friend-card .friend-activities .friend-activity')).toHaveCount(4);
   const friend=await page.evaluate(async()=>{const [row]=await window.CONFERENCE_SERVICES.userStore.listFriends();return row;});
   expect(friend.conferenceIdentity).toEqual({conferenceId:'multiple-poster-sessions-fixture',personId:'tp-1'});
   expect(friend.privateNotes).toBe('Kept from v1.2.15');
@@ -113,7 +113,7 @@ test('manual contacts stay personal and unlinked unless selected',async({page})=
   await page.locator('[data-friend-identity]').click();
   await page.locator('[data-identity-person="tp-1"]').click();
   await page.locator('#identityConfirm').click();
-  await expect(page.locator('.friend-activities .friend-activity')).toHaveCount(4);
+  await expect(page.locator('.friend-card .friend-activities .friend-activity')).toHaveCount(4);
 });
 
 test('manual Leave unlinked choice is honored even when ORCID matches',async({page})=>{

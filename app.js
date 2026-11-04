@@ -62,7 +62,6 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
   let galleryNoteQuery = "";
   let profile = {};
   let friends = [];
-  let profilePhotoUrl = "";
   let friendPhotoUrls = [];
   let profileDraft = null;
   let qrScanner = null;
@@ -233,7 +232,12 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
 
   function openShareQr() {
     if (!CONFERENCE.features?.friendBook) return;
-    if (!String(profile?.name || "").trim()) return toast("Add your name to My conference card first");
+    if (!String(profile?.name || "").trim()) {
+      beginProfileEdit();
+      $('#profileSection').scrollIntoView({behavior:'smooth',block:'start'});
+      toast("Create your My Card before sharing it");
+      return;
+    }
     $('#shareQrCompact').checked=true;
     $("#shareQrName").textContent = profile.name || "My conference card";
     renderShareQr();
@@ -2093,6 +2097,36 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
       .sort((a,b)=>a.info.sortKey.localeCompare(b.info.sortKey));
   }
 
+  function friendPublicArchiveData(){
+    const contacts=friends.map(friend=>{
+      const identity=currentIdentity(friend),person=identity?MODEL.person(identity.personId):null;
+      const affiliation=person?.affiliations?.[0]||person?.affiliation||friend.affiliation||(friend.affiliations||[])[0]||'';
+      return {id:friend.id,name:friend.name||'Contact',affiliation,conferencePerson:person?.name||'',conferencePersonId:identity?.personId||''};
+    });
+    const activities=aggregateFriendActivities(friends,CONFERENCE,MODEL).map(activity=>({
+      role:activity.role,type:activity.type,id:activity.id,title:activity.title||'',date:activity.date||'',start:activity.start||'',end:activity.end||'',
+      location:activity.locationId?locationLabel(activity.locationId):'Location to be announced',posterNumber:activity.posterNumber||'',
+      friends:activity.friends.map(friend=>friend.name)
+    }));
+    return {contacts,activities};
+  }
+
+  function friendPrivateArchiveData(){
+    return friends.map(friend=>{
+      const fields=[];
+      const push=(label,value)=>{const text=String(value??'').trim();if(text)fields.push(`${label}: ${text}`);};
+      push('Position',friend.position);push('Affiliation',friend.affiliation||(friend.affiliations||[])[0]);
+      push('Email',[...(friend.emails||[]),friend.email].filter(Boolean).join(', '));
+      push('Phone',[...(friend.phones||[]),friend.phone].map(value=>typeof value==='string'?value:value?.value||'').filter(Boolean).join(', '));
+      push('ORCID',friend.orcid);push('LinkedIn',friend.linkedin);push('Website',friend.website);push('Bio',friend.bio);
+      if(Array.isArray(friend.papers)&&friend.papers.length)push('Selected papers',friend.papers.map(publicationText).filter(Boolean).join(' · '));
+      if(Array.isArray(friend.links)&&friend.links.length)push('Other links',friend.links.map(link=>[link.label,link.url].filter(Boolean).join(': ')).join(' · '));
+      push('Private notes',friend.privateNotes);push('Tags',(friend.tags||[]).join(', '));push('Met at',friend.metAt);
+      if(friend.metAtEventId)push('Meeting programme ID',friend.metAtEventId);
+      return {id:friend.id,name:friend.name||'Contact',fields,photos:galleryForContact(friend)};
+    }).filter(entry=>entry.fields.length||entry.photos.length);
+  }
+
   async function imageBlobForPptx(photo) {
     const source = photo.blob || photo.thumbnailBlob;
     if (!source) throw new Error("Missing image blob");
@@ -2240,22 +2274,37 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Conference Companion"><a:themeElements><a:clrScheme name="Conference Companion"><a:dk1><a:srgbClr val="111827"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="1f2937"/></a:dk2><a:lt2><a:srgbClr val="f3f4f6"/></a:lt2><a:accent1><a:srgbClr val="1769E0"/></a:accent1><a:accent2><a:srgbClr val="9B5B08"/></a:accent2><a:accent3><a:srgbClr val="58A56C"/></a:accent3><a:accent4><a:srgbClr val="E7A400"/></a:accent4><a:accent5><a:srgbClr val="73767C"/></a:accent5><a:accent6><a:srgbClr val="000000"/></a:accent6><a:hlink><a:srgbClr val="1769E0"/></a:hlink><a:folHlink><a:srgbClr val="1769E0"/></a:folHlink></a:clrScheme><a:fontScheme name="Aptos"><a:majorFont><a:latin typeface="Aptos Display"/></a:majorFont><a:minorFont><a:latin typeface="Aptos"/></a:minorFont></a:fontScheme><a:fmtScheme name="Conference Companion"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w="9525"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>`;
   }
 
-  async function makeConferencePptx(items) {
+  async function makeConferencePptx({items=[],friendRows=[],activities=[],privateRows=[]}) {
     const files = [];
     const slideData = [];
     const mediaFiles = [];
     let mediaIndex = 1;
 
     const addSlide = (shapes, imageRels=[]) => slideData.push({shapes, imageRels});
-
+    const addTextArchiveSlides=(title,lines,fontSize=1350)=>{
+      const paragraphs=[];
+      for(const raw of lines){
+        const words=String(raw||'').split(/\s+/);let line='';
+        for(const word of words){if(!word)continue;if(line&&`${line} ${word}`.length>1500){paragraphs.push(line);line=word;}else line=line?`${line} ${word}`:word;}
+        if(line)paragraphs.push(line);
+      }
+      if(!paragraphs.length)return;
+      let chunk=[],length=0;
+      const flush=()=>{if(!chunk.length)return;const index=Math.floor(slideData.length);const suffix=paragraphs.length>chunk.length?` · ${Math.floor(index+1)}`:'';addSlide(pptTextShape(2,'Section title',0.55,0.35,12.2,0.55,`${title}${suffix}`,{fontSize:2100,bold:true,color:'111827'})+pptTextShape(3,'Archive text',0.62,1.08,12.05,5.95,chunk.join('\n'),{fontSize,color:'1f2937'}));chunk=[];length=0;};
+      for(const paragraph of paragraphs){if(chunk.length>=12||length+paragraph.length>1800)flush();chunk.push(paragraph);length+=paragraph.length;}
+      flush();
+    };
     const noteCount = items.filter(x=>String(x.note||"").trim()).length;
     const photoCount = items.reduce((sum,x)=>sum+x.photos.length,0);
+    const sectionNames=[];if(items.length)sectionNames.push('Programme notes and photos');if(friendRows.length)sectionNames.push('Friend Book and conference activities');if(privateRows.length)sectionNames.push('Private contact notes and photographs');
     addSlide(
       pptTextShape(2,"Title",0.7,0.75,12,0.75,CONFERENCE.name || "Conference",{fontSize:3600,bold:true,color:"111827"}) +
-      pptTextShape(3,"Subtitle",0.75,1.65,11.8,0.65,"Notes and presentation photos",{fontSize:2200,color:"1769E0"}) +
-      pptTextShape(4,"Summary",0.8,2.75,11.6,2.2,`${items.length} presentations / groups\n${noteCount} with notes\n${photoCount} photos\nExported ${new Date().toLocaleString()}`,{fontSize:1700,color:"374151",fill:"f3f4f6",line:"d1d5db"}) +
+      pptTextShape(3,"Subtitle",0.75,1.65,11.8,0.65,"Conference presentation archive",{fontSize:2200,color:"1769E0"}) +
+      pptTextShape(4,"Summary",0.8,2.65,11.6,3.0,`${sectionNames.join('\n')}\n\n${items.length?`${noteCount} programme groups with notes · ${photoCount} programme photos\n`:''}${friendRows.length?`${friendRows.length} saved Friend Book contacts · ${activities.length} activities\n`:''}${privateRows.length?`${privateRows.length} contacts with private details or photographs\n`:''}Exported ${new Date().toLocaleString()}`,{fontSize:1650,color:"374151",fill:"f3f4f6",line:"d1d5db"}) +
       pptTextShape(5,"Footer",0.8,6.65,11.6,0.35,`Generated locally from ${CONFERENCE.name || "conference app"}`,{fontSize:1000,color:"6b7280"})
     );
+
+    if(items.length)addTextArchiveSlides('Programme notes and photos',[`${items.length} chronological programme groups · ${noteCount} with notes · ${photoCount} photographs`],1300);
 
     for (const item of items) {
       const prepared = [];
@@ -2328,6 +2377,26 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
       });
     }
 
+    if(friendRows.length){
+      addTextArchiveSlides('Friend Book overview',friendRows.map(contact=>`${contact.name}${contact.affiliation?` · ${contact.affiliation}`:''}${contact.conferencePerson?`\nConfirmed conference identity: ${contact.conferencePerson} (${contact.conferencePersonId})`:''}`),1400);
+      if(activities.length)addTextArchiveSlides("Friends' conference activities",activities.map(activity=>`${activity.date||'Date to be announced'}${activity.start?` · ${activity.start}${activity.end?`–${activity.end}`:''}`:''} · ${activity.role}\n${activity.posterNumber?`Poster ${activity.posterNumber}: `:''}${activity.title}\n${activity.friends.join(', ')} · ${activity.location}`),1300);
+    }
+
+    for(const entry of privateRows){
+      addTextArchiveSlides(`Private contact memories · ${entry.name}`,entry.fields.length?entry.fields:['No private contact notes or details were saved.'],1300);
+      const prepared=[];
+      for(const photo of entry.photos){
+        try{const img=await imageBlobForPptx(photo),file=`image${mediaIndex++}.jpg`;mediaFiles.push({name:`ppt/media/${file}`,data:await blobToU8(img.blob)});prepared.push({...img,file,caption:String(photo.caption||'').trim()||'Contact photograph'});}
+        catch(error){console.warn('Skipping contact photograph in PPTX export',error);}
+      }
+      for(let offset=0;offset<prepared.length;offset+=4){
+        const chunk=prepared.slice(offset,offset+4),imageRels=[];let shapes=pptTextShape(2,'Private photo heading',0.42,0.25,12.5,0.45,`${entry.name} · Private photographs`,{fontSize:1900,bold:true,color:'111827'});
+        const boxes=chunk.length===1?[{x:0.65,y:1.05,w:12,h:5.8}]:chunk.length===2?[{x:0.65,y:1.05,w:5.95,h:5.8},{x:6.78,y:1.05,w:5.95,h:5.8}]:[0,1,2,3].map(i=>({x:0.65+(i%2)*6.13,y:1.05+Math.floor(i/2)*2.9,w:5.95,h:2.72}));
+        chunk.forEach((image,index)=>{const box=boxes[index],fit=fitInBox(image.width,image.height,box.x,box.y,box.w,box.h-0.35),rId=`rId${imageRels.length+2}`;imageRels.push({rId,file:image.file});shapes+=pptPicture(3+index,rId,fit.x,fit.y,fit.w,fit.h,`${entry.name} private photo ${offset+index+1}`);shapes+=pptTextShape(8+index,'Private photo caption',box.x,box.y+box.h-0.3,box.w,0.27,image.caption,{fontSize:850,color:'374151'});});
+        addSlide(shapes,imageRels);
+      }
+    }
+
     const slideCount = slideData.length;
     files.push({name:"[Content_Types].xml", data:contentTypesXml(slideCount)});
     files.push({name:"_rels/.rels", data:rootRelsXml()});
@@ -2351,29 +2420,56 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     return makeZip(files);
   }
 
-  async function exportNotesPhotosPptx() {
-    const btn = $("#exportPptxBtn");
-    const original = btn ? btn.textContent : "";
-    if (btn) { btn.disabled = true; btn.textContent = "Building…"; }
-    try {
-      const items = await collectNotesPhotosForPptx();
-      if (!items.length) {
-        toast("No notes or photos to export");
-        return;
-      }
-      const pptx = await makeConferencePptx(items);
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(pptx);
-      a.download = `${safeFilenamePart(CONFERENCE.id || CONFERENCE.name || "conference")}-notes-photos-${new Date().toISOString().slice(0,10)}.pptx`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-      toast("PowerPoint exported");
-    } catch (err) {
-      console.error(err);
-      toast("Could not export PowerPoint");
-    } finally {
-      if (btn) { btn.disabled = false; btn.textContent = original || "Export PPTX"; }
-    }
+  let pptxExportData=null;
+  function updatePptxOptionState(){
+    const data=pptxExportData;if(!data)return;
+    const friendsSelected=$('#exportPptxFriends').checked;
+    $('#exportPptxPrivate').disabled=!friendsSelected;
+    if(!friendsSelected)$('#exportPptxPrivate').checked=false;
+    $('#exportPptxPrivateStatus').textContent=friendsSelected
+      ?data.privateCount?`${data.privateCount} contact${data.privateCount===1?'':'s'} have private notes, details, tags, meeting context, or photographs.`:'No private contact notes, details, tags, meeting context, or photographs are saved.'
+      :'Includes notes, meeting context, contact details, and private gallery photographs. Select Friend Book to enable.';
+    const hasProgram=$('#exportPptxProgramme').checked&&data.items.length>0;
+    const hasFriends=friendsSelected&&data.contacts.length>0;
+    const hasPrivate=!!($('#exportPptxPrivate').checked&&data.privateCount);
+    const button=$('#exportPptxConfirm');button.disabled=!(hasProgram||hasFriends||hasPrivate)||button.getAttribute('aria-busy')==='true';
+    const selectedEmpty=[];
+    if($('#exportPptxProgramme').checked&&!data.items.length)selectedEmpty.push('Programme notes and photos are empty');
+    if(friendsSelected&&!data.contacts.length)selectedEmpty.push('Friend Book has no saved contacts');
+    if($('#exportPptxPrivate').checked&&!data.privateCount)selectedEmpty.push('No private contact content is available');
+    $('#exportPptxStatus').textContent=selectedEmpty.join('. ')+(selectedEmpty.length?'.':'');
+  }
+
+  async function openPptxExportOptions(){
+    const dialog=$('#exportPptxDialog');if(!dialog)return;
+    $('#exportPptxProgramme').checked=true;$('#exportPptxFriends').checked=false;$('#exportPptxPrivate').checked=false;$('#exportPptxPrivate').disabled=true;
+    $('#exportPptxStatus').textContent='Checking available content…';$('#exportPptxConfirm').disabled=true;
+    if(!dialog.open)dialog.showModal();
+    try{
+      const [items,friendData]=await Promise.all([collectNotesPhotosForPptx(),Promise.resolve(friendPublicArchiveData())]);
+      const privateRows=friendPrivateArchiveData();
+      pptxExportData={items,...friendData,privateCount:privateRows.length};
+      const noteCount=items.filter(item=>String(item.note||'').trim()).length,photoCount=items.reduce((sum,item)=>sum+item.photos.length,0);
+      $('#exportPptxProgrammeStatus').textContent=items.length?`${noteCount} programme notes · ${photoCount} photographs.`:'No programme notes or photos are saved.';
+      $('#exportPptxFriendsStatus').textContent=friendData.contacts.length?`${friendData.contacts.length} saved contact${friendData.contacts.length===1?'':'s'} · ${friendData.activities.length} conference activities.`:'No Friend Book contacts are saved.';
+      updatePptxOptionState();
+    }catch(error){console.error(error);pptxExportData={items:[],contacts:[],activities:[],privateCount:0};$('#exportPptxStatus').textContent='Could not check saved export content. Close and try again.';}
+  }
+
+  async function exportConferencePresentation(){
+    const button=$('#exportPptxConfirm'),status=$('#exportPptxStatus');
+    if(!pptxExportData||button.disabled)return;
+    const includeProgramme=$('#exportPptxProgramme').checked,includeFriends=$('#exportPptxFriends').checked,includePrivate=includeFriends&&$('#exportPptxPrivate').checked;
+    const items=includeProgramme?pptxExportData.items:[],contacts=includeFriends?pptxExportData.contacts:[],activities=includeFriends?pptxExportData.activities:[],privateRows=includePrivate?friendPrivateArchiveData():[];
+    if(!items.length&&!contacts.length&&!privateRows.length){status.textContent='Select at least one section with saved content.';updatePptxOptionState();return;}
+    button.disabled=true;button.setAttribute('aria-busy','true');button.textContent='Building…';status.textContent='Creating your presentation. Large photo galleries may take a moment.';
+    try{
+      const pptx=await makeConferencePptx({items,friendRows:contacts,activities,privateRows});
+      const anchor=document.createElement('a'),url=URL.createObjectURL(pptx);anchor.href=url;
+      anchor.download=`${safeFilenamePart(CONFERENCE.id||CONFERENCE.name||'conference')}-conference-presentation-${new Date().toISOString().slice(0,10)}.pptx`;
+      anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);$('#exportPptxDialog').close();toast('Conference presentation exported');
+    }catch(error){console.error(error);status.textContent='Could not create the presentation. Your saved data is unchanged; close and try again.';}
+    finally{button.removeAttribute('aria-busy');button.textContent='Export PPTX';updatePptxOptionState();}
   }
 
   function profileFromForm() {
@@ -2394,14 +2490,6 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     };
   }
 
-  function renderProfilePhoto(source=profile) {
-    if(profilePhotoUrl){URL.revokeObjectURL(profilePhotoUrl);profilePhotoUrl="";}
-    const img=$("#profilePhotoPreview"),clear=$("#clearProfilePhotoBtn");if(!img)return;
-    const legacy=$('.legacy-photo');if(legacy&&source?.photoBlob instanceof Blob)legacy.open=true;
-    if(source?.photoBlob instanceof Blob){profilePhotoUrl=URL.createObjectURL(source.photoBlob);img.src=profilePhotoUrl;img.hidden=false;if(clear)clear.hidden=false;}
-    else{img.removeAttribute("src");img.hidden=true;if(clear)clear.hidden=true;}
-  }
-
   function fillProfileForm(source=profile) {
     if (!$("#profileName")) return;
     $("#profileName").value=source.name||"";
@@ -2418,7 +2506,6 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     if(presets)presets.innerHTML=AVATAR_PRESETS.map(preset=>`<button type="button" class="avatar-preset" data-avatar-color="${preset.color}" aria-label="${preset.name}" aria-pressed="${preset.color===color}" title="${preset.name}" style="--preset-color:${preset.color}"><span aria-hidden="true"></span><small>${preset.name}</small></button>`).join('');
     renderAvatarPreview();
     renderProfileIdentityStatus(source);
-    renderProfilePhoto(source);
   }
 
   function renderAvatarPreview(){
@@ -2556,13 +2643,21 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     return Number.isFinite(when)&&when>=Date.now();
   }
 
+  function activityDateText(activity){
+    if(!activity.date)return 'Date to be announced';
+    const today=conferenceNowParts().date;
+    const delta=Math.round((Date.parse(`${activity.date}T00:00:00Z`)-Date.parse(`${today}T00:00:00Z`))/86400000);
+    const day=DAYS.find(row=>row.date===activity.date);
+    const dateLabel=delta===0?'Today':delta===1?'Tomorrow':day?`${day.weekday} · ${day.dateLabel}`:new Intl.DateTimeFormat(undefined,{timeZone:'UTC',weekday:'short',month:'short',day:'numeric'}).format(new Date(`${activity.date}T00:00:00Z`));
+    return `${dateLabel}${activity.start?` · ${fmtTime(activity)}`:''}${activity.end?`–${fmtTime(activity,'end')}`:''}`;
+  }
+
   function activityRowHtml(activity,{showFriends=true}={}){
     const icon=activity.type==='poster'?'📌':activity.type==='session'?'🎙':'🎤';
-    const time=activity.date?`${activity.date}${activity.start?`, ${fmtTime(activity)}`:''}${activity.end?`–${fmtTime(activity,'end')}`:''}`:'Time to be announced';
-    const friendButtons=showFriends?`<div class="friend-activity-people">${activity.friends.map(member=>{const friend=friends.find(row=>row.id===member.id);return `<button type="button" data-friend-jump="${esc(member.id)}">${contactPhotoHtml(friend||member,'friend-avatar')}<span>${esc(member.name)}</span></button>`}).join('')}</div>`:'';
+    const friendButtons=showFriends?`<div class="friend-activity-people">${(activity.friends||[]).map(member=>{const friend=friends.find(row=>row.id===member.id);return `<button type="button" data-friend-jump="${esc(member.id)}">${contactPhotoHtml(friend||member,'friend-avatar')}<span>${esc(member.name)}</span></button>`}).join('')}</div>`:'';
     const favorite=activity.type==='poster'?state.posterFavorites.includes(activity.id):state.favorites.includes(activity.id);
     const phase=/cancel/i.test(activity.status||'')?'Canceled':activityIsUpcoming(activity)?'Upcoming':activity.date?'Previous':'Time pending';
-    return `<li class="friend-activity aggregate-activity"><div class="aggregate-activity-content">${friendButtons}<button type="button" data-friend-activity="${esc(activity.id)}" data-activity-type="${esc(activity.type)}"><small>${esc(time)} · ${esc(activity.role)} · ${phase}</small><strong>${icon} ${esc(activity.posterNumber?`Poster ${activity.posterNumber}: `:'')}${esc(activity.title||'Untitled activity')}</strong><small>${esc(activity.locationId?locationLabel(activity.locationId):'Location to be announced')}</small></button></div>${activity.type!=='session'?`<button type="button" class="friend-activity-star" data-friend-favorite="${esc(activity.id)}" data-activity-type="${esc(activity.type)}" aria-label="${favorite?'Remove':'Add'} ${esc(activity.title)} ${favorite?'from':'to'} favorites">${favorite?'★':'☆'}</button>`:''}</li>`;
+    return `<li class="friend-activity aggregate-activity"><div class="aggregate-activity-content"><small class="activity-meta">${esc(activityDateText(activity))} · ${esc(phase)}</small>${friendButtons}<button type="button" class="friend-activity-open" data-friend-activity="${esc(activity.id)}" data-activity-type="${esc(activity.type)}"><strong><span class="activity-role-indicator" aria-hidden="true">${icon}</span> ${esc(activity.posterNumber?`Poster ${activity.posterNumber}: `:'')}${esc(activity.title||'Untitled activity')}</strong><small>${esc(activity.role)} · ${esc(activity.locationId?locationLabel(activity.locationId):'Location to be announced')}</small></button></div>${activity.type!=='session'?`<button type="button" class="friend-activity-star" data-friend-favorite="${esc(activity.id)}" data-activity-type="${esc(activity.type)}" aria-label="${favorite?'Remove':'Add'} ${esc(activity.title)} ${favorite?'from':'to'} favorites">${favorite?'★':'☆'}</button>`:''}</li>`;
   }
 
   function renderFriendsConferenceActivities(){
@@ -2571,7 +2666,7 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     const previous=all.filter(activity=>/^\d{4}-\d{2}-\d{2}$/.test(activity.date||'')&&!activityIsUpcoming(activity)&&!/cancel/i.test(activity.status||''));
     const compact=upcoming.length?upcoming.slice(0,2):previous.length?previous.slice(-2).reverse():all.slice(0,2);
     const displayed=friendsActivitiesExpanded?all:compact;
-    if(!all.length){target.innerHTML=friends.length?'<p>No conference activities found for your friends. Link a saved contact to their conference profile to see their presentations here.</p><button type="button" class="secondary-btn" data-friend-manage-identity>Manage identity links</button>':'<p>Save a contact you have met to see their conference activities here.</p><button type="button" class="secondary-btn" data-friend-manage-identity>Add a contact</button>';return;}
+    if(!all.length){target.innerHTML=friends.length?'<p>No conference activities found for your friends. Link a saved contact to their conference profile to see their presentations here.</p><button type="button" class="secondary-btn" data-friend-manage-identity>Manage identity links</button>':'<p>Save a contact you have met to see their conference activities here.</p>';return;}
     target.innerHTML=`<h4>${upcoming.length?'Upcoming activities':previous.length?'Previous conference activities':'Conference activities'}</h4><ul class="friend-activities-list">${displayed.map(activity=>activityRowHtml(activity)).join('')}</ul>${all.length>2?`<button type="button" class="secondary-btn" data-friends-activities-toggle aria-expanded="${friendsActivitiesExpanded}">${friendsActivitiesExpanded?'Collapse':`View all friend activities (${all.length}) ▼`}</button>`:''}`;
   }
 
@@ -2658,7 +2753,7 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     else if(incoming.conferenceIdentity){friend.conferenceIdentity=incoming.conferenceIdentity;friend.directoryLinkDismissed=false;}
     const saved=await trackPersonalWrite(USER_STORE.saveFriend(friend));
     friends=existing?friends.map(row=>row.id===saved.id?saved:row):[...friends,saved];expandedFriendIds.add(saved.id);
-    $('#addFriendDialog').close();form.reset();renderFriendBook();toast('Contact saved to Friend Book');
+    $('#addFriendDialog').close();form.reset();renderFriendBook();document.querySelector(`[data-friend-id="${CSS.escape(saved.id)}"]`)?.scrollIntoView({block:'center'});toast('Contact saved to Friend Book');
   }
 
   async function addFriendFromVCard(text) {
@@ -3112,7 +3207,11 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
       state.compact=!state.compact;saveState();applyTheme();syncSettings();
     });
     $("#exportBtn").addEventListener("click",exportState);
-    $("#exportPptxBtn").addEventListener("click",exportNotesPhotosPptx);
+    $("#exportPptxBtn").addEventListener("click",openPptxExportOptions);
+    ['#exportPptxProgramme','#exportPptxFriends','#exportPptxPrivate'].forEach(selector=>$(selector)?.addEventListener('change',updatePptxOptionState));
+    $('#exportPptxConfirm')?.addEventListener('click',exportConferencePresentation);
+    $('#exportPptxCancel')?.addEventListener('click',()=>$('#exportPptxDialog').close());
+    $('#exportPptxClose')?.addEventListener('click',()=>$('#exportPptxDialog').close());
     $("#importBtn").addEventListener("click",()=>$("#importInput").click());
     $("#importInput").addEventListener("change",e=>{if(e.target.files[0])importState(e.target.files[0]);e.target.value="";});
     $("#installBtn").addEventListener("click", installApp);
@@ -3156,8 +3255,6 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     $('#myConferenceActivities')?.addEventListener('click',activityClick);
     $("#saveProfileBtn")?.addEventListener("click",saveProfile);
     $("#cancelProfileBtn")?.addEventListener("click",cancelProfileEdit);
-    $("#profilePhotoInput")?.addEventListener("change",async e=>{const file=e.target.files?.[0];if(!file)return;const epoch=personalDataEpoch,photoBlob=await prepareImageBlob(file);if(personalDataDeleting||epoch!==personalDataEpoch)return;profileDraft={...(profileDraft||profile),photoBlob};renderProfilePhoto(profileDraft);e.target.value="";});
-    $("#clearProfilePhotoBtn")?.addEventListener("click",()=>{profileDraft={...(profileDraft||profile)};delete profileDraft.photoBlob;renderProfilePhoto(profileDraft);});
     $("#friendShareBtn")?.addEventListener("click",openShareQr);
     $("#downloadVcardBtn")?.addEventListener("click",downloadMyVcard);
     $("#scanFriendBtn")?.addEventListener("click",openFriendQrScan);

@@ -135,12 +135,19 @@
           <div><div class="eyebrow">PRIVATE CONTACTS</div><h2>Friend Book</h2></div>
           <span id="friendCount" class="count-badge">0</span>
         </div>
-        <section id="friendsConferenceSection" class="friend-card-section" aria-labelledby="friendsConferenceTitle"><h3 id="friendsConferenceTitle">Friends at this conference</h3><div id="friendsConferenceActivities" class="friend-profile-card"></div></section>
+        <div class="friend-quick-actions" aria-label="Friend Book actions">
+          <button id="friendShareBtn" class="primary-btn" type="button">Share QR</button>
+          <button id="scanFriendBtn" class="secondary-btn" type="button">Scan QR</button>
+          <button id="addFriendBtn" class="secondary-btn" type="button">Add contact</button>
+          <button id="importVcardBtn" class="secondary-btn" type="button">Import vCard</button>
+          <input id="friendVcardInput" type="file" accept="text/vcard,.vcf,text/plain" hidden>
+        </div>
+        <p id="friendImportStatus" class="friend-import-status" role="status" aria-live="polite"></p>
+        <section id="friendsConferenceSection" class="friend-card-section" aria-labelledby="friendsConferenceTitle"><h3 id="friendsConferenceTitle">Friends at this conference</h3><div id="friendsConferenceActivities" class="friend-activities friend-activities-aggregate"></div></section>
         <section id="myCardSection" class="friend-card-section">
           <h3>My Card</h3>
           <div id="myCardSummary" class="friend-profile-card"></div>
-          <div class="button-row friend-actions">
-            <button id="friendShareBtn" class="primary-btn" type="button">Share QR</button>
+          <div class="button-row friend-actions my-card-actions">
             <button id="downloadVcardBtn" class="secondary-btn" type="button">Download vCard</button>
             <button id="editProfileBtn" class="secondary-btn" type="button" aria-expanded="false" aria-controls="profileSection">Edit</button>
           </div>
@@ -155,7 +162,6 @@
               <label>Website<input id="profileWebsite" type="url"></label>
               <fieldset class="profile-wide avatar-fieldset"><legend>Card avatar</legend><div id="avatarPreview" class="avatar-preview" aria-live="polite"></div><div class="avatar-color-controls"><label>Choose any color<input id="profileAvatarColor" type="color" value="#8264B5" aria-label="Choose avatar background color"></label><label>Hex color<input id="profileAvatarHex" type="text" value="#8264B5" pattern="^#[0-9A-Fa-f]{6}$" maxlength="7" autocomplete="off" aria-label="Avatar hex color"></label><button id="resetAvatarColor" class="secondary-btn" type="button">Reset to default</button></div><div id="avatarPresets" class="avatar-presets" aria-label="Preset avatar colors"></div><small>Your color and silhouette are generated locally and shared as a small color value.</small></fieldset>
               <div class="profile-wide"><strong id="profileIdentityStatus">Not linked</strong><div class="button-row"><button id="profileIdentityButton" class="secondary-btn" type="button">Find conference identity</button><button id="profileUnlinkButton" class="secondary-btn" type="button" hidden>Remove link</button></div><small>Only a confirmed conference identity is included in shared cards.</small></div>
-              <details class="profile-wide legacy-photo"><summary>Legacy private My Card photo</summary><label>Previously saved photograph<input id="profilePhotoInput" type="file" accept="image/*"></label><div class="profile-photo-cell"><img id="profilePhotoPreview" alt="Private legacy profile preview" hidden><button id="clearProfilePhotoBtn" class="secondary-btn" type="button" hidden>Remove photo</button></div><small>This photo stays private and is never shared by QR or vCard.</small></details>
               <label class="profile-wide">Research interests / bio<textarea id="profileBio" rows="3"></textarea></label>
               <label class="profile-wide">Selected papers / DOI links <small>One per line. Use “Title | DOI or HTTPS link” to show a paper title.</small><textarea id="profilePapers" rows="3"></textarea></label>
             </div>
@@ -164,13 +170,6 @@
           <div id="myConferenceActivities" class="friend-activities"></div>
         </section>
         <h3 class="friend-section-title">My Friends</h3>
-        <p id="friendImportStatus" class="friend-import-status" role="status" aria-live="polite"></p>
-        <div class="button-row friend-actions friend-import-actions">
-          <button id="scanFriendBtn" class="secondary-btn" type="button">Scan QR</button>
-          <button id="importVcardBtn" class="secondary-btn" type="button">Import vCard</button>
-          <button id="addFriendBtn" class="secondary-btn" type="button">Add contact</button>
-          <input id="friendVcardInput" type="file" accept="text/vcard,.vcf,text/plain" hidden>
-        </div>
         <dialog id="addFriendDialog" aria-labelledby="addFriendTitle"><form id="addFriendForm" method="dialog" class="friend-manual-form"><h3 id="addFriendTitle">Add someone you met</h3><label>Name<input name="name" required autocomplete="name"></label><label>Affiliation<input name="affiliation" autocomplete="organization"></label><label>Email<input name="email" type="email" autocomplete="email"></label><label>ORCID<input name="orcid"></label><label class="friend-check"><input name="leaveUnlinked" type="checkbox"> Leave unlinked even if identifiers match</label><small>After saving, use Find conference identity on the contact to review programme matches.</small><div class="button-row"><button class="primary-btn" type="submit">Save contact</button><button class="secondary-btn" type="button" id="cancelAddFriendBtn">Cancel</button></div></form></dialog>
         <div id="friendList" class="friend-list"></div>
         <dialog id="identityDialog" aria-labelledby="identityDialogTitle"><div class="identity-picker"><h3 id="identityDialogTitle">Link conference identity</h3><p id="identityDialogStatus"></p><label>Search people by name or affiliation<input id="identitySearch" type="search" autocomplete="off"></label><div id="identityResults" class="identity-results" role="listbox" aria-label="Matching conference people"></div><div id="identitySelected" class="identity-selected"></div><div class="button-row"><button id="identityConfirm" class="primary-btn" type="button" disabled>Confirm association</button><button id="identityRemove" class="secondary-btn" type="button">Leave unlinked</button><button id="identityClose" class="secondary-btn" type="button">Close</button></div></div></dialog>
@@ -199,10 +198,10 @@
           </div>
           <div class="setting-card">
             <div>
-              <strong>Compact schedule</strong>
-              <p>Reduce card spacing so more of the program fits on screen.</p>
+              <strong>Compact layout</strong>
+              <p>Reduce text sizes and spacing throughout the app to fit more information on screen.</p>
             </div>
-            <button id="compactToggle" class="toggle" type="button" role="switch" aria-checked="false" aria-label="Compact schedule layout"><span></span></button>
+            <button id="compactToggle" class="toggle" type="button" role="switch" aria-checked="false" aria-label="Compact layout"><span></span></button>
           </div>
         </div>
 
@@ -233,12 +232,12 @@
           <div class="setting-card column">
             <div>
               <strong>Personal-data backup</strong>
-              <p>Export or restore favorites, notes, Friend Book data and locally stored photos. PPTX export remains available separately.</p>
+              <p>Export or restore complete personal data backups, or create a human-readable conference presentation with selected programme and Friend Book content.</p>
             </div>
             <div class="button-row">
               <button id="exportBtn" class="secondary-btn" type="button">Export backup ZIP</button>
               <button id="importBtn" class="secondary-btn" type="button">Import backup</button>
-              <button id="exportPptxBtn" class="secondary-btn" type="button">Export PPTX</button>
+              <button id="exportPptxBtn" class="secondary-btn" type="button">Export conference presentation</button>
               <input id="importInput" type="file" accept="application/zip,.zip,application/json,.json" hidden>
             </div>
           </div>
@@ -335,6 +334,18 @@
         <button id="photoImportCancel" class="secondary-btn" type="button">Cancel</button>
         <button id="photoImportSave" class="primary-btn" type="button">Save assignments</button>
       </div>
+    </div>
+  </dialog>
+
+  <dialog id="exportPptxDialog" class="export-options-dialog" aria-labelledby="exportPptxTitle">
+    <div class="export-options-card">
+      <div class="modal-top"><strong id="exportPptxTitle">Export conference presentation</strong><button id="exportPptxClose" class="icon-btn ghost" type="button" aria-label="Close export options">×</button></div>
+      <label class="export-option"><input id="exportPptxProgramme" type="checkbox" checked><span><strong>Programme notes and photos</strong><small id="exportPptxProgrammeStatus">Checking available notes and photos…</small></span></label>
+      <label class="export-option"><input id="exportPptxFriends" type="checkbox"><span><strong>Friend Book and conference activities</strong><small id="exportPptxFriendsStatus">Checking saved contacts…</small></span></label>
+      <label class="export-option export-option-private"><input id="exportPptxPrivate" type="checkbox" disabled><span><strong>Private contact notes and photographs</strong><small id="exportPptxPrivateStatus">Includes notes, meeting context, contact details, and private gallery photographs. Select Friend Book to enable.</small></span></label>
+      <p class="export-privacy-notice">Exported presentations may contain personal information. Review your selections before sharing the file.</p>
+      <p id="exportPptxStatus" class="export-status" role="status" aria-live="polite"></p>
+      <div class="button-row"><button id="exportPptxConfirm" class="primary-btn" type="button" disabled>Export PPTX</button><button id="exportPptxCancel" class="secondary-btn" type="button">Cancel</button></div>
     </div>
   </dialog>
 

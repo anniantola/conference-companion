@@ -18,7 +18,7 @@ for(const base of ['conference','fixtures/multi-track-no-posters','fixtures/mult
  for(const path of attendeeFiles.filter(path=>path!=='tools/deployment.mjs'))assert.ok(!entries.has(path),`Engine file duplicated in deployment repository: ${path}`);
  assert.ok(![...entries.keys()].some(path=>path.startsWith('schemas/')||path.startsWith('assets/fonts/')));
  const webManifest=JSON.parse(textEntry(entries,'manifest.webmanifest'));assert.equal(webManifest.id,'./');assert.equal(webManifest.start_url,'./');assert.equal(webManifest.scope,'./');assert.equal(webManifest.display,'standalone');
- const workflow=textEntry(entries,'.github/workflows/deploy.yml');assert.match(workflow,/path: "_site"/);assert.match(workflow,/run: npm test/);assert.match(workflow,/repository: anniantola\/conference-companion/);assert.match(workflow,/ref: v1\.2\.18/);assert.match(workflow,/run: npm run stage/);
+ const workflow=textEntry(entries,'.github/workflows/deploy.yml');assert.match(workflow,/path: "_site"/);assert.match(workflow,/run: npm test/);assert.match(workflow,/repository: anniantola\/conference-companion/);assert.match(workflow,/ref: v1\.2\.19/);assert.match(workflow,/run: npm run stage/);
  assert.ok(![...entries.keys()].some(x=>x.includes('node_modules')||x.includes('sourceFiles')));
  const target=await mkdtemp(join(tmpdir(),'conference-deployment-'));
  try{

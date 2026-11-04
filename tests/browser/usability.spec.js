@@ -23,7 +23,7 @@ test('PWA assets, Pages scope, native prompt and offline QR fallback are operati
     for(const icon of manifest.icons){const bitmap=await createImageBitmap(await fetch(icon.src).then(r=>r.blob()));dimensions.push([bitmap.width,bitmap.height]);bitmap.close();}
     return {manifest,scope:registration.scope,dimensions,caches:await window.caches.keys()};
   });
-  const cacheName=`conference-companion-engine:${encodeURIComponent(result.scope)}:1.2.18`;
+  const cacheName=`conference-companion-engine:${encodeURIComponent(result.scope)}:1.2.19`;
   expect(result.manifest).toMatchObject({id:'./',start_url:'./',scope:'./',display:'standalone'});
   expect(result.scope).toBe('http://127.0.0.1:8080/');
   expect(result.dimensions).toEqual([[192,192],[512,512]]);
@@ -142,27 +142,28 @@ test('QR and scanner dialogs expose names, contain focus and restore focus on cl
   await page.keyboard.press('Escape');await expect(scanner).toBeHidden();await expect(page.locator('#scanFriendBtn')).toBeFocused();
 });
 
-test('My Card editor saves, cancels, reloads and restores every profile field from backup',async({page})=>{
+test('My Card editor preserves legacy photos through backup without exposing a photo editor',async({page})=>{
   await ready(page);await page.locator('[data-target="settings"]').click();
   await expect(page.locator('#settingsView #profileName')).toHaveCount(0);
   await page.locator('[data-target="friends"]').click();
   await expect(page.locator('#myCardSection')).toBeVisible();await expect(page.locator('#friendList')).toBeVisible();
+  await page.evaluate(async base64=>{const bytes=Uint8Array.from(atob(base64),c=>c.charCodeAt(0));await window.CONFERENCE_SERVICES.userStore.saveProfile({photoBlob:new Blob([bytes],{type:'image/png'})});},png.toString('base64'));await page.reload();await expect(page.locator('#programList')).not.toBeEmpty();await page.locator('[data-target="friends"]').click();
   const savedBefore=()=>page.evaluate(async()=>{const profile=await window.CONFERENCE_SERVICES.userStore.getProfile();return {...profile,hasPhoto:profile.photoBlob instanceof Blob};});
 
   await page.locator('#editProfileBtn').click();
-  await page.locator('#profileName').fill('Discarded Edit');await page.locator('#profilePhotoInput').setInputFiles({name:'discarded.png',mimeType:'image/png',buffer:png});
+  await expect(page.getByText('Legacy private My Card photo')).toHaveCount(0);await expect(page.locator('#profilePhotoInput')).toHaveCount(0);
+  await page.locator('#profileName').fill('Discarded Edit');
   await page.locator('#cancelProfileBtn').click();
-  const cancelled=await savedBefore();expect(Object.keys(cancelled).filter(key=>key!=='hasPhoto')).toEqual([]);expect(cancelled.hasPhoto).toBe(false);await expect(page.locator('#myCardSummary')).toContainText('Create your conference card');
+  const cancelled=await savedBefore();expect(cancelled.name).toBeUndefined();expect(cancelled.hasPhoto).toBe(true);await expect(page.locator('#myCardSummary')).toContainText('Create your conference card');
 
   await page.locator('#editProfileBtn').click();
   const values={profileName:'Riley Researcher',profilePosition:'Principal Investigator',profileAffiliation:'Example Institute',profileEmail:'riley@example.test',profileOrcid:'0000-0002-1234-5678',profileLinkedin:'https://www.linkedin.com/in/riley',profileWebsite:'https://example.test/riley',profileBio:'Offline-first systems researcher',profilePapers:'https://doi.org/10.0000/alpha\nhttps://doi.org/10.0000/beta'};
   for(const [id,value] of Object.entries(values))await page.locator(`#${id}`).fill(value);
-  await page.locator('#profilePhotoInput').setInputFiles({name:'profile.png',mimeType:'image/png',buffer:png});
   await page.locator('#saveProfileBtn').click();await expect(page.locator('#profileSection')).toBeHidden();
   await expect(page.locator('#myCardSummary')).toContainText('Riley Researcher');await expect(page.locator('#myCardSummary')).toContainText('Principal Investigator');await expect(page.locator('#myCardSummary')).toContainText('Example Institute');await expect(page.locator('#myCardSummary')).toContainText('riley@example.test');await expect(page.locator('#myCardSummary')).toContainText('Offline-first systems researcher');
   let saved=await savedBefore();expect(saved.name).toBe(values.profileName);expect(saved.position).toBe(values.profilePosition);expect(saved.affiliation).toBe(values.profileAffiliation);expect(saved.email).toBe(values.profileEmail);expect(saved.orcid).toBe(values.profileOrcid);expect(saved.linkedin).toBe(values.profileLinkedin);expect(saved.website).toBe(values.profileWebsite);expect(saved.bio).toBe(values.profileBio);expect(saved.papers).toEqual(values.profilePapers.split('\n'));expect(saved.hasPhoto).toBe(true);
 
-  await page.reload();await expect(page.locator('#programList')).not.toBeEmpty();await page.locator('[data-target="friends"]').click();await expect(page.locator('#myCardSummary')).toContainText('Riley Researcher');await expect(page.locator('.friend-profile-photo')).toBeVisible();
+  await page.reload();await expect(page.locator('#programList')).not.toBeEmpty();await page.locator('[data-target="friends"]').click();await expect(page.locator('#myCardSummary')).toContainText('Riley Researcher');await expect(page.locator('#myCardSummary .custom-avatar')).toBeVisible();
   await page.locator('[data-target="settings"]').click();const pending=page.waitForEvent('download');await page.locator('#exportBtn').click();const backup=await pending,backupPath=await backup.path();
   const entries=await readStoredZip(new Blob([await readFile(backupPath)]));const payload=JSON.parse(textEntry(entries,'backup.json'));
   expect(payload.profile.name).toBe(values.profileName);expect(payload.profilePhoto.file).toMatch(/^profile\//);expect(payload.profile.papers).toEqual(values.profilePapers.split('\n'));
@@ -171,7 +172,7 @@ test('My Card editor saves, cancels, reloads and restores every profile field fr
   await page.locator('[data-target="settings"]').click();const restoreDialog=page.waitForEvent('dialog');await page.locator('#importInput').setInputFiles(backupPath);await (await restoreDialog).accept();await expect(page.locator('#toast')).toContainText('Backup restored');
   await page.locator('[data-target="friends"]').click();await expect(page.locator('#myCardSummary')).toContainText('Riley Researcher');await page.locator('#editProfileBtn').click();
   for(const [id,value] of Object.entries(values))await expect(page.locator(`#${id}`)).toHaveValue(value);
-  await expect(page.locator('#profilePhotoPreview')).toBeVisible();await page.locator('#cancelProfileBtn').click();
+  await expect(page.locator('#profilePhotoPreview')).toHaveCount(0);await expect.poll(()=>page.evaluate(async()=>{const p=await window.CONFERENCE_SERVICES.userStore.getProfile();return p.photoBlob instanceof Blob;})).toBe(true);await page.locator('#cancelProfileBtn').click();
 });
 
 test('compact schedule has measurable density and persists for Program and My Schedule',async({browser})=>{
@@ -211,7 +212,7 @@ test('delete all personal data supports cancellation, drains saves, reloads empt
   await ready(page);
   const event=page.locator('#programList [data-event]').first(),eventId=await event.getAttribute('data-event');await event.locator('[data-star-event]').click();await event.click();await page.locator('.presentation-note').fill('Delete me');await expect(page.locator('#noteSaveStatus')).toHaveText('Saved');await page.locator('#photoInput').setInputFiles({name:'private.png',mimeType:'image/png',buffer:png});await expect(page.locator('#modalPhotos [data-photo-id]')).toHaveCount(1);await page.locator('#modalClose').click();
   await page.locator('[data-target="posters"]').click();await page.locator('#posterList [data-star-poster="poster-a1"]').click();await page.locator('#posterList [data-poster="poster-a1"]').click();await page.locator('.presentation-note').fill('Poster note');await expect(page.locator('#noteSaveStatus')).toHaveText('Saved');await page.locator('#modalClose').click();
-  await page.locator('[data-target="friends"]').click();await page.locator('#editProfileBtn').click();await page.locator('#profileName').fill('Private Profile');await page.locator('#profilePhotoInput').setInputFiles({name:'profile.png',mimeType:'image/png',buffer:png});await page.locator('#saveProfileBtn').click();
+  await page.locator('[data-target="friends"]').click();await page.locator('#editProfileBtn').click();await page.locator('#profileName').fill('Private Profile');await page.locator('#saveProfileBtn').click();
   await page.locator('[data-target="settings"]').click();await page.locator('#themeSelect').selectOption('light');await page.locator('#compactToggle').click();
   await page.locator('[data-target="friends"]').click();await page.locator('#friendVcardInput').setInputFiles({name:'private.vcf',mimeType:'text/vcard',buffer:Buffer.from('BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Private Friend\r\nEMAIL:friend@example.test\r\nEND:VCARD\r\n')});await page.locator('[data-friend-toggle]').click();await page.locator('[data-friend-note]').fill('Pending private note');
   await page.evaluate(async()=>{const {createUserStore,encodeStoredValue,attendeeStorageId}=await import('/src/user-store.js');const other=createUserStore('isolated-conference');await other.ensureReady();await other.saveState({favorites:['other-event'],posterFavorites:[],notes:{'event:other-event':'Other note'}});await other.saveProfile({name:'Other Profile'});await other.saveFriend({id:'other-friend',name:'Other Friend'});localStorage.setItem(`conferenceCompanion:${attendeeStorageId('isolated-conference')}:preferences:v1`,JSON.stringify({compact:true}));const photo=await encodeStoredValue({ownerKey:'event:other-event',ownerType:'event',ownerId:'other-event',blob:new Blob(['other']),addedAt:1});await new Promise((resolve,reject)=>{const request=indexedDB.open(`conferenceCompanion:${attendeeStorageId('isolated-conference')}:photos`,1);request.onupgradeneeded=()=>{const store=request.result.createObjectStore('photos',{keyPath:'id',autoIncrement:true});store.createIndex('ownerKey','ownerKey',{unique:false});};request.onerror=()=>reject(request.error);request.onsuccess=()=>{const db=request.result,tx=db.transaction('photos','readwrite');tx.objectStore('photos').add(photo);tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>{db.close();reject(tx.error);};tx.onabort=()=>{db.close();reject(tx.error);};};});});
