@@ -19,6 +19,7 @@ test('Friend Book-only PPTX is valid and excludes private details until explicit
   const publicDownload=await exportFile(page),publicPath=await publicDownload.path(),publicArchive=await downloadedPptx(page,publicPath);
   const publicXml=[...publicArchive.entries].filter(([name])=>name.endsWith('.xml')).map(([,bytes])=>new TextDecoder().decode(bytes)).join('\n');
   expect(publicXml).toContain('Archive Friend Å');expect(publicXml).toContain('Public Research Lab');expect(publicXml).not.toContain('secret-contact@example.test');expect(publicXml).not.toContain('PRIVATE ARCHIVE NOTE 48b27');
+  expect(publicXml).not.toContain('multiple-poster-sessions-fixture');expect(publicXml).not.toContain('tp-1');expect(publicXml).not.toContain('No photos attached');expect(publicXml).not.toContain('Exported ');expect(publicXml).not.toContain('Generated locally');
   expect(publicXml).not.toContain('PRIVATE PHOTO CAPTION 119b');expect([...publicArchive.entries.keys()].some(name=>name.startsWith('ppt/media/'))).toBe(false);
   expect(publicArchive.entries.has('ppt/notesSlides/notesSlide1.xml')).toBe(false);
 

@@ -14,6 +14,39 @@ async function controlled(page){
   await page.evaluate(async()=>{await navigator.serviceWorker.ready;if(!navigator.serviceWorker.controller)await new Promise(resolve=>navigator.serviceWorker.addEventListener('controllerchange',resolve,{once:true}));});
 }
 
+test('saved theme is applied synchronously before stylesheets and app startup',async({browser})=>{
+  for(const theme of ['light','dark','system'])for(const colorScheme of (theme==='system'?['light','dark']:['light'])){
+    const context=await browser.newContext({colorScheme}),page=await context.newPage();
+    await page.addInitScript(({theme})=>{
+      const deployment=new URL('./',location.href).href,base=new URL('./fixtures/multiple-poster-sessions',location.href).href.replace(/\/$/,''),id='multiple-poster-sessions-fixture';
+      const key=`conferenceCompanion:scope:${encodeURIComponent(deployment)}:${encodeURIComponent(base)}:${id}:preferences:v1`;
+      localStorage.setItem(key,JSON.stringify({theme,compact:false}));
+    },{theme});
+    const firstPaintPromise=new Promise(resolve=>page.once('domcontentloaded',()=>{page.evaluate(()=>({theme:document.documentElement.dataset.theme,bg:getComputedStyle(document.body).backgroundColor,meta:document.querySelector('meta[name="theme-color"]').content})).then(resolve);}));
+    await page.goto(fixture);await expect(page.locator('#programList')).not.toBeEmpty();
+    const firstPaint=await firstPaintPromise;
+    const dark=theme==='dark'||(theme==='system'&&colorScheme==='dark');
+    expect(firstPaint).toMatchObject({theme:dark?'dark':'light',bg:dark?'rgb(0, 0, 0)':'rgb(243, 244, 246)',meta:dark?'#000000':'#f3f4f6'});
+    await expect(page.locator('#themeSelect')).toHaveValue(theme);
+    await context.close();
+  }
+});
+
+test('malformed and inaccessible theme preferences safely use the system appearance',async({browser})=>{
+  for(const inaccessible of [false,true]){
+    const context=await browser.newContext({colorScheme:'dark'}),page=await context.newPage();
+    await page.addInitScript(({inaccessible})=>{
+      const deployment=new URL('./',location.href).href,base=new URL('./fixtures/multiple-poster-sessions',location.href).href.replace(/\/$/,''),key=`conferenceCompanion:scope:${encodeURIComponent(deployment)}:${encodeURIComponent(base)}:multiple-poster-sessions-fixture:preferences:v1`;
+      localStorage.setItem(key,'{invalid');
+      if(inaccessible)Object.defineProperty(Storage.prototype,'getItem',{value(){throw new Error('storage unavailable');}});
+    },{inaccessible});
+    await page.goto(fixture);await expect(page.locator('#programList')).not.toBeEmpty();
+    await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
+    await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content','#000000');
+    await context.close();
+  }
+});
+
 test('PWA assets, Pages scope, native prompt and offline QR fallback are operational',async({page,context})=>{
   await ready(page);await controlled(page);
   const result=await page.evaluate(async()=>{
@@ -23,7 +56,7 @@ test('PWA assets, Pages scope, native prompt and offline QR fallback are operati
     for(const icon of manifest.icons){const bitmap=await createImageBitmap(await fetch(icon.src).then(r=>r.blob()));dimensions.push([bitmap.width,bitmap.height]);bitmap.close();}
     return {manifest,scope:registration.scope,dimensions,caches:await window.caches.keys()};
   });
-  const cacheName=`conference-companion-engine:${encodeURIComponent(result.scope)}:1.2.19`;
+  const cacheName=`conference-companion-engine:${encodeURIComponent(result.scope)}:1.2.20`;
   expect(result.manifest).toMatchObject({id:'./',start_url:'./',scope:'./',display:'standalone'});
   expect(result.scope).toBe('http://127.0.0.1:8080/');
   expect(result.dimensions).toEqual([[192,192],[512,512]]);
@@ -197,6 +230,8 @@ test('compact switch thumb stays inside its track at narrow and wide viewports',
     for(const checked of [false,true]){
       if((await toggle.getAttribute('aria-checked'))!==String(checked))await toggle.click();
       await expect(toggle).toHaveAttribute('aria-checked',String(checked));
+      const geometry=await toggle.evaluate(element=>{const rect=element.getBoundingClientRect();return [rect.width,rect.height];});
+      expect(geometry).toEqual([48,28]);
       const bounds=await toggle.evaluate(element=>{const track=element.getBoundingClientRect(),thumb=element.querySelector('span').getBoundingClientRect(),style=getComputedStyle(element);return{track:{left:track.left,right:track.right,top:track.top,bottom:track.bottom},thumb:{left:thumb.left,right:thumb.right,top:thumb.top,bottom:thumb.bottom},innerLeft:track.left+parseFloat(style.borderLeftWidth)+parseFloat(style.paddingLeft),innerRight:track.right-parseFloat(style.borderRightWidth)-parseFloat(style.paddingRight)};});
       expect(bounds.thumb.left).toBeGreaterThanOrEqual(bounds.track.left);expect(bounds.thumb.right).toBeLessThanOrEqual(bounds.track.right);expect(bounds.thumb.top).toBeGreaterThanOrEqual(bounds.track.top);expect(bounds.thumb.bottom).toBeLessThanOrEqual(bounds.track.bottom);
       await expect.poll(()=>toggle.evaluate(element=>{const track=element.getBoundingClientRect(),thumb=element.querySelector('span').getBoundingClientRect(),style=getComputedStyle(element),innerLeft=track.left+parseFloat(style.borderLeftWidth)+parseFloat(style.paddingLeft),innerRight=track.right-parseFloat(style.borderRightWidth)-parseFloat(style.paddingRight);return element.getAttribute('aria-checked')==='true'?Math.abs(innerRight-thumb.right):Math.abs(thumb.left-innerLeft);})).toBeLessThanOrEqual(1);
@@ -205,6 +240,7 @@ test('compact switch thumb stays inside its track at narrow and wide viewports',
     // Repeated activation must continue toggling state and layout in both directions.
     if((await toggle.getAttribute('aria-checked'))!=='false')await toggle.click();await toggle.click();await expect(toggle).toHaveAttribute('aria-checked','true');await toggle.click();await expect(toggle).toHaveAttribute('aria-checked','false');
   }
+  await toggle.focus();await page.keyboard.press('Space');await expect(toggle).toHaveAttribute('aria-checked','true');
   await context.close();
 });
 

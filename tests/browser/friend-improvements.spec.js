@@ -24,6 +24,9 @@ test('custom avatar color persists and transfers in compact and full QR cards',a
   await page.locator('#identityConfirm').click();
   await page.locator('#saveProfileBtn').click();
   await expect(page.locator('#myCardSummary .friend-profile-photo')).toHaveAttribute('style',/--avatar-background:#397AA5/);
+  await expect(page.locator('#myConferenceActivitiesContent')).toBeHidden();
+  await expect(page.locator('#myConferenceActivitiesCount')).toHaveText('4 activities');
+  await page.locator('#myConferenceActivitiesToggle').click();
   await expect(page.locator('#myConferenceActivities .friend-activity')).toHaveCount(4);
   await expect(page.locator('.friend-card')).toHaveCount(0);
   await page.locator('#friendShareBtn').click();
@@ -46,7 +49,10 @@ test('custom avatar color persists and transfers in compact and full QR cards',a
     await expect(other.locator('.friend-card')).toHaveCount(1);
     await expect(other.locator('.friend-card-toggle .custom-avatar')).toHaveAttribute('style',/--avatar-background:#397AA5/);
     await expect(other.locator('#friendImportStatus')).toContainText('Linked to conference');
-    await expect(other.locator('#friendsConferenceActivities .aggregate-activity')).toHaveCount(2);
+    await expect(other.locator('#friendsConferenceActivities')).toBeHidden();
+    await expect(other.locator('#friendsConferenceCount')).toHaveText('4 activities');
+    await other.locator('#friendsConferenceToggle').click();
+    await expect(other.locator('#friendsConferenceActivities .aggregate-activity')).toHaveCount(4);
     await other.locator('#friendVcardInput').setInputFiles({name:'compact.vcf',mimeType:'text/vcard',buffer:Buffer.from(cards[0])});
     await expect(other.locator('.friend-card')).toHaveCount(1);
     await other.locator('[data-friend-toggle]').click();
@@ -106,7 +112,8 @@ test('legacy avatar properties are ignored and photo galleries survive backup an
   await page.evaluate(()=>navigator.serviceWorker.ready);
   await context.setOffline(true);await page.reload();await page.locator('[data-target="friends"]').click();
   await expect(page.locator('.friend-card-toggle .friend-avatar')).toHaveAttribute('src',/^blob:/);
-  await expect(page.locator('#friendsConferenceActivities .aggregate-activity')).toHaveCount(2);
+  await expect(page.locator('#friendsConferenceActivities')).toBeHidden();
+  await expect(page.locator('#friendsConferenceToggle')).toHaveAttribute('aria-expanded','false');
 });
 
 test('legacy contact photo migrates once and gallery edits survive a quota failure',async({page})=>{
@@ -138,7 +145,7 @@ test('legacy contact photo migrates once and gallery edits survive a quota failu
   await expect(page.locator('.friend-card-toggle .custom-avatar')).toBeVisible();
 });
 
-test('completed conferences show the two most recent friend activities and full history',async({page})=>{
+test('friend activity disclosure starts collapsed and exposes complete history',async({page})=>{
   await openFriends(page);
   await page.evaluate(()=>{
     const model=window.CONFERENCE_MODEL;
@@ -148,14 +155,14 @@ test('completed conferences show the two most recent friend activities and full 
   });
   const card='BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Morgan Lee\r\nEMAIL:morgan@example.org\r\nURL;TYPE=ORCID:https://orcid.org/0000-0000-0000-0001\r\nEND:VCARD';
   await page.locator('#friendVcardInput').setInputFiles({name:'friend.vcf',mimeType:'text/vcard',buffer:Buffer.from(card)});
+  await expect(page.locator('#friendsConferenceActivities')).toBeHidden();
+  await expect(page.locator('#friendsConferenceCount')).toHaveText('4 activities');
+  await page.locator('#friendsConferenceToggle').click();
   await expect(page.locator('#friendsConferenceActivities h4')).toHaveText('Previous conference activities');
-  await expect(page.locator('#friendsConferenceActivities .aggregate-activity')).toHaveCount(2);
-  await expect(page.locator('[data-friends-activities-toggle]')).toContainText('(4)');
-  await page.locator('[data-friends-activities-toggle]').click();
   await expect(page.locator('#friendsConferenceActivities .aggregate-activity')).toHaveCount(4);
   await expect(page.locator('#friendsConferenceActivities')).toContainText('Previous');
-  await page.locator('[data-friends-activities-toggle]').click();
-  await expect(page.locator('#friendsConferenceActivities .aggregate-activity')).toHaveCount(2);
+  await page.locator('#friendsConferenceToggle').click();
+  await expect(page.locator('#friendsConferenceActivities')).toBeHidden();
 });
 
 for(const width of [320,375,768,1280])test(`Friend Book avatar, activities, picker and gallery fit ${width}px`,async({page})=>{

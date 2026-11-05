@@ -1,6 +1,6 @@
 // CacheStorage is origin-wide, even though this worker controls only its scope.
 const CACHE_PREFIX = `conference-companion-engine:${encodeURIComponent(self.registration.scope)}:`;
-const CACHE = `${CACHE_PREFIX}1.2.19`;
+const CACHE = `${CACHE_PREFIX}1.2.20`;
 const ENGINE_ASSETS = [
   "./",
   "./index.html",

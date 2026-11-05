@@ -10,6 +10,45 @@
   <meta name="apple-mobile-web-app-title" content="Conference Companion">
   <meta name="description" content="Offline-first conference companion.">
   <title>Conference Companion</title>
+  <!-- CONFERENCE_HEADER_BOOT_COLORS -->
+  <script>
+    // Apply the attendee app's existing scoped preference before CSS paints.
+    // Conference ID is part of the stored key, so match only this deployment
+    // and this conference package base; never create a second preference key.
+    (()=>{
+      let theme='system',compact=false;
+      try{
+        const configuredDefault=document.querySelector('meta[name="conference-default-appearance"]')?.content;
+        if(['light','dark','system'].includes(configuredDefault))theme=configuredDefault;
+        const deployment=new URL('./',location.href).href;
+        const base=(new URLSearchParams(location.search).get('conference')||'./conference').replace(/\/$/,'');
+        const packageBase=new URL(base,location.href).href.replace(/\/$/,'');
+        const prefix=`conferenceCompanion:scope:${encodeURIComponent(deployment)}:${encodeURIComponent(packageBase)}:`;
+        const matches=[];
+        for(let i=0;i<localStorage.length;i++){
+          const key=localStorage.key(i);
+          if(key?.startsWith(prefix)&&key.endsWith(':preferences:v1')){
+            const value=JSON.parse(localStorage.getItem(key)||'{}');
+            if(value&&typeof value==='object'&&!Array.isArray(value))matches.push(value);
+          }
+        }
+        if(matches.length){const saved=matches[matches.length-1];if(['light','dark','system'].includes(saved.theme))theme=saved.theme;compact=saved.compact===true;}
+      }catch{}
+      const dark=theme==='dark'||(theme==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);
+      const root=document.documentElement;root.dataset.theme=dark?'dark':'light';root.style.colorScheme=dark?'dark':'light';
+      if(compact)root.classList.add('compact');
+      const color=dark?'#000000':'#f3f4f6';
+      const meta=document.querySelector('meta[name="theme-color"]');if(meta)meta.content=color;
+      root.style.backgroundColor=color;root.style.color=dark?'#ffffff':'#111214';
+      const configuredHeader=document.querySelector(`meta[name="conference-header-background-${dark?'dark':'light'}"]`)?.content;
+      const headerFallback=dark?'#191a1d':'#ffffff',headerColor=/^#[\da-f]{6}$/i.test(configuredHeader||'')?configuredHeader:headerFallback;
+      const rgb=headerColor.match(/^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i)?.slice(1).map(value=>parseInt(value,16)/255);
+      const luminance=rgb?rgb.map(value=>value<=.04045?value/12.92:((value+.055)/1.055)**2.4).reduce((sum,value,index)=>sum+value*[.2126,.7152,.0722][index],0):.1;
+      const contrast=(foreground)=>{const light=foreground==='#FFFFFF'?1:.005605391624202723;return (Math.max(light,luminance)+.05)/(Math.min(light,luminance)+.05);};
+      const headerText=contrast('#FFFFFF')>=contrast('#111111')?'#FFFFFF':'#111111';
+      root.style.setProperty('--header-background',headerColor);root.style.setProperty('--header-text',headerText);
+    })();
+  </script>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icon-192.png">
   <link rel="apple-touch-icon" href="./icon-180.png">
@@ -143,7 +182,7 @@
           <input id="friendVcardInput" type="file" accept="text/vcard,.vcf,text/plain" hidden>
         </div>
         <p id="friendImportStatus" class="friend-import-status" role="status" aria-live="polite"></p>
-        <section id="friendsConferenceSection" class="friend-card-section" aria-labelledby="friendsConferenceTitle"><h3 id="friendsConferenceTitle">Friends at this conference</h3><div id="friendsConferenceActivities" class="friend-activities friend-activities-aggregate"></div></section>
+        <section id="friendsConferenceSection" class="friend-card-section activity-section" aria-labelledby="friendsConferenceTitle"><button id="friendsConferenceToggle" class="activity-disclosure" type="button" aria-expanded="false" aria-controls="friendsConferenceActivities"><span id="friendsConferenceTitle">Friends at this conference</span><span id="friendsConferenceCount" class="activity-count">0 activities</span><span class="activity-disclosure-icon" aria-hidden="true">⌄</span></button><div id="friendsConferenceActivities" class="friend-activities friend-activities-aggregate" hidden></div></section>
         <section id="myCardSection" class="friend-card-section">
           <h3>My Card</h3>
           <div id="myCardSummary" class="friend-profile-card"></div>
@@ -167,7 +206,7 @@
             </div>
             <div class="button-row profile-edit-actions"><button id="saveProfileBtn" class="primary-btn" type="button">Save</button><button id="cancelProfileBtn" class="secondary-btn" type="button">Cancel</button></div>
           </div>
-          <div id="myConferenceActivities" class="friend-activities"></div>
+          <div id="myConferenceActivities" class="friend-activities friend-card-section activity-section"><button id="myConferenceActivitiesToggle" class="activity-disclosure" type="button" aria-expanded="false" aria-controls="myConferenceActivitiesContent"><span>My conference activities</span><span id="myConferenceActivitiesCount" class="activity-count">0 activities</span><span class="activity-disclosure-icon" aria-hidden="true">⌄</span></button><div id="myConferenceActivitiesContent" class="activity-disclosure-content" hidden></div></div>
         </section>
         <h3 class="friend-section-title">My Friends</h3>
         <dialog id="addFriendDialog" aria-labelledby="addFriendTitle"><form id="addFriendForm" method="dialog" class="friend-manual-form"><h3 id="addFriendTitle">Add someone you met</h3><label>Name<input name="name" required autocomplete="name"></label><label>Affiliation<input name="affiliation" autocomplete="organization"></label><label>Email<input name="email" type="email" autocomplete="email"></label><label>ORCID<input name="orcid"></label><label class="friend-check"><input name="leaveUnlinked" type="checkbox"> Leave unlinked even if identifiers match</label><small>After saving, use Find conference identity on the contact to review programme matches.</small><div class="button-row"><button class="primary-btn" type="submit">Save contact</button><button class="secondary-btn" type="button" id="cancelAddFriendBtn">Cancel</button></div></form></dialog>

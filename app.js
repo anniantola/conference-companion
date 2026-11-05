@@ -69,6 +69,7 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
   let qrScanProcessing = false;
   const expandedFriendIds = new Set();
   let friendsActivitiesExpanded=false;
+  let myActivitiesExpanded=false;
   let identityTarget=null;
   let selectedPersonId='';
   const pendingPersonalWrites = new Set();
@@ -1994,7 +1995,7 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     const color = opts.color || "1f2937";
     const fill = opts.fill ? `<a:solidFill><a:srgbClr val="${opts.fill}"/></a:solidFill>` : `<a:noFill/>`;
     const line = opts.line ? `<a:ln><a:solidFill><a:srgbClr val="${opts.line}"/></a:solidFill></a:ln>` : `<a:ln><a:noFill/></a:ln>`;
-    return `<p:sp><p:nvSpPr><p:cNvPr id="${shapeId}" name="${xmlEsc(name)}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${emu(x)}" y="${emu(y)}"/><a:ext cx="${emu(w)}" cy="${emu(h)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom>${fill}${line}</p:spPr><p:txBody><a:bodyPr wrap="square" lIns="91440" tIns="68580" rIns="91440" bIns="68580" anchor="t"/><a:lstStyle/>${textToParagraphs(text,fontSize,bold,color)}</p:txBody></p:sp>`;
+    return `<p:sp><p:nvSpPr><p:cNvPr id="${shapeId}" name="${xmlEsc(name)}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${emu(x)}" y="${emu(y)}"/><a:ext cx="${emu(w)}" cy="${emu(h)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom>${fill}${line}</p:spPr><p:txBody><a:bodyPr wrap="square" lIns="91440" tIns="68580" rIns="91440" bIns="68580" anchor="t"><a:normAutofit/></a:bodyPr><a:lstStyle/>${textToParagraphs(text,fontSize,bold,color)}</p:txBody></p:sp>`;
   }
 
   function pptPicture(picId, relId, x, y, w, h, name="Photo") {
@@ -2116,13 +2117,12 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
       const fields=[];
       const push=(label,value)=>{const text=String(value??'').trim();if(text)fields.push(`${label}: ${text}`);};
       push('Position',friend.position);push('Affiliation',friend.affiliation||(friend.affiliations||[])[0]);
-      push('Email',[...(friend.emails||[]),friend.email].filter(Boolean).join(', '));
-      push('Phone',[...(friend.phones||[]),friend.phone].map(value=>typeof value==='string'?value:value?.value||'').filter(Boolean).join(', '));
+      push('Email',[...new Set([...(friend.emails||[]),friend.email].filter(Boolean))].join(', '));
+      push('Phone',[...new Set([...(friend.phones||[]),friend.phone].map(value=>typeof value==='string'?value:value?.value||'').filter(Boolean))].join(', '));
       push('ORCID',friend.orcid);push('LinkedIn',friend.linkedin);push('Website',friend.website);push('Bio',friend.bio);
       if(Array.isArray(friend.papers)&&friend.papers.length)push('Selected papers',friend.papers.map(publicationText).filter(Boolean).join(' · '));
       if(Array.isArray(friend.links)&&friend.links.length)push('Other links',friend.links.map(link=>[link.label,link.url].filter(Boolean).join(': ')).join(' · '));
       push('Private notes',friend.privateNotes);push('Tags',(friend.tags||[]).join(', '));push('Met at',friend.metAt);
-      if(friend.metAtEventId)push('Meeting programme ID',friend.metAtEventId);
       return {id:friend.id,name:friend.name||'Contact',fields,photos:galleryForContact(friend)};
     }).filter(entry=>entry.fields.length||entry.photos.length);
   }
@@ -2279,122 +2279,86 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     const slideData = [];
     const mediaFiles = [];
     let mediaIndex = 1;
-
-    const addSlide = (shapes, imageRels=[]) => slideData.push({shapes, imageRels});
-    const addTextArchiveSlides=(title,lines,fontSize=1350)=>{
-      const paragraphs=[];
-      for(const raw of lines){
-        const words=String(raw||'').split(/\s+/);let line='';
-        for(const word of words){if(!word)continue;if(line&&`${line} ${word}`.length>1500){paragraphs.push(line);line=word;}else line=line?`${line} ${word}`:word;}
-        if(line)paragraphs.push(line);
-      }
-      if(!paragraphs.length)return;
-      let chunk=[],length=0;
-      const flush=()=>{if(!chunk.length)return;const index=Math.floor(slideData.length);const suffix=paragraphs.length>chunk.length?` · ${Math.floor(index+1)}`:'';addSlide(pptTextShape(2,'Section title',0.55,0.35,12.2,0.55,`${title}${suffix}`,{fontSize:2100,bold:true,color:'111827'})+pptTextShape(3,'Archive text',0.62,1.08,12.05,5.95,chunk.join('\n'),{fontSize,color:'1f2937'}));chunk=[];length=0;};
-      for(const paragraph of paragraphs){if(chunk.length>=12||length+paragraph.length>1800)flush();chunk.push(paragraph);length+=paragraph.length;}
-      flush();
+    const addSlide=(shapes,imageRels=[])=>slideData.push({shapes,imageRels});
+    const accent=String(BRANDING.accent||BRANDING.primary||'#1769E0').replace('#','').toUpperCase().match(/^[\da-f]{6}$/i)?.[0]||'1769E0';
+    const ink='17202C',muted='596579',soft='F3F6FA';
+    const chunksOf=(value,max=760)=>{
+      const text=String(value||'').trim();if(!text)return[];const out=[];
+      for(const para of text.split(/\n+/)){let line='';for(const word of para.split(/\s+/)){if(!word)continue;if(line&&line.length+word.length+1>max){out.push(line);line=word;}else line=line?`${line} ${word}`:word;}if(line)out.push(line);}
+      const pages=[];let page='';for(const part of out){if(page&&page.length+part.length+2>max){pages.push(page);page='';}page=page?`${page}\n\n${part}`:part;}if(page)pages.push(page);return pages;
     };
-    const noteCount = items.filter(x=>String(x.note||"").trim()).length;
-    const photoCount = items.reduce((sum,x)=>sum+x.photos.length,0);
-    const sectionNames=[];if(items.length)sectionNames.push('Programme notes and photos');if(friendRows.length)sectionNames.push('Friend Book and conference activities');if(privateRows.length)sectionNames.push('Private contact notes and photographs');
-    addSlide(
-      pptTextShape(2,"Title",0.7,0.75,12,0.75,CONFERENCE.name || "Conference",{fontSize:3600,bold:true,color:"111827"}) +
-      pptTextShape(3,"Subtitle",0.75,1.65,11.8,0.65,"Conference presentation archive",{fontSize:2200,color:"1769E0"}) +
-      pptTextShape(4,"Summary",0.8,2.65,11.6,3.0,`${sectionNames.join('\n')}\n\n${items.length?`${noteCount} programme groups with notes · ${photoCount} programme photos\n`:''}${friendRows.length?`${friendRows.length} saved Friend Book contacts · ${activities.length} activities\n`:''}${privateRows.length?`${privateRows.length} contacts with private details or photographs\n`:''}Exported ${new Date().toLocaleString()}`,{fontSize:1650,color:"374151",fill:"f3f4f6",line:"d1d5db"}) +
-      pptTextShape(5,"Footer",0.8,6.65,11.6,0.35,`Generated locally from ${CONFERENCE.name || "conference app"}`,{fontSize:1000,color:"6b7280"})
-    );
-
-    if(items.length)addTextArchiveSlides('Programme notes and photos',[`${items.length} chronological programme groups · ${noteCount} with notes · ${photoCount} photographs`],1300);
-
-    for (const item of items) {
-      const prepared = [];
-      for (const photo of item.photos) {
-        try {
-          const img = await imageBlobForPptx(photo);
-          const file = `image${mediaIndex++}.jpg`;
-          mediaFiles.push({name:`ppt/media/${file}`, data: await blobToU8(img.blob)});
-          const photoTitle = String(photo.customTitle || "").trim();
-          const photoNote = String(photo.customNote || "").trim();
-          const fallbackCaption = photo.captureTime || photo.name || "Photo";
-          const caption = photoTitle || fallbackCaption;
-          prepared.push({...img, file, caption, photoNote});
-        } catch (err) {
-          console.warn("Skipping photo in PPTX export", err);
+    const textBlockHeight=(text,charsPerLine,lineHeight,maxHeight)=>{
+      const lines=String(text||'').split('\n').reduce((sum,line)=>sum+Math.max(1,Math.ceil(line.length/charsPerLine)),0);
+      return Math.min(maxHeight,Math.max(1.25,.48+lines*lineHeight));
+    };
+    const heading=(title,meta='',id=1)=>pptTextShape(id,'Brand accent',0,0,13.333,.11,' ',{fill:accent})+
+      pptTextShape(id+1,'Slide title',.62,.35,12.1,.65,title,{fontSize:2350,bold:true,color:ink})+
+      (meta?pptTextShape(id+2,'Activity details',.65,1.04,12,.42,meta,{fontSize:1050,color:muted}):'');
+    const preparePhotos=async photos=>{
+      const prepared=[];for(const photo of photos||[]){
+        const img=await imageBlobForPptx(photo),file=`image${mediaIndex++}.jpg`;
+        mediaFiles.push({name:`ppt/media/${file}`,data:await blobToU8(img.blob)});
+        prepared.push({...img,file,caption:String(photo.customTitle||photo.caption||'').trim(),note:String(photo.customNote||'').trim()});
+      }return prepared;
+    };
+    const photoBoxes=(count,x,y,w,h)=>{
+      const gap=.18;if(count===1)return[{x,y,w,h}];
+      if(count===2)return[{x,y,w:(w-gap)/2,h},{x:x+(w+gap)/2,y,w:(w-gap)/2,h}];
+      return Array.from({length:count},(_,i)=>({x:x+(i%2)*(w+gap)/2,y:y+Math.floor(i/2)*(h+gap)/2,w:(w-gap)/2,h:(h-gap)/2}));
+    };
+    const addPhotoSlides=(title,meta,photos,{note=''}={})=>{
+      const notePages=chunksOf(note,photos.length?370:800);
+      if(!photos.length){for(let i=0;i<notePages.length;i++){const text=notePages[i],y=i===0?1.62:1.1,h=textBlockHeight(text,112,.34,5.8),top=i===0?heading(title,meta):pptTextShape(2,'Slide title',.62,.35,12.1,.65,`${title} · continued`,{fontSize:2350,bold:true,color:ink});addSlide(top+pptTextShape(4,'Notes',.65,y,12,h,text,{fontSize:1550,color:ink,fill:soft}));}return;}
+      for(let offset=0;offset<photos.length;offset+=4){
+        const chunk=photos.slice(offset,offset+4),includeNote=offset===0&&!!notePages.length;
+        let shapes=heading(offset?`${title} · photographs ${offset+1}–${offset+chunk.length}`:title,meta);
+        let imageRels=[],boxes;
+        if(includeNote){const noteHeight=textBlockHeight(notePages[0],43,.3,5.25);shapes+=pptTextShape(4,'Personal notes',.62,1.62,4.55,noteHeight,notePages[0],{fontSize:1420,color:ink,fill:soft});boxes=photoBoxes(chunk.length,5.42,1.62,7.28,5.25);}
+        else boxes=photoBoxes(chunk.length,.62,1.62,12.08,5.25);
+        chunk.forEach((photo,index)=>{
+          const box=boxes[index],captionLines=[photo.caption,photo.note].filter(Boolean),caption=captionLines.join('\n');
+          const captionH=caption?Math.min(.9,.29*captionLines.length):.05,fit=fitInBox(photo.width,photo.height,box.x,box.y,box.w,Math.max(.6,box.h-captionH-.08));
+          const relId=`rId${imageRels.length+2}`;imageRels.push({rId:relId,file:photo.file});shapes+=pptPicture(10+index,relId,fit.x,fit.y,fit.w,fit.h,photo.caption||`Photograph ${offset+index+1}`);
+          if(caption)shapes+=pptTextShape(20+index,'Photograph caption',box.x,box.y+box.h-captionH,box.w,captionH,caption,{fontSize:captionLines.length>1?750:900,bold:!!photo.caption,color:ink});
+        });
+        addSlide(shapes,imageRels);
+        const longCaptions=chunk.filter(photo=>[photo.caption,photo.note].some(text=>text.length>100));
+        for(const photo of longCaptions){
+          const detailText=[photo.caption,photo.note].filter(Boolean).join('\n\n');
+          for(const page of chunksOf(detailText,760))addSlide(heading('Photograph details',title)+pptTextShape(4,'Caption and notes',.65,1.62,12,5.35,page,{fontSize:1450,color:ink,fill:soft}));
         }
       }
+      for(let i=1;i<notePages.length;i++)addSlide(heading(`${title} · notes continued`,meta)+pptTextShape(4,'Notes',.65,1.62,12,5.35,notePages[i],{fontSize:1550,color:ink,fill:soft}));
+    };
 
-      const chunks = [];
-      if (prepared.length) {
-        for (let i=0;i<prepared.length;i+=4) chunks.push(prepared.slice(i,i+4));
-      } else {
-        chunks.push([]);
-      }
+    const coverSections=[items.length?'Programme notes and photographs':'',friendRows.length?'Friends and conference activities':'',privateRows.length?'Private contact memories':''].filter(Boolean).join(' · ');
+    addSlide(pptTextShape(1,'Brand accent',0,0,13.333,.14,' ',{fill:accent})+
+      pptTextShape(2,'Conference name',.75,2.1,11.8,1.5,CONFERENCE.name||'Conference',{fontSize:3600,bold:true,color:ink})+
+      pptTextShape(3,'Presentation subtitle',.78,3.85,11.5,.8,coverSections||'Conference presentation & photo record',{fontSize:coverSections.length>70?1550:2050,color:accent}));
 
-      chunks.forEach((chunk, chunkIndex) => {
-        let shapeId = 2;
-        let shapes = "";
-        const imageRels = [];
-        const title = chunkIndex ? `${item.info.title} — photos ${chunkIndex*4+1}–${chunkIndex*4+chunk.length}` : item.info.title;
-        shapes += pptTextShape(shapeId++,"Title",0.42,0.25,12.5,0.45,title,{fontSize:1900,bold:true,color:"111827"});
-        shapes += pptTextShape(shapeId++,"Meta",0.45,0.73,12.35,0.35,item.info.meta,{fontSize:900,color:"6b7280"});
-
-        const hasNote = String(item.note || "").trim() && chunkIndex === 0;
-        const noteText = hasNote ? item.note : (chunkIndex === 0 && !chunk.length ? "No photos attached." : "");
-        if (hasNote || !chunk.length) {
-          const noteW = chunk.length ? 5.1 : 12.15;
-          shapes += pptTextShape(shapeId++,"Notes",0.45,1.18,noteW,5.8,noteText,{fontSize:1150,color:"111827",fill:"f9fafb",line:"e5e7eb"});
-        }
-
-        if (chunk.length) {
-          const x0 = hasNote ? 5.85 : 0.65;
-          const y0 = 1.25;
-          const gridW = hasNote ? 6.9 : 12.0;
-          const gridH = 5.55;
-          const gap = 0.18;
-          const boxes = chunk.length === 1
-            ? [{x:x0,y:y0,w:gridW,h:gridH}]
-            : chunk.length === 2
-              ? [{x:x0,y:y0,w:gridW,h:(gridH-gap)/2},{x:x0,y:y0+(gridH+gap)/2,w:gridW,h:(gridH-gap)/2}]
-              : [0,1,2,3].map(i => ({x:x0+(i%2)*(gridW+gap)/2,y:y0+Math.floor(i/2)*(gridH+gap)/2,w:(gridW-gap)/2,h:(gridH-gap)/2}));
-
-          chunk.forEach((img, idx) => {
-            const box = boxes[idx];
-            const metaHeight = img.photoNote ? 0.62 : 0.28;
-            const imageBoxHeight = Math.max(0.7, box.h - metaHeight);
-            const fit = fitInBox(img.width,img.height,box.x,box.y,box.w,imageBoxHeight);
-            const rId = `rId${imageRels.length+2}`;
-            imageRels.push({rId, file:img.file});
-            shapes += pptPicture(shapeId++,rId,fit.x,fit.y,fit.w,fit.h,`Photo ${idx+1}`);
-            if (img.caption) {
-              shapes += pptTextShape(shapeId++,"Caption",box.x,box.y+imageBoxHeight,box.w,0.24,img.caption,{fontSize:680,bold:!!img.photoNote,color:"374151",fill:"ffffff"});
-            }
-            if (img.photoNote) {
-              shapes += pptTextShape(shapeId++,"Photo note",box.x,box.y+imageBoxHeight+0.24,box.w,0.38,img.photoNote,{fontSize:560,color:"4b5563",fill:"f9fafb",line:"e5e7eb"});
-            }
-          });
-        }
-        addSlide(shapes, imageRels);
-      });
+    for(const item of items){
+      const photos=await preparePhotos(item.photos),title=item.info.title||'Conference programme',meta=item.info.meta||'';
+      addPhotoSlides(title,meta,photos,{note:String(item.note||'').trim()});
     }
 
     if(friendRows.length){
-      addTextArchiveSlides('Friend Book overview',friendRows.map(contact=>`${contact.name}${contact.affiliation?` · ${contact.affiliation}`:''}${contact.conferencePerson?`\nConfirmed conference identity: ${contact.conferencePerson} (${contact.conferencePersonId})`:''}`),1400);
-      if(activities.length)addTextArchiveSlides("Friends' conference activities",activities.map(activity=>`${activity.date||'Date to be announced'}${activity.start?` · ${activity.start}${activity.end?`–${activity.end}`:''}`:''} · ${activity.role}\n${activity.posterNumber?`Poster ${activity.posterNumber}: `:''}${activity.title}\n${activity.friends.join(', ')} · ${activity.location}`),1300);
+      for(let offset=0;offset<friendRows.length;offset+=6){
+        const chunk=friendRows.slice(offset,offset+6);let shapes=heading('People you met');
+        chunk.forEach((contact,index)=>{const y=1.55+index*.86;shapes+=pptTextShape(10+index*2,'Contact name',.72,y,5.2,.38,contact.name||'Contact',{fontSize:1650,bold:true,color:ink});const detail=[contact.affiliation,contact.conferencePerson&&contact.conferencePerson!==contact.name?`Conference profile: ${contact.conferencePerson}`:''].filter(Boolean).join(' · ');if(detail)shapes+=pptTextShape(11+index*2,'Contact affiliation',.75,y+.38,11.7,.36,detail,{fontSize:1050,color:muted});}
+        );addSlide(shapes);
+      }
+      for(let offset=0;offset<activities.length;offset+=5){
+        const chunk=activities.slice(offset,offset+5);let shapes=heading("Friends' conference activities");
+        chunk.forEach((activity,index)=>{const y=1.52+index*1.04,when=[activity.date,activity.start&&`${activity.start}${activity.end?`–${activity.end}`:''}`].filter(Boolean).join(' · '),title=`${activity.posterNumber?`Poster ${activity.posterNumber}: `:''}${activity.title||'Conference activity'}`,details=[activity.role,when,activity.location,(activity.friends||[]).join(', ')].filter(Boolean).join(' · ');shapes+=pptTextShape(10+index*3,'Activity title',.72,y,11.8,.42,title,{fontSize:1550,bold:true,color:ink});shapes+=pptTextShape(11+index*3,'Activity details',.75,y+.43,11.7,.39,details,{fontSize:1020,color:muted});}
+        );addSlide(shapes);
+      }
     }
 
     for(const entry of privateRows){
-      addTextArchiveSlides(`Private contact memories · ${entry.name}`,entry.fields.length?entry.fields:['No private contact notes or details were saved.'],1300);
-      const prepared=[];
-      for(const photo of entry.photos){
-        try{const img=await imageBlobForPptx(photo),file=`image${mediaIndex++}.jpg`;mediaFiles.push({name:`ppt/media/${file}`,data:await blobToU8(img.blob)});prepared.push({...img,file,caption:String(photo.caption||'').trim()||'Contact photograph'});}
-        catch(error){console.warn('Skipping contact photograph in PPTX export',error);}
-      }
-      for(let offset=0;offset<prepared.length;offset+=4){
-        const chunk=prepared.slice(offset,offset+4),imageRels=[];let shapes=pptTextShape(2,'Private photo heading',0.42,0.25,12.5,0.45,`${entry.name} · Private photographs`,{fontSize:1900,bold:true,color:'111827'});
-        const boxes=chunk.length===1?[{x:0.65,y:1.05,w:12,h:5.8}]:chunk.length===2?[{x:0.65,y:1.05,w:5.95,h:5.8},{x:6.78,y:1.05,w:5.95,h:5.8}]:[0,1,2,3].map(i=>({x:0.65+(i%2)*6.13,y:1.05+Math.floor(i/2)*2.9,w:5.95,h:2.72}));
-        chunk.forEach((image,index)=>{const box=boxes[index],fit=fitInBox(image.width,image.height,box.x,box.y,box.w,box.h-0.35),rId=`rId${imageRels.length+2}`;imageRels.push({rId,file:image.file});shapes+=pptPicture(3+index,rId,fit.x,fit.y,fit.w,fit.h,`${entry.name} private photo ${offset+index+1}`);shapes+=pptTextShape(8+index,'Private photo caption',box.x,box.y+box.h-0.3,box.w,0.27,image.caption,{fontSize:850,color:'374151'});});
-        addSlide(shapes,imageRels);
-      }
+      const fields=entry.fields||[],pages=chunksOf(fields.join('\n'),650);
+      for(let i=0;i<pages.length;i++){const text=pages[i],height=textBlockHeight(text,110,.32,5.6);addSlide(heading(`${entry.name} · personal notes`)+pptTextShape(4,'Private details',.65,1.3,12,height,text,{fontSize:1400,color:ink,fill:soft}));}
+      const photos=await preparePhotos(entry.photos||[]);
+      addPhotoSlides(`${entry.name} · photographs`,'Personal Friend Book photos',photos);
     }
 
     const slideCount = slideData.length;
@@ -2664,16 +2628,24 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     const target=$('#friendsConferenceActivities');if(!target)return;
     const all=aggregateFriendActivities(friends,CONFERENCE,MODEL),upcoming=all.filter(activityIsUpcoming);
     const previous=all.filter(activity=>/^\d{4}-\d{2}-\d{2}$/.test(activity.date||'')&&!activityIsUpcoming(activity)&&!/cancel/i.test(activity.status||''));
-    const compact=upcoming.length?upcoming.slice(0,2):previous.length?previous.slice(-2).reverse():all.slice(0,2);
-    const displayed=friendsActivitiesExpanded?all:compact;
+    const toggle=$('#friendsConferenceToggle'),count=$('#friendsConferenceCount');
+    if(toggle)toggle.setAttribute('aria-expanded',String(friendsActivitiesExpanded));
+    if(count)count.textContent=`${all.length} ${all.length===1?'activity':'activities'}`;
+    target.hidden=!friendsActivitiesExpanded;
+    if(!friendsActivitiesExpanded){target.innerHTML='';return;}
     if(!all.length){target.innerHTML=friends.length?'<p>No conference activities found for your friends. Link a saved contact to their conference profile to see their presentations here.</p><button type="button" class="secondary-btn" data-friend-manage-identity>Manage identity links</button>':'<p>Save a contact you have met to see their conference activities here.</p>';return;}
-    target.innerHTML=`<h4>${upcoming.length?'Upcoming activities':previous.length?'Previous conference activities':'Conference activities'}</h4><ul class="friend-activities-list">${displayed.map(activity=>activityRowHtml(activity)).join('')}</ul>${all.length>2?`<button type="button" class="secondary-btn" data-friends-activities-toggle aria-expanded="${friendsActivitiesExpanded}">${friendsActivitiesExpanded?'Collapse':`View all friend activities (${all.length}) ▼`}</button>`:''}`;
+    const displayed=all;
+    const heading=upcoming.length?'Upcoming activities':previous.length?'Previous conference activities':'Conference activities';
+    target.innerHTML=`<h4>${heading}</h4><ul class="friend-activities-list">${displayed.map(activity=>activityRowHtml(activity)).join('')}</ul>`;
   }
 
   function renderMyConferenceActivities(){
-    const target=$('#myConferenceActivities');if(!target)return;
+    const target=$('#myConferenceActivitiesContent'),toggle=$('#myConferenceActivitiesToggle'),count=$('#myConferenceActivitiesCount');if(!target)return;
     const identity=currentIdentity(profile),activities=identity?personActivities(identity.personId,MODEL):[];
-    target.innerHTML=`<h4>My conference activities</h4>${activities.length?`<ul class="friend-activities-list">${activities.map(activity=>activityRowHtml(activity,{showFriends:false})).join('')}</ul>`:`<p>${identity?'No programme activities are currently assigned to this conference person.':'Link your conference identity to see your activities here.'}</p>`}`;
+    if(toggle)toggle.setAttribute('aria-expanded',String(myActivitiesExpanded));
+    if(count)count.textContent=`${activities.length} ${activities.length===1?'activity':'activities'}`;
+    target.hidden=!myActivitiesExpanded;
+    target.innerHTML=!myActivitiesExpanded?'':activities.length?`<ul class="friend-activities-list">${activities.map(activity=>activityRowHtml(activity,{showFriends:false})).join('')}</ul>`:`<p>${identity?'No programme activities are currently assigned to this conference person.':'Link your conference identity to see your activities here.'}</p>`;
   }
 
   function renderFriendBook() {
@@ -3248,11 +3220,13 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
       const favorite=event.target.closest('[data-friend-favorite]');if(favorite){if(favorite.dataset.activityType==='poster')togglePosterFavorite(favorite.dataset.friendFavorite);else toggleEventFavorite(favorite.dataset.friendFavorite);renderFriendBook();}
     };
     $('#friendsConferenceActivities')?.addEventListener('click',event=>{
-      const toggle=event.target.closest('[data-friends-activities-toggle]');if(toggle){friendsActivitiesExpanded=!friendsActivitiesExpanded;renderFriendBook();return;}
-      const manage=event.target.closest('[data-friend-manage-identity]');if(manage){const friend=friends.find(row=>!currentIdentity(row))||friends[0];if(friend){expandedFriendIds.add(friend.id);renderFriendBook();document.querySelector(`[data-friend-id="${CSS.escape(friend.id)}"]`)?.scrollIntoView({block:'start'});}else $('#addFriendBtn')?.click();return;}
+      const toggle=event.target.closest('[data-friend-manage-identity]');
+      if(toggle){const friend=friends.find(row=>!currentIdentity(row))||friends[0];if(friend){expandedFriendIds.add(friend.id);renderFriendBook();document.querySelector(`[data-friend-id="${CSS.escape(friend.id)}"]`)?.scrollIntoView({block:'start'});}else $('#addFriendBtn')?.click();return;}
       activityClick(event);
     });
-    $('#myConferenceActivities')?.addEventListener('click',activityClick);
+    $('#friendsConferenceToggle')?.addEventListener('click',()=>{friendsActivitiesExpanded=!friendsActivitiesExpanded;renderFriendBook();});
+    $('#myConferenceActivitiesToggle')?.addEventListener('click',()=>{myActivitiesExpanded=!myActivitiesExpanded;renderFriendBook();});
+    $('#myConferenceActivitiesContent')?.addEventListener('click',activityClick);
     $("#saveProfileBtn")?.addEventListener("click",saveProfile);
     $("#cancelProfileBtn")?.addEventListener("click",cancelProfileEdit);
     $("#friendShareBtn")?.addEventListener("click",openShareQr);

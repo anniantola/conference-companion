@@ -39,7 +39,7 @@ async function verifyOnline(page, deployment) {
     };
   });
   assert.equal(live.name, deployment.conference.name);
-  assert.equal(live.engineVersion,'1.2.19');
+  assert.equal(live.engineVersion,'1.2.20');
   assert.equal(live.id, deployment.conference.id);
   assert.equal(live.sessions, deployment.programme.sessions.length);
   assert.equal(live.presentations, deployment.programme.presentations.length);
@@ -132,7 +132,7 @@ for (const [browserName, browserType] of Object.entries({chromium, firefox})) {
       await page.locator('#friendVcardInput').setInputFiles({name:'demo-partner.vcf',mimeType:'text/vcard',buffer:Buffer.from(partnerCard)});
       await page.locator('.friend-card').nth(1).waitFor();
       assert.match(await page.locator('#friendImportStatus').textContent(),/Linked to conference/);
-      await page.locator('[data-friends-activities-toggle]').click();
+      await page.locator('#friendsConferenceToggle').click();
       const shared=page.locator('#friendsConferenceActivities .aggregate-activity').filter({hasText:'Beyond von Neumann: From Materials to Adaptive Systems'});
       assert.equal(await shared.count(),1,'The shared DEMO keynote should appear once');
       assert.equal(await shared.locator('[data-friend-jump]').count(),2,'Both DEMO friends should appear on their shared keynote');

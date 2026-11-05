@@ -70,7 +70,13 @@ export async function stageDeployment(deploymentRoot, outputRoot) {
   const tags = `  <meta property="og:type" content="website">\n  <meta property="og:title" content="${escapeHtml(conference.name)}">\n  <meta property="og:description" content="${escapeHtml(description)}">\n  <meta property="og:image" content="share-preview.svg">\n  <meta name="twitter:card" content="summary_large_image">\n`;
   const html = await readFile(join(engineRoot, 'index.html'), 'utf8');
   if (!html.includes('</head>')) throw new Error('Engine index has no head element');
-  await writeFile(join(output, 'index.html'), html.replace('</head>', `${tags}</head>`));
+  const headerLight=/^#[\da-f]{6}$/i.test(branding.headerBackgroundLight||'')?branding.headerBackgroundLight:'#FFFFFF';
+  const headerDark=/^#[\da-f]{6}$/i.test(branding.headerBackgroundDark||'')?branding.headerBackgroundDark:'#191A1D';
+  const defaultAppearance=[branding.previewAppearance,branding.defaultAppearance].find(value=>['light','dark','system'].includes(value))||(branding.darkMode===true?'dark':'system');
+  const bootColors=`<meta name="conference-header-background-light" content="${headerLight}">\n  <meta name="conference-header-background-dark" content="${headerDark}">\n  <meta name="conference-default-appearance" content="${defaultAppearance}">`;
+  if(!html.includes('<!-- CONFERENCE_HEADER_BOOT_COLORS -->'))throw new Error('Engine page has no conference theme bootstrap marker');
+  const themedHtml=html.replace('<!-- CONFERENCE_HEADER_BOOT_COLORS -->',bootColors);
+  await writeFile(join(output, 'index.html'), themedHtml.replace('</head>', `${tags}</head>`));
   if (!(await exists(join(output, 'share-preview.svg')))) {
     const title = escapeHtml(conference.shortName || conference.name);
     const color = /^#[0-9a-f]{6}$/i.test(branding.primary) ? branding.primary : '#000000';
@@ -93,6 +99,13 @@ export async function verifyStagedDeployment(deploymentRoot, outputRoot) {
   const html = await readFile(join(output, 'index.html'), 'utf8');
   const conference = JSON.parse(await readFile(join(root, 'conference/conference.json'), 'utf8'));
   if (!html.includes(`content="${escapeHtml(conference.name)}"`)) throw new Error('Staged page has wrong conference metadata');
+  const branding=JSON.parse(await readFile(join(root,'conference/branding.json'),'utf8'));
+  for(const [name,fallback,value] of [['light','#FFFFFF',branding.headerBackgroundLight],['dark','#191A1D',branding.headerBackgroundDark]]){
+    const expected=/^#[\da-f]{6}$/i.test(value||'')?value:fallback;
+    if(!html.includes(`name="conference-header-background-${name}" content="${expected}"`))throw new Error(`Staged page is missing its ${name} theme bootstrap color`);
+  }
+  const defaultAppearance=[branding.previewAppearance,branding.defaultAppearance].find(value=>['light','dark','system'].includes(value))||(branding.darkMode===true?'dark':'system');
+  if(!html.includes(`name="conference-default-appearance" content="${defaultAppearance}"`))throw new Error('Staged page is missing its conference default appearance');
   const webManifest = JSON.parse(await readFile(join(output, 'manifest.webmanifest'), 'utf8'));
   for (const icon of webManifest.icons || []) if (!(await exists(join(output, icon.src.replace(/^\.\//, ''))))) throw new Error(`Staged icon is missing: ${icon.src}`);
   return true;

@@ -29,8 +29,9 @@ try{
     assert.match(await page.locator('#friendImportStatus').textContent(),/Linked to conference/);
   }
   assert.equal(await page.locator('.friend-card').count(),2);
-  assert.equal(await page.locator('#friendsConferenceActivities .aggregate-activity').count(),2);
-  await page.locator('[data-friends-activities-toggle]').click();
+  assert.equal(await page.locator('#friendsConferenceActivities').isVisible(),false);
+  assert.match(await page.locator('#friendsConferenceCount').textContent(),/activities/);
+  await page.locator('#friendsConferenceToggle').click();
   const rows=page.locator('#friendsConferenceActivities .aggregate-activity');
   assert.ok(await rows.count()>4,'Expected several real DEMO activities');
   const joint=rows.filter({hasText:'Beyond von Neumann: From Materials to Adaptive Systems'});
