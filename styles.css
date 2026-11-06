@@ -935,6 +935,8 @@ html.compact :is(.event-card,.poster-card,.gallery-note-card,.friend-card,.setti
 .aggregate-activity .activity-role-indicator{font-size:12px;color:var(--accent-text,var(--accent))}
 .aggregate-activity .friend-activity-star{flex:0 0 40px;min-width:40px;min-height:40px;border:0;background:transparent;color:var(--accent-text,var(--accent));font-size:20px}
 .export-options-dialog{width:min(520px,calc(100% - 20px));max-width:none;border:1px solid var(--line);border-radius:16px;padding:0;background:var(--surface);color:var(--text);box-shadow:0 24px 80px #0008}
+.export-template-choice{display:grid;gap:8px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.export-template-choice select{width:100%;min-height:42px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--text);font:inherit}
 .export-options-dialog::backdrop{background:#0009;backdrop-filter:blur(3px)}
 .export-options-card{display:grid;gap:12px;padding:16px}
 .export-options-card .modal-top{display:flex;align-items:center;justify-content:space-between;gap:10px}

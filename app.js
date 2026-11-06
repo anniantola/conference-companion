@@ -1983,10 +1983,11 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     return Math.round(inches * 914400);
   }
 
-  function textToParagraphs(text, fontSize=1400, bold=false, color="1f2937") {
+  function textToParagraphs(text, fontSize=1400, bold=false, color="1f2937", fontFamily='') {
     const lines = String(text || "").replace(/\r\n/g,"\n").replace(/\r/g,"\n").split("\n");
     const safeLines = lines.length ? lines : [""];
-    return safeLines.map(line => `<a:p><a:r><a:rPr lang="en-US" sz="${fontSize}" ${bold?'b="1" ':""}><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></a:rPr><a:t>${xmlEsc(line || " ")}</a:t></a:r><a:endParaRPr lang="en-US" sz="${fontSize}"/></a:p>`).join("");
+    const typeface=fontFamily?`<a:latin typeface="${xmlEsc(fontFamily)}"/>`:'';
+    return safeLines.map(line => `<a:p><a:r><a:rPr lang="en-US" sz="${fontSize}" ${bold?'b="1" ':""}><a:solidFill><a:srgbClr val="${color}"/></a:solidFill>${typeface}</a:rPr><a:t>${xmlEsc(line || " ")}</a:t></a:r><a:endParaRPr lang="en-US" sz="${fontSize}"/></a:p>`).join("");
   }
 
   function pptTextShape(shapeId, name, x, y, w, h, text, opts={}) {
@@ -1995,7 +1996,7 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     const color = opts.color || "1f2937";
     const fill = opts.fill ? `<a:solidFill><a:srgbClr val="${opts.fill}"/></a:solidFill>` : `<a:noFill/>`;
     const line = opts.line ? `<a:ln><a:solidFill><a:srgbClr val="${opts.line}"/></a:solidFill></a:ln>` : `<a:ln><a:noFill/></a:ln>`;
-    return `<p:sp><p:nvSpPr><p:cNvPr id="${shapeId}" name="${xmlEsc(name)}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${emu(x)}" y="${emu(y)}"/><a:ext cx="${emu(w)}" cy="${emu(h)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom>${fill}${line}</p:spPr><p:txBody><a:bodyPr wrap="square" lIns="91440" tIns="68580" rIns="91440" bIns="68580" anchor="t"><a:normAutofit/></a:bodyPr><a:lstStyle/>${textToParagraphs(text,fontSize,bold,color)}</p:txBody></p:sp>`;
+    return `<p:sp><p:nvSpPr><p:cNvPr id="${shapeId}" name="${xmlEsc(name)}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${emu(x)}" y="${emu(y)}"/><a:ext cx="${emu(w)}" cy="${emu(h)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom>${fill}${line}</p:spPr><p:txBody><a:bodyPr wrap="square" lIns="91440" tIns="68580" rIns="91440" bIns="68580" anchor="t"><a:normAutofit/></a:bodyPr><a:lstStyle/>${textToParagraphs(text,fontSize,bold,color,opts.fontFamily||'')}</p:txBody></p:sp>`;
   }
 
   function pptPicture(picId, relId, x, y, w, h, name="Photo") {
@@ -2228,6 +2229,25 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     return new Blob([concatU8(localParts), centralData, eocd], {type:"application/vnd.openxmlformats-officedocument.presentationml.presentation"});
   }
 
+  async function readTemplateZip(blob) {
+    const bytes=new Uint8Array(await blob.arrayBuffer()),view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength),out=new Map(),decoder=new TextDecoder();let offset=0;
+    while(offset+30<=bytes.length&&view.getUint32(offset,true)===0x04034b50){
+      const method=view.getUint16(offset+8,true),flags=view.getUint16(offset+6,true),packed=view.getUint32(offset+18,true),size=view.getUint32(offset+22,true),nameLength=view.getUint16(offset+26,true),extraLength=view.getUint16(offset+28,true);
+      if(method!==0||flags&9||packed!==size)throw new Error('The offline University template has an unsupported ZIP entry');
+      const start=offset+30+nameLength+extraLength,end=start+size,name=decoder.decode(bytes.slice(offset+30,offset+30+nameLength));
+      if(!name||name.startsWith('/')||name.includes('..')||end>bytes.length)throw new Error('The offline University template archive is invalid');
+      const data=bytes.slice(start,end);if(crc32(data)!==view.getUint32(offset+14,true))throw new Error('The offline University template failed its integrity check');
+      out.set(name,data);offset=end;
+    }
+    if(!out.size)throw new Error('The offline University template is missing');return out;
+  }
+
+  let utuTemplatePromise=null;
+  function loadUtuTemplate(){
+    if(!utuTemplatePromise)utuTemplatePromise=fetch('./assets/utu-template.zip').then(response=>{if(!response.ok)throw new Error('University template is unavailable offline');return response.blob();}).then(readTemplateZip).catch(error=>{utuTemplatePromise=null;throw error;});
+    return utuTemplatePromise;
+  }
+
   function contentTypesXml(slideCount) {
     let overrides = `<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/presProps.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presProps+xml"/><Override PartName="/ppt/viewProps.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.viewProps+xml"/><Override PartName="/ppt/tableStyles.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.tableStyles+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>`;
     for (let i=1;i<=slideCount;i++) overrides += `<Override PartName="/ppt/slides/slide${i}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`;
@@ -2238,17 +2258,18 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>`;
   }
 
-  function presentationXml(slideCount) {
+  function presentationXml(slideCount, embeddedFonts='') {
     let ids = "";
     for (let i=1;i<=slideCount;i++) ids += `<p:sldId id="${255+i}" r:id="rId${i+1}"/>`;
-    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst><p:sldIdLst>${ids}</p:sldIdLst><p:sldSz cx="12192000" cy="6858000" type="wide"/><p:notesSz cx="6858000" cy="9144000"/><p:defaultTextStyle/></p:presentation>`;
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"${embeddedFonts?' embedTrueTypeFonts="1"':''}><p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst><p:sldIdLst>${ids}</p:sldIdLst><p:sldSz cx="12192000" cy="6858000" type="wide"/><p:notesSz cx="6858000" cy="9144000"/>${embeddedFonts}<p:defaultTextStyle/></p:presentation>`;
   }
 
-  function presentationRelsXml(slideCount) {
+  function presentationRelsXml(slideCount, fontRels=[]) {
     let rels = `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="slideMasters/slideMaster1.xml"/>`;
     for (let i=1;i<=slideCount;i++) rels += `<Relationship Id="rId${i+1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${i}.xml"/>`;
     const base = slideCount + 2;
     rels += `<Relationship Id="rId${base}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/presProps" Target="presProps.xml"/><Relationship Id="rId${base+1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/viewProps" Target="viewProps.xml"/><Relationship Id="rId${base+2}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/tableStyles" Target="tableStyles.xml"/>`;
+    for(const rel of fontRels)rels+=`<Relationship Id="${rel.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/font" Target="${rel.target}"/>`;
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels}</Relationships>`;
   }
 
@@ -2256,8 +2277,8 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>${shapes}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
   }
 
-  function slideRelsXml(imageRels) {
-    let rels = `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>`;
+  function slideRelsXml(imageRels, layoutTarget="slideLayout1.xml") {
+    let rels = `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/${layoutTarget}"/>`;
     for (const rel of imageRels) rels += `<Relationship Id="${rel.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/${rel.file}"/>`;
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels}</Relationships>`;
   }
@@ -2274,14 +2295,18 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Conference Companion"><a:themeElements><a:clrScheme name="Conference Companion"><a:dk1><a:srgbClr val="111827"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="1f2937"/></a:dk2><a:lt2><a:srgbClr val="f3f4f6"/></a:lt2><a:accent1><a:srgbClr val="1769E0"/></a:accent1><a:accent2><a:srgbClr val="9B5B08"/></a:accent2><a:accent3><a:srgbClr val="58A56C"/></a:accent3><a:accent4><a:srgbClr val="E7A400"/></a:accent4><a:accent5><a:srgbClr val="73767C"/></a:accent5><a:accent6><a:srgbClr val="000000"/></a:accent6><a:hlink><a:srgbClr val="1769E0"/></a:hlink><a:folHlink><a:srgbClr val="1769E0"/></a:folHlink></a:clrScheme><a:fontScheme name="Aptos"><a:majorFont><a:latin typeface="Aptos Display"/></a:majorFont><a:minorFont><a:latin typeface="Aptos"/></a:minorFont></a:fontScheme><a:fmtScheme name="Conference Companion"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w="9525"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>`;
   }
 
-  async function makeConferencePptx({items=[],friendRows=[],activities=[],privateRows=[]}) {
+  async function makeConferencePptx({items=[],friendRows=[],activities=[],privateRows=[],template='standard'}) {
     const files = [];
     const slideData = [];
     const mediaFiles = [];
     let mediaIndex = 1;
-    const addSlide=(shapes,imageRels=[])=>slideData.push({shapes,imageRels});
-    const accent=String(BRANDING.accent||BRANDING.primary||'#1769E0').replace('#','').toUpperCase().match(/^[\da-f]{6}$/i)?.[0]||'1769E0';
-    const ink='17202C',muted='596579',soft='F3F6FA';
+    const utu=template==='utu',templateParts=utu?await loadUtuTemplate():null;
+    const layoutNames=new Map();
+    if(utu)for(const [name,data] of templateParts){if(/^ppt\/slideLayouts\/slideLayout\d+\.xml$/.test(name)){const xml=new TextDecoder().decode(data),match=xml.match(/<p:cSld\b[^>]*\bname="([^"]*)"/);if(match)layoutNames.set(match[1],name.split('/').pop());}}
+    const layout=(name)=>layoutNames.get(name)||layoutNames.get('Title and Content White')||'slideLayout1.xml';
+    const addSlide=(shapes,imageRels=[],layoutName='Title and Content White')=>slideData.push({shapes,imageRels,layout:utu?layout(layoutName):'slideLayout1.xml'});
+    const accent=utu?'004A43':String(BRANDING.accent||BRANDING.primary||'#1769E0').replace('#','').toUpperCase().match(/^[\da-f]{6}$/i)?.[0]||'1769E0';
+    const ink=utu?'004A43':'17202C',muted=utu?'536862':'596579',soft=utu?'E9E3CF':'F3F6FA';
     const chunksOf=(value,max=760)=>{
       const text=String(value||'').trim();if(!text)return[];const out=[];
       for(const para of text.split(/\n+/)){let line='';for(const word of para.split(/\s+/)){if(!word)continue;if(line&&line.length+word.length+1>max){out.push(line);line=word;}else line=line?`${line} ${word}`:word;}if(line)out.push(line);}
@@ -2291,12 +2316,12 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
       const lines=String(text||'').split('\n').reduce((sum,line)=>sum+Math.max(1,Math.ceil(line.length/charsPerLine)),0);
       return Math.min(maxHeight,Math.max(1.25,.48+lines*lineHeight));
     };
-    const heading=(title,meta='',id=1)=>pptTextShape(id,'Brand accent',0,0,13.333,.11,' ',{fill:accent})+
-      pptTextShape(id+1,'Slide title',.62,.35,12.1,.65,title,{fontSize:2350,bold:true,color:ink})+
+    const heading=(title,meta='',id=1)=>(!utu?pptTextShape(id,'Brand accent',0,0,13.333,.11,' ',{fill:accent}):'')+
+      pptTextShape(id+1,'Slide title',.62,.35,12.1,.65,title,{fontSize:2350,bold:true,color:ink,fontFamily:utu?'Playfair Display SemiBold':'Aptos Display'})+
       (meta?pptTextShape(id+2,'Activity details',.65,1.04,12,.42,meta,{fontSize:1050,color:muted}):'');
     const preparePhotos=async photos=>{
       const prepared=[];for(const photo of photos||[]){
-        const img=await imageBlobForPptx(photo),file=`image${mediaIndex++}.jpg`;
+        const img=await imageBlobForPptx(photo);let file;do{file=`image${mediaIndex++}.jpg`;}while(templateParts?.has(`ppt/media/${file}`)||mediaFiles.some(entry=>entry.name===`ppt/media/${file}`));
         mediaFiles.push({name:`ppt/media/${file}`,data:await blobToU8(img.blob)});
         prepared.push({...img,file,caption:String(photo.customTitle||photo.caption||'').trim(),note:String(photo.customNote||'').trim()});
       }return prepared;
@@ -2307,13 +2332,15 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
       return Array.from({length:count},(_,i)=>({x:x+(i%2)*(w+gap)/2,y:y+Math.floor(i/2)*(h+gap)/2,w:(w-gap)/2,h:(h-gap)/2}));
     };
     const addPhotoSlides=(title,meta,photos,{note=''}={})=>{
+      const titlePages=chunksOf(title,80),displayTitle=titlePages.length>1?`${titlePages[0]}…`:title;
+      for(let index=1;index<titlePages.length;index++)addSlide(heading('Presentation title · continued',meta)+pptTextShape(4,'Presentation title',.65,1.62,utu?10.1:12,2.1,titlePages[index],{fontSize:1900,color:ink,fill:soft}),[],'Heading and text');
       const notePages=chunksOf(note,photos.length?370:800);
-      if(!photos.length){for(let i=0;i<notePages.length;i++){const text=notePages[i],y=i===0?1.62:1.1,h=textBlockHeight(text,112,.34,5.8),top=i===0?heading(title,meta):pptTextShape(2,'Slide title',.62,.35,12.1,.65,`${title} · continued`,{fontSize:2350,bold:true,color:ink});addSlide(top+pptTextShape(4,'Notes',.65,y,12,h,text,{fontSize:1550,color:ink,fill:soft}));}return;}
+      if(!photos.length){for(let i=0;i<notePages.length;i++){const text=notePages[i],y=i===0?1.62:1.1,h=textBlockHeight(text,112,.34,utu?4.2:5.8),top=i===0?heading(displayTitle,meta):pptTextShape(2,'Slide title',.62,.35,12.1,.65,`${displayTitle} · continued`,{fontSize:2350,bold:true,color:ink,fontFamily:utu?'Playfair Display SemiBold':'Aptos Display'});addSlide(top+pptTextShape(4,'Notes',.65,y,utu?10.1:12,h,text,{fontSize:1550,color:ink,fill:soft}),[],i?'Heading and text':'Title and Content White');}return;}
       for(let offset=0;offset<photos.length;offset+=4){
         const chunk=photos.slice(offset,offset+4),includeNote=offset===0&&!!notePages.length;
-        let shapes=heading(offset?`${title} · photographs ${offset+1}–${offset+chunk.length}`:title,meta);
+        let shapes=heading(offset?`${displayTitle} · photographs ${offset+1}–${offset+chunk.length}`:displayTitle,meta);
         let imageRels=[],boxes;
-        if(includeNote){const noteHeight=textBlockHeight(notePages[0],43,.3,5.25);shapes+=pptTextShape(4,'Personal notes',.62,1.62,4.55,noteHeight,notePages[0],{fontSize:1420,color:ink,fill:soft});boxes=photoBoxes(chunk.length,5.42,1.62,7.28,5.25);}
+        if(includeNote){const noteHeight=textBlockHeight(notePages[0],43,.3,utu?4.55:5.25);shapes+=pptTextShape(4,'Personal notes',.62,1.62,4.55,noteHeight,notePages[0],{fontSize:1420,color:ink,fill:soft});boxes=photoBoxes(chunk.length,5.42,1.62,7.28,utu?4.7:5.25);}
         else boxes=photoBoxes(chunk.length,.62,1.62,12.08,5.25);
         chunk.forEach((photo,index)=>{
           const box=boxes[index],captionLines=[photo.caption,photo.note].filter(Boolean),caption=captionLines.join('\n');
@@ -2321,27 +2348,34 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
           const relId=`rId${imageRels.length+2}`;imageRels.push({rId:relId,file:photo.file});shapes+=pptPicture(10+index,relId,fit.x,fit.y,fit.w,fit.h,photo.caption||`Photograph ${offset+index+1}`);
           if(caption)shapes+=pptTextShape(20+index,'Photograph caption',box.x,box.y+box.h-captionH,box.w,captionH,caption,{fontSize:captionLines.length>1?750:900,bold:!!photo.caption,color:ink});
         });
-        addSlide(shapes,imageRels);
+        addSlide(shapes,imageRels,includeNote?'Two Content Image Left White':'Two Content White');
         const longCaptions=chunk.filter(photo=>[photo.caption,photo.note].some(text=>text.length>100));
         for(const photo of longCaptions){
           const detailText=[photo.caption,photo.note].filter(Boolean).join('\n\n');
-          for(const page of chunksOf(detailText,760))addSlide(heading('Photograph details',title)+pptTextShape(4,'Caption and notes',.65,1.62,12,5.35,page,{fontSize:1450,color:ink,fill:soft}));
+          for(const page of chunksOf(detailText,760))addSlide(heading('Photograph details',displayTitle)+pptTextShape(4,'Caption and notes',.65,1.62,utu?10.1:12,utu?4.2:5.35,page,{fontSize:1450,color:ink,fill:soft}),[],'Heading and text');
         }
       }
-      for(let i=1;i<notePages.length;i++)addSlide(heading(`${title} · notes continued`,meta)+pptTextShape(4,'Notes',.65,1.62,12,5.35,notePages[i],{fontSize:1550,color:ink,fill:soft}));
+      for(let i=1;i<notePages.length;i++){const noteHeight=textBlockHeight(notePages[i],112,.34,utu?4.2:5.35);addSlide(heading(`${displayTitle} · notes continued`,meta)+pptTextShape(4,'Notes',.65,1.62,utu?10.1:12,noteHeight,notePages[i],{fontSize:1550,color:ink,fill:soft}),[],'Heading and text');}
     };
 
-    const coverSections=[items.length?'Programme notes and photographs':'',friendRows.length?'Friends and conference activities':'',privateRows.length?'Private contact memories':''].filter(Boolean).join(' · ');
-    addSlide(pptTextShape(1,'Brand accent',0,0,13.333,.14,' ',{fill:accent})+
-      pptTextShape(2,'Conference name',.75,2.1,11.8,1.5,CONFERENCE.name||'Conference',{fontSize:3600,bold:true,color:ink})+
-      pptTextShape(3,'Presentation subtitle',.78,3.85,11.5,.8,coverSections||'Conference presentation & photo record',{fontSize:coverSections.length>70?1550:2050,color:accent}));
+    const coverSections='Personal conference archive';
+    const coverDate=CONFERENCE.startDate?(CONFERENCE.endDate&&CONFERENCE.endDate!==CONFERENCE.startDate?`${CONFERENCE.startDate} – ${CONFERENCE.endDate}`:CONFERENCE.startDate):'';
+    const coverMeta=[coverDate,CONFERENCE.location||CONFERENCE.city||BRANDING.location||BRANDING.city].filter(Boolean).join(' · ');
+    addSlide((utu?'':pptTextShape(1,'Brand accent',0,0,13.333,.14,' ',{fill:accent}))+
+      pptTextShape(2,'Conference name',.75,2.1,11.8,1.5,CONFERENCE.name||'Conference',{fontSize:3600,bold:true,color:utu?'FFFFFF':ink,fontFamily:utu?'Playfair Display SemiBold':'Aptos Display'})+
+      pptTextShape(3,'Presentation subtitle',.78,3.85,11.5,.65,coverSections,{fontSize:utu?1900:2050,color:utu?'E9E3CF':accent,fontFamily:utu?'Noto Sans':'Aptos'})+
+      (coverMeta?pptTextShape(4,'Conference dates and location',.8,4.65,11.3,.45,coverMeta,{fontSize:1200,color:utu?'E9E3CF':muted}):''),[], 'Title Slide');
 
+    const addSection=(title,sand=false)=>{if(!utu)return;addSlide(pptTextShape(1,'Section heading',.72,2.65,11.8,1.2,title,{fontSize:3100,bold:true,color:sand?'004A43':'FFFFFF',fontFamily:'Playfair Display SemiBold'}),[],sand?'Section Header Sand':'Section Header');};
+
+    if(items.length)addSection('Programme notes');
     for(const item of items){
       const photos=await preparePhotos(item.photos),title=item.info.title||'Conference programme',meta=item.info.meta||'';
       addPhotoSlides(title,meta,photos,{note:String(item.note||'').trim()});
     }
 
     if(friendRows.length){
+      addSection('Friend Book',true);
       for(let offset=0;offset<friendRows.length;offset+=6){
         const chunk=friendRows.slice(offset,offset+6);let shapes=heading('People you met');
         chunk.forEach((contact,index)=>{const y=1.55+index*.86;shapes+=pptTextShape(10+index*2,'Contact name',.72,y,5.2,.38,contact.name||'Contact',{fontSize:1650,bold:true,color:ink});const detail=[contact.affiliation,contact.conferencePerson&&contact.conferencePerson!==contact.name?`Conference profile: ${contact.conferencePerson}`:''].filter(Boolean).join(' · ');if(detail)shapes+=pptTextShape(11+index*2,'Contact affiliation',.75,y+.38,11.7,.36,detail,{fontSize:1050,color:muted});}
@@ -2354,31 +2388,49 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
       }
     }
 
+    if(privateRows.length)addSection('Private conference memories');
     for(const entry of privateRows){
       const fields=entry.fields||[],pages=chunksOf(fields.join('\n'),650);
-      for(let i=0;i<pages.length;i++){const text=pages[i],height=textBlockHeight(text,110,.32,5.6);addSlide(heading(`${entry.name} · personal notes`)+pptTextShape(4,'Private details',.65,1.3,12,height,text,{fontSize:1400,color:ink,fill:soft}));}
+      for(let i=0;i<pages.length;i++){const text=pages[i],height=textBlockHeight(text,110,.32,utu?4.2:5.6);addSlide(heading(`${entry.name} · personal notes`)+pptTextShape(4,'Private details',.65,1.3,utu?10.1:12,height,text,{fontSize:1400,color:ink,fill:soft}),[],i?'Heading and text':'Title and Content White');}
       const photos=await preparePhotos(entry.photos||[]);
       addPhotoSlides(`${entry.name} · photographs`,'Personal Friend Book photos',photos);
     }
 
     const slideCount = slideData.length;
-    files.push({name:"[Content_Types].xml", data:contentTypesXml(slideCount)});
-    files.push({name:"_rels/.rels", data:rootRelsXml()});
-    files.push({name:"ppt/presentation.xml", data:presentationXml(slideCount)});
-    files.push({name:"ppt/_rels/presentation.xml.rels", data:presentationRelsXml(slideCount)});
+    if(utu){
+      const originalFontRels=JSON.parse(new TextDecoder().decode(templateParts.get('template/fontRels.json'))),embeddedFontXml=new TextDecoder().decode(templateParts.get('template/embeddedFontLst.xml'));
+      const fontRelStart=slideCount+5,fontRels=Object.entries(originalFontRels).map(([oldId,target],index)=>({oldId,rId:`rId${fontRelStart+index}`,target}));
+      const fontIdMap=new Map(fontRels.map(rel=>[rel.oldId,rel.rId]));
+      const embeddedFonts=embeddedFontXml.replace(/r:id="([^"]+)"/g,(match,id)=>fontIdMap.has(id)?`r:id="${fontIdMap.get(id)}"`:match);
+      for(const [name,data] of templateParts){if(name.startsWith('template/')||name==='[Content_Types].xml'||name==='_rels/.rels'||name.startsWith('ppt/slides/'))continue;files.push({name,data});}
+      const baseTypes=new TextDecoder().decode(templateParts.get('[Content_Types].xml'));
+      const typesPrefix=baseTypes.match(/<([^\s:>]+:)?Types\b/)?.[1]||'';
+      const additions=[['/ppt/presentation.xml','application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml'],['/ppt/presProps.xml','application/vnd.openxmlformats-officedocument.presentationml.presProps+xml'],['/ppt/viewProps.xml','application/vnd.openxmlformats-officedocument.presentationml.viewProps+xml'],['/ppt/tableStyles.xml','application/vnd.openxmlformats-officedocument.presentationml.tableStyles+xml'],...Array.from({length:slideCount},(_,i)=>[`/ppt/slides/slide${i+1}.xml`,'application/vnd.openxmlformats-officedocument.presentationml.slide+xml'])].map(([part,type])=>`<${typesPrefix}Override PartName="${part}" ContentType="${type}"/>`).join('');
+      files.push({name:'[Content_Types].xml',data:baseTypes.replace(/(<\/(?:[\w.-]+:)?Types>)/,`${additions}$1`)});
+      files.push({name:'_rels/.rels',data:rootRelsXml()});
+      files.push({name:'ppt/presentation.xml',data:presentationXml(slideCount,embeddedFonts)});
+      files.push({name:'ppt/_rels/presentation.xml.rels',data:presentationRelsXml(slideCount,fontRels)});
+    }else{
+      files.push({name:"[Content_Types].xml", data:contentTypesXml(slideCount)});
+      files.push({name:"_rels/.rels", data:rootRelsXml()});
+      files.push({name:"ppt/presentation.xml", data:presentationXml(slideCount)});
+      files.push({name:"ppt/_rels/presentation.xml.rels", data:presentationRelsXml(slideCount)});
+    }
     files.push({name:"ppt/presProps.xml", data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:presentationPr xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>`});
     files.push({name:"ppt/viewProps.xml", data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:viewPr xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>`});
     files.push({name:"ppt/tableStyles.xml", data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><a:tblStyleLst xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" def="{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}"/>`});
-    files.push({name:"ppt/theme/theme1.xml", data:themeXml()});
-    files.push({name:"ppt/slideMasters/slideMaster1.xml", data:slideMasterXml()});
-    files.push({name:"ppt/slideMasters/_rels/slideMaster1.xml.rels", data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/></Relationships>`});
-    files.push({name:"ppt/slideLayouts/slideLayout1.xml", data:slideLayoutXml()});
-    files.push({name:"ppt/slideLayouts/_rels/slideLayout1.xml.rels", data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/></Relationships>`});
+    if(!utu){
+      files.push({name:"ppt/theme/theme1.xml", data:themeXml()});
+      files.push({name:"ppt/slideMasters/slideMaster1.xml", data:slideMasterXml()});
+      files.push({name:"ppt/slideMasters/_rels/slideMaster1.xml.rels", data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/></Relationships>`});
+      files.push({name:"ppt/slideLayouts/slideLayout1.xml", data:slideLayoutXml()});
+      files.push({name:"ppt/slideLayouts/_rels/slideLayout1.xml.rels", data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/></Relationships>`});
+    }
 
     slideData.forEach((slide, i) => {
       const num = i+1;
       files.push({name:`ppt/slides/slide${num}.xml`, data:slideXml(slide.shapes)});
-      files.push({name:`ppt/slides/_rels/slide${num}.xml.rels`, data:slideRelsXml(slide.imageRels)});
+      files.push({name:`ppt/slides/_rels/slide${num}.xml.rels`, data:slideRelsXml(slide.imageRels,slide.layout)});
     });
     files.push(...mediaFiles);
     return makeZip(files);
@@ -2406,6 +2458,8 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
 
   async function openPptxExportOptions(){
     const dialog=$('#exportPptxDialog');if(!dialog)return;
+    const templateSelect=$('#exportPptxTemplate'),templateKey=`conferenceCompanion:${storageId}:presentation-template:v1`;
+    try{const saved=localStorage.getItem(templateKey);templateSelect.value=saved==='utu'?'utu':'standard';}catch{templateSelect.value='standard';}
     $('#exportPptxProgramme').checked=true;$('#exportPptxFriends').checked=false;$('#exportPptxPrivate').checked=false;$('#exportPptxPrivate').disabled=true;
     $('#exportPptxStatus').textContent='Checking available content…';$('#exportPptxConfirm').disabled=true;
     if(!dialog.open)dialog.showModal();
@@ -2428,7 +2482,9 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     if(!items.length&&!contacts.length&&!privateRows.length){status.textContent='Select at least one section with saved content.';updatePptxOptionState();return;}
     button.disabled=true;button.setAttribute('aria-busy','true');button.textContent='Building…';status.textContent='Creating your presentation. Large photo galleries may take a moment.';
     try{
-      const pptx=await makeConferencePptx({items,friendRows:contacts,activities,privateRows});
+      const template=$('#exportPptxTemplate').value==='utu'?'utu':'standard';
+      try{localStorage.setItem(`conferenceCompanion:${storageId}:presentation-template:v1`,template);}catch{}
+      const pptx=await makeConferencePptx({items,friendRows:contacts,activities,privateRows,template});
       const anchor=document.createElement('a'),url=URL.createObjectURL(pptx);anchor.href=url;
       anchor.download=`${safeFilenamePart(CONFERENCE.id||CONFERENCE.name||'conference')}-conference-presentation-${new Date().toISOString().slice(0,10)}.pptx`;
       anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);$('#exportPptxDialog').close();toast('Conference presentation exported');
@@ -3181,6 +3237,7 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     $("#exportBtn").addEventListener("click",exportState);
     $("#exportPptxBtn").addEventListener("click",openPptxExportOptions);
     ['#exportPptxProgramme','#exportPptxFriends','#exportPptxPrivate'].forEach(selector=>$(selector)?.addEventListener('change',updatePptxOptionState));
+    $('#exportPptxTemplate')?.addEventListener('change',()=>{try{localStorage.setItem(`conferenceCompanion:${storageId}:presentation-template:v1`,$('#exportPptxTemplate').value==='utu'?'utu':'standard');}catch{}});
     $('#exportPptxConfirm')?.addEventListener('click',exportConferencePresentation);
     $('#exportPptxCancel')?.addEventListener('click',()=>$('#exportPptxDialog').close());
     $('#exportPptxClose')?.addEventListener('click',()=>$('#exportPptxDialog').close());

@@ -18,7 +18,7 @@ export const attendeeFiles = [
   'src/vendor/qr-scanner/qr-scanner.min.js',
   'src/vendor/qr-scanner/qr-scanner-worker.min.js',
   'src/vendor/qr-scanner/LICENSE',
-  'src/vendor/qrcode-generator/qrcode.js',
+  'src/vendor/qrcode-generator/qrcode.js', 'assets/utu-template.zip',
   'src/vendor/qrcode-generator/LICENSE', 'tools/deployment.mjs'
 ];
 
@@ -28,7 +28,7 @@ const exists = async path => access(path).then(() => true, () => false);
 
 export async function validateDeployment(deploymentRoot) {
   const root = resolve(deploymentRoot);
-  for (const path of ['app.js', 'bootstrap.js', 'index.html', 'styles.css', 'service-worker.js', 'src', 'schemas', 'assets/fonts', 'tools/schema-check.mjs', 'tools/validate-conference.mjs']) {
+  for (const path of ['app.js', 'bootstrap.js', 'index.html', 'styles.css', 'service-worker.js', 'src', 'schemas', 'assets/fonts', 'assets/utu-template.zip', 'tools/schema-check.mjs', 'tools/validate-conference.mjs']) {
     if (await exists(join(root, path))) throw new Error(`Deployment repository still contains duplicated engine source: ${path}`);
   }
   for (const tool of ['schema-check', 'validate-conference']) {

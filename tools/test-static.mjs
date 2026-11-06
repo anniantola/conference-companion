@@ -18,7 +18,7 @@ checkHtml('index.html');
 checkHtml('builder.html');
 
 const sw=fs.readFileSync(new URL('../service-worker.js',import.meta.url),'utf8');
-for(const required of ['src/json-schema.js','src/migrations.js','schemas/conference.schema.json','src/vendor/qr-scanner/qr-scanner.min.js','src/vendor/qr-scanner/qr-scanner-worker.min.js','assets/fonts/manifest.json','fontAssets'])assert(sw.includes(required),`service-worker.js: missing engine cache asset ${required}`);
+for(const required of ['src/json-schema.js','src/migrations.js','schemas/conference.schema.json','src/vendor/qr-scanner/qr-scanner.min.js','src/vendor/qr-scanner/qr-scanner-worker.min.js','assets/fonts/manifest.json','assets/utu-template.zip','fontAssets'])assert(sw.includes(required),`service-worker.js: missing engine cache asset ${required}`);
 assert(fs.readFileSync(new URL('../index.html',import.meta.url),'utf8').includes('./assets/fonts/fonts.css'),'attendee page must load the local fonts stylesheet');
 assert(fs.readFileSync(new URL('../builder.html',import.meta.url),'utf8').includes('./assets/fonts/fonts.css'),'Builder must load local fonts for previews');
 const fonts=JSON.parse(fs.readFileSync(new URL('../assets/fonts/manifest.json',import.meta.url),'utf8'));
@@ -48,6 +48,6 @@ assert(workflowText().includes('run: npm test'),'Generated deployments must vali
 assert(workflowText().includes('runs-on: ubuntu-24.04'),'Generated deployments must use the tested runner image');
 const {execFileSync}=await import('node:child_process');
 execFileSync(process.execPath,['tools/stage-site.mjs']);
-for(const path of ['index.html','builder.html','src/builder/main.js','src/vendor/qr-scanner/qr-scanner.min.js','src/vendor/qr-scanner/qr-scanner-worker.min.js','schemas/programme.schema.json','conference/conference-manifest.json','tools/validate-conference.mjs','tools/deployment.mjs','assets/fonts/fonts.css','assets/fonts/manifest.json','assets/fonts/inter/OFL.txt'])assert(fs.existsSync(`_site/${path}`),`Missing staged public file ${path}`);
+for(const path of ['index.html','builder.html','src/builder/main.js','src/vendor/qr-scanner/qr-scanner.min.js','src/vendor/qr-scanner/qr-scanner-worker.min.js','schemas/programme.schema.json','conference/conference-manifest.json','tools/validate-conference.mjs','tools/deployment.mjs','assets/utu-template.zip','assets/fonts/fonts.css','assets/fonts/manifest.json','assets/fonts/inter/OFL.txt'])assert(fs.existsSync(`_site/${path}`),`Missing staged public file ${path}`);
 for(const path of ['node_modules','tests','test-results','.git','package-lock.json'])assert(!fs.existsSync(`_site/${path}`),`Private/development file published: ${path}`);
 console.log('Pages artifact and generated workflow regressions OK');

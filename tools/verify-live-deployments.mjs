@@ -39,7 +39,7 @@ async function verifyOnline(page, deployment) {
     };
   });
   assert.equal(live.name, deployment.conference.name);
-  assert.equal(live.engineVersion,'1.2.20');
+  assert.equal(live.engineVersion,'1.2.21');
   assert.equal(live.id, deployment.conference.id);
   assert.equal(live.sessions, deployment.programme.sessions.length);
   assert.equal(live.presentations, deployment.programme.presentations.length);
