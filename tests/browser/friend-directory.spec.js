@@ -125,6 +125,7 @@ test('manual Leave unlinked choice is honored even when ORCID matches',async({pa
   await page.locator('#addFriendForm [name="orcid"]').fill('0000-0000-0000-0001');
   await page.locator('#addFriendForm [name="leaveUnlinked"]').check();
   await page.locator('#addFriendForm button[type="submit"]').click();
+  await expect(page.locator('.friend-card')).toHaveCount(1);
   await expect(page.locator('.friend-card .friend-activities')).toHaveCount(0);
   await page.reload();await page.locator('[data-target="friends"]').click();
   await page.locator('[data-friend-toggle]').click();
