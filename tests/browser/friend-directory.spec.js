@@ -3,7 +3,8 @@ import {test,expect} from '@playwright/test';
 const fixture='/?conference=./fixtures/multiple-poster-sessions';
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=','base64');
 const card=`BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Morgan Lee\r\nORG:Independent Institute for Engineering\r\nEMAIL:morgan@example.org\r\nURL;TYPE=ORCID:https://orcid.org/0000-0000-0000-0001\r\nX-CONFERENCE-COMPANION-ID:multiple-poster-sessions-fixture\r\nX-CONFERENCE-COMPANION-PERSON-ID:tp-1\r\nEND:VCARD`;
-async function openFriends(page){await page.goto(fixture);await expect(page.locator('#programList')).not.toBeEmpty();await page.locator('[data-target="friends"]').click();}
+async function appReady(page){await expect.poll(()=>page.evaluate(()=>window.CONFERENCE_APP_INITIALIZED===true)).toBe(true);await expect(page.locator('#programList')).not.toBeEmpty();}
+async function openFriends(page){await page.goto(fixture);await appReady(page);await page.locator('[data-target="friends"]').click();}
 async function importCard(page,text=card){await page.locator('#friendVcardInput').setInputFiles({name:'friend.vcf',mimeType:'text/vcard',buffer:Buffer.from(text)});}
 
 test('directory enriches met contacts without creating them',async({page})=>{
@@ -36,7 +37,7 @@ test('directory enriches met contacts without creating them',async({page})=>{
   await page.locator('#detailModal').press('Escape');
   await page.locator('[data-friend-unlink]').click();
   await expect(page.locator('.friend-card .friend-activities')).toHaveCount(0);
-  await page.reload();await page.locator('[data-target="friends"]').click();
+  await page.reload();await appReady(page);await page.locator('[data-target="friends"]').click();
   await page.locator('[data-friend-toggle]').click();
   await expect(page.locator('.friend-card .friend-activities')).toHaveCount(0);
   await importCard(page);
