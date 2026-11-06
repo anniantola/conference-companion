@@ -33,7 +33,7 @@ test('PowerPoint templates retain editable content, University master/layouts an
   await expect(page.locator('#exportPptxTemplate')).toHaveValue('standard');
   await expect(page.locator('#exportPptxPrivate')).not.toBeChecked();
   const standardResult=await inspectDownload(page,'standard'),standardSlides=[...standardResult.archive.keys()].filter(name=>/^ppt\/slides\/slide\d+\.xml$/.test(name)).map(name=>standardResult.xml(name)).join('\n');
-  expect(standardSlides).toContain('Turku');expect(standardSlides).toContain('Long presentation title demonstrating continuation slides');expect(standardSlides).not.toContain('PRIVATE-UTU-SECRET');
+  expect(standardSlides).toContain('Long note sentence.');expect(standardSlides).toContain('Long presentation title demonstrating continuation slides');expect(standardSlides).not.toContain('PRIVATE-UTU-SECRET');
   expect(standardResult.archive.has('ppt/media/image1.jpg')).toBeTruthy();
   await copyFile(await standardResult.download.path(),'/tmp/standard-conference-export.pptx');
   await page.locator('#exportPptxBtn').click();await expect(page.locator('#exportPptxTemplate')).toHaveValue('standard');
@@ -60,7 +60,7 @@ test('PowerPoint templates retain editable content, University master/layouts an
   const slideNames=[...ppt.keys()].filter(name=>/^ppt\/slides\/slide\d+\.xml$/.test(name));
   expect(slideNames.length).toBeGreaterThan(2);
   const slideXml=slideNames.map(name=>result.xml(name)).join('\n');
-  expect(slideXml).toContain('Turku');expect(slideXml).toContain('Long presentation title demonstrating continuation slides');expect(slideXml).not.toContain('PRIVATE-UTU-SECRET');expect(slideXml).not.toContain('PRIVATE-GALLERY-CAPTION');
+  expect(slideXml).toContain('café');expect(slideXml).toContain('—');expect(slideXml).toContain('Long presentation title demonstrating continuation slides');expect(slideXml).not.toContain('PRIVATE-UTU-SECRET');expect(slideXml).not.toContain('PRIVATE-GALLERY-CAPTION');
   expect(slideXml).toContain('r:embed="rId2"');
   const imageRelations=[...ppt.keys()].filter(name=>/^ppt\/slides\/_rels\/slide\d+\.xml\.rels$/.test(name)).map(name=>result.xml(name));
   expect(imageRelations.some(value=>value.includes('../media/image1.jpg'))).toBeTruthy();
