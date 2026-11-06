@@ -41,6 +41,7 @@ console.log('Static/accessibility smoke tests OK');
 assert(workflow.includes('npm ci'),'CI must use locked dependencies');
 assert(workflow.includes('runs-on: ubuntu-24.04'),'CI must pin the tested runner image');
 assert(workflow.includes('mcr.microsoft.com/playwright:v1.64.1-noble'),'CI must use the browser image matching the locked Playwright version');
+assert(/HOME:\s*\/root/.test(workflow),'Firefox in the Playwright container requires a HOME directory owned by its current user');
 assert(/deploy:\s+needs: test/.test(workflow),'Pages deployment must depend on successful tests');
 assert(/path:\s*"?_site"?/.test(workflow),'CI must publish only the staged public site');
 const {workflowText}=await import('../src/builder/package.js');
