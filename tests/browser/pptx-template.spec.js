@@ -17,7 +17,6 @@ test('PowerPoint templates retain editable content, University master/layouts an
       {createUserStore,attendeeStorageId,encodeStoredValue}=await import('/src/user-store.js'),store=createUserStore(conference.id),
       storageId=attendeeStorageId(conference.id),friend={id:'pptx-private-test',name:'Archive Contact',privateNotes:'PRIVATE-UTU-SECRET',email:'private@example.invalid'};
     const longTitle='Long presentation title demonstrating continuation slides · '+('University template integration check · '.repeat(5));
-    stage='save-state';await store.saveState({favorites:[],posterFavorites:[],notes:{[`event:${event.id}`]:'Editable Unicode note: Turku — café. '+('Long note sentence. '.repeat(24))}});
     stage='open-photo-db';const db=await new Promise((resolve,reject)=>{const req=indexedDB.open(`conferenceCompanion:${storageId}:photos`,1);req.onupgradeneeded=()=>{const s=req.result.createObjectStore('photos',{keyPath:'id',autoIncrement:true});s.createIndex('ownerKey','ownerKey',{unique:false});};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);});
     stage='get-photo';
     const blob=await fetch('/icon-192.png').then(response=>response.blob());
@@ -28,6 +27,7 @@ test('PowerPoint templates retain editable content, University master/layouts an
   });
   if(typeof seeded==='string'&&seeded.startsWith('__seed_error__'))throw new Error(seeded);
   await page.reload();await expect(page.locator('#programList')).not.toBeEmpty();
+  await page.locator(`#programList [data-event="${seeded}"]`).click();await page.locator('#modalNote').fill('Editable Unicode note: Turku — café. '+('Long note sentence. '.repeat(24)));await expect(page.locator('#noteSaveStatus')).toHaveText('Saved');await page.locator('#modalClose').click();
   await page.locator('[data-target="settings"]').click();await page.locator('#exportPptxBtn').click();
   await expect(page.locator('#exportPptxDialog')).toBeVisible();
   await expect(page.locator('#exportPptxTemplate')).toHaveValue('standard');
