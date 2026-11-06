@@ -110,6 +110,8 @@ async function verifySharingUi(page,name,personId){
   await page.locator('[data-friend-identity]').click();
   await page.locator(`[data-identity-person="${personId}"]`).click();
   await page.locator('#identityConfirm').click();
+  const activityToggle=page.locator('#friendsConferenceToggle');
+  if(await activityToggle.getAttribute('aria-expanded')!=='true')await activityToggle.click();
   await page.locator('#friendsConferenceActivities .aggregate-activity').first().waitFor();
   assert.ok(await page.locator('#friendsConferenceActivities .aggregate-activity').count()>0,'Linked friend activities must appear at page level');
   assert.ok((await page.locator('#friendsConferenceActivities').textContent()).includes(name+' contact'),'The saved friend must appear with the activity');
@@ -132,7 +134,8 @@ for (const [browserName, browserType] of Object.entries({chromium, firefox})) {
       await page.locator('#friendVcardInput').setInputFiles({name:'demo-partner.vcf',mimeType:'text/vcard',buffer:Buffer.from(partnerCard)});
       await page.locator('.friend-card').nth(1).waitFor();
       assert.match(await page.locator('#friendImportStatus').textContent(),/Linked to conference/);
-      await page.locator('#friendsConferenceToggle').click();
+      const activityToggle=page.locator('#friendsConferenceToggle');
+      if(await activityToggle.getAttribute('aria-expanded')!=='true')await activityToggle.click();
       const shared=page.locator('#friendsConferenceActivities .aggregate-activity').filter({hasText:'Beyond von Neumann: From Materials to Adaptive Systems'});
       assert.equal(await shared.count(),1,'The shared DEMO keynote should appear once');
       assert.equal(await shared.locator('[data-friend-jump]').count(),2,'Both DEMO friends should appear on their shared keynote');
