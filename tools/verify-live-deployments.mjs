@@ -59,7 +59,7 @@ async function verifyOnline(page, deployment) {
     assert.deepEqual(await response.body(), expected, `${file} differs from local repository`);
   }
   console.log(`Conference files match ${deployment.url.href}`);
-  for (const file of ['app.js', 'bootstrap.js', 'service-worker.js', 'styles.css', 'src/package-store.js', 'src/vcard.js', 'src/qrcode.js', 'src/publications.js', 'src/friend-contact.js', 'src/friend-directory.js', 'src/friend-activities.js', 'src/friend-gallery.js', 'src/avatar-color.js', 'src/vendor/qrcode-generator/qrcode.js']) {
+  for (const file of ['app.js', 'bootstrap.js', 'service-worker.js', 'styles.css', 'assets/utu-template.zip', 'src/package-store.js', 'src/vcard.js', 'src/qrcode.js', 'src/publications.js', 'src/friend-contact.js', 'src/friend-directory.js', 'src/friend-activities.js', 'src/friend-gallery.js', 'src/avatar-color.js', 'src/vendor/qrcode-generator/qrcode.js']) {
     const expected = await readFile(join(deployments[0].root, file));
     const response = await page.request.get(new URL(file, deployment.url).href);
     assert.equal(response.status(), 200, `${deployment.url.href}${file}`);

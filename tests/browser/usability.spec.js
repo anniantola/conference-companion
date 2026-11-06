@@ -7,6 +7,7 @@ const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42
 
 async function ready(page,path=fixture){
   await page.goto(path);
+  await expect.poll(()=>page.evaluate(()=>window.CONFERENCE_APP_INITIALIZED===true)).toBe(true);
   await expect(page.locator('#programList')).not.toBeEmpty();
 }
 
@@ -216,7 +217,10 @@ test('compact schedule has measurable density and persists for Program and My Sc
   await page.locator('[data-target="program"]').click();const compact=await page.locator('#programList [data-event]').first().boundingBox();
   expect(compact.height).toBeLessThan(normal.height-10);
   await page.locator('[data-target="my"]').click();const myCompact=await page.locator('#mySchedule [data-event]').first().boundingBox();expect(myCompact.height).toBeLessThan(normal.height-10);
-  await page.reload();await expect(page.locator('html')).toHaveClass(/compact/);await page.locator('[data-target="program"]').click();const reloaded=await page.locator('#programList [data-event]').first().boundingBox();expect(Math.abs(reloaded.height-compact.height)).toBeLessThan(2);
+  await page.reload();await expect.poll(()=>page.evaluate(()=>window.CONFERENCE_APP_INITIALIZED===true)).toBe(true);await expect(page.locator('html')).toHaveClass(/compact/);
+  await expect(page.locator('[data-view="my"]')).toHaveClass(/active/);await expect(page.locator(`#mySchedule [data-event="${await card.getAttribute('data-event')}"]`)).toBeVisible();
+  await page.locator('[data-target="program"]').click();await expect(page.locator('[data-view="program"]')).toHaveClass(/active/);await expect(page.locator('#programList [data-event]').first()).toBeVisible();
+  const reloaded=await page.locator('#programList [data-event]').first().boundingBox();expect(Math.abs(reloaded.height-compact.height)).toBeLessThan(2);
   await context.close();
 });
 

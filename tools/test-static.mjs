@@ -39,9 +39,10 @@ const workflow=fs.readFileSync(new URL('../.github/workflows/deploy.yml',import.
 assert(/npm test/.test(workflow),'deploy workflow must gate GitHub Pages deployment with npm test');
 console.log('Static/accessibility smoke tests OK');
 assert(workflow.includes('npm ci'),'CI must use locked dependencies');
-assert(workflow.includes('runs-on: ubuntu-24.04'),'CI must pin the runner supported by its browser dependency installer');
-assert(workflow.includes('playwright install --with-deps chromium firefox webkit'),'CI must provision all three browser engines');
-assert(workflow.includes('path: "_site"'),'CI must not upload dependencies or browser traces');
+assert(workflow.includes('runs-on: ubuntu-24.04'),'CI must pin the tested runner image');
+assert(workflow.includes('mcr.microsoft.com/playwright:v1.64.1-noble'),'CI must use the browser image matching the locked Playwright version');
+assert(/deploy:\s+needs: test/.test(workflow),'Pages deployment must depend on successful tests');
+assert(/path:\s*"?_site"?/.test(workflow),'CI must publish only the staged public site');
 const {workflowText}=await import('../src/builder/package.js');
 assert(workflowText().includes('path: "_site"'),'Generated deployments must stage public assets');
 assert(workflowText().includes('run: npm test'),'Generated deployments must validate before publishing');
