@@ -94,9 +94,9 @@ test('legacy avatar properties are ignored and photo galleries survive backup an
   await expect(page.locator('.friend-card-toggle .friend-avatar')).toHaveAttribute('src',/^blob:/);
   await page.locator('[data-friend-note]').fill('Met after session');
   await page.locator('[data-friend-note]').dispatchEvent('input');
-  await page.waitForTimeout(350);
-  const snapshot=await page.evaluate(async()=>{const [friend]=await window.CONFERENCE_SERVICES.userStore.listFriends();return {id:friend.id,cover:friend.privateCoverPhotoId,count:friend.privatePhotos.length,caption:friend.privatePhotos[1].caption,note:friend.privateNotes,chronological:friend.privatePhotos[0].createdAt<friend.privatePhotos[1].createdAt};});
-  expect(snapshot).toMatchObject({count:2,caption:'Conference dinner',note:'Met after session',chronological:true});
+  const savedContact=()=>page.evaluate(async()=>{const [friend]=await window.CONFERENCE_SERVICES.userStore.listFriends();return {id:friend.id,cover:friend.privateCoverPhotoId,count:friend.privatePhotos.length,caption:friend.privatePhotos[1].caption,note:friend.privateNotes,chronological:friend.privatePhotos[0].createdAt<friend.privatePhotos[1].createdAt};});
+  await expect.poll(savedContact).toMatchObject({count:2,caption:'Conference dinner',note:'Met after session',chronological:true});
+  const snapshot=await savedContact();
   await page.locator('[data-target="settings"]').click();
   const downloadPromise=page.waitForEvent('download');await page.locator('#exportBtn').click();const download=await downloadPromise;
   const path=await download.path();
