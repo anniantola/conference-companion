@@ -1,6 +1,8 @@
 # Conference Companion
 
-Current engine release: **v1.2.21**.
+Current engine release: **v1.2.22**.
+
+Version 1.2.22 makes conference branding the default PowerPoint presentation style. Exports use the conference's light or dark appearance, logos, sponsor marks, typography, day/track/location colors, activity labels, and Friend Book avatar colors. The University of Turku master and layouts remain an independent option. Builder now supports optional per-day colors, and the export dialog previews both styles. The service worker precaches declared branding assets for offline exports. Private Friend Book content remains explicitly opt-in.
 
 Conference Companion is a standalone, offline-first conference PWA plus a browser-based Conference Builder. The attendee engine is stable and conference content is published as a normalized, versioned data package rather than being hard-coded into the UI.
 

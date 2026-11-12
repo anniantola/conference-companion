@@ -95,6 +95,10 @@ export function validateBuilderProjectStructure(project){
   for(const [key,value] of Object.entries(project.policy||{}))if(typeof value!=='boolean')throw new Error(`Builder project backup has an invalid policy flag ${key}`);
   const brandingEnums={defaultAppearance:['light','dark','system'],previewAppearance:['light','dark'],headingFont:['inter','source-sans-3','space-grotesk','ibm-plex-sans','ibm-plex-sans-condensed','noto-serif'],bodyFont:['inter','source-sans-3','space-grotesk','ibm-plex-sans','ibm-plex-sans-condensed','noto-serif'],brandMode:['text','logo','combined'],headerStyle:['text','logo','combined'],logoAlignment:['left','center','right']};
   for(const [key,values] of Object.entries(brandingEnums))if(project.branding?.[key]!==undefined&&!values.includes(project.branding[key]))throw new Error(`Builder project backup has an invalid branding.${key}`);
+  if(project.branding?.dayColors!==undefined){
+    if(!isRecord(project.branding.dayColors))throw new Error('Builder project backup has invalid branding.dayColors');
+    for(const [date,color] of Object.entries(project.branding.dayColors))if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!/^#[0-9a-f]{6}$/i.test(color))throw new Error(`Builder project backup has invalid branding.dayColors.${date}`);
+  }
   for(const key of ['primary','secondary','accent','headerBackgroundLight','headerBackgroundDark','typography'])if(project.branding?.[key]!==undefined&&typeof project.branding[key]!=='string')throw new Error(`Builder project backup has an invalid branding.${key}`);
   for(const [key,value] of Object.entries(project.mapping||{}))if(typeof value!=='string')throw new Error(`Builder project backup has an invalid mapping field ${key}`);
   for(const key of ['sourceFiles','sourceState','extraPeople','extraLocations','announcements','deletedSourceIds','changelog','confirmedPublications','identityWarnings','reimportConflicts','sponsorFiles'])if(project[key]!==undefined&&!Array.isArray(project[key]))throw new Error(`Builder project backup has an invalid ${key} collection`);

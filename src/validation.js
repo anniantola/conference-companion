@@ -209,6 +209,10 @@ export function validatePackage(pkg, {strictCalendarUid = true, policy = {}} = {
 
   if (branding.locationColors && typeof branding.locationColors !== "object") errors.push("branding.locationColors must be an object");
   if (branding.trackColors && typeof branding.trackColors !== "object") errors.push("branding.trackColors must be an object");
+  if (branding.dayColors !== undefined) {
+    if (!branding.dayColors || typeof branding.dayColors !== "object" || Array.isArray(branding.dayColors)) errors.push("branding.dayColors must be a date-to-color object");
+    else for (const [date,color] of Object.entries(branding.dayColors)) if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^#[0-9a-f]{6}$/i.test(color)) errors.push(`branding.dayColors has an invalid date or color: ${date}`);
+  }
 
   return {errors, warnings};
 }

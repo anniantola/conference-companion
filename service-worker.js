@@ -1,6 +1,6 @@
 // CacheStorage is origin-wide, even though this worker controls only its scope.
 const CACHE_PREFIX = `conference-companion-engine:${encodeURIComponent(self.registration.scope)}:`;
-const CACHE = `${CACHE_PREFIX}1.2.21`;
+const CACHE = `${CACHE_PREFIX}1.2.22`;
 const ENGINE_ASSETS = [
   "./",
   "./index.html",
@@ -27,6 +27,7 @@ const ENGINE_ASSETS = [
   "./src/friend-activities.js",
   "./src/friend-gallery.js",
   "./src/avatar-color.js",
+  "./src/branding-colors.js",
   "./src/qrcode.js",
   "./src/vendor/qrcode-generator/qrcode.js",
   "./src/vendor/qr-scanner/qr-scanner.min.js",
@@ -42,6 +43,10 @@ const ENGINE_ASSETS = [
   "./schemas/locations.schema.json",
   "./schemas/branding.schema.json"
 ];
+function brandingAssets(branding){
+  const sources=[branding.logo,branding.logoLight,branding.logoDark,...(branding.sponsorAssets||[]),...(branding.sponsorLogos||[]).flatMap(item=>[item.light,item.dark])];
+  return [...new Set(sources.filter(path=>typeof path==='string'&&path&&!/^(?:[a-z]+:|\/)|\.\./i.test(path)).map(path=>`./conference/${path}`))];
+}
 self.addEventListener("install", event => {
   // Do not call skipWaiting(): an engine update should activate on a clean launch,
   // never by force-reloading a user who may be editing notes/photos.
@@ -52,7 +57,10 @@ self.addEventListener("install", event => {
     const manifest=await response.clone().json();
     await cache.put("./assets/fonts/manifest.json",response);
     const fontAssets=(manifest.assets||[]).map(path=>"./assets/fonts/"+path);
-    await cache.addAll([...ENGINE_ASSETS,...fontAssets]);
+    const brandingResponse=await fetch('./conference/branding.json');
+    if(!brandingResponse.ok)throw new Error('Conference branding could not be loaded for offline installation');
+    const conferenceAssets=brandingAssets(await brandingResponse.json());
+    await cache.addAll([...ENGINE_ASSETS,...fontAssets,...conferenceAssets]);
   })());
 });
 

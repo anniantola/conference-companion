@@ -12,7 +12,7 @@ export const attendeeFiles = [
   'index.html', 'app.js', 'bootstrap.js', 'styles.css', 'service-worker.js',
   'src/package-store.js', 'src/calendar.js', 'src/validation.js',
   'src/backup.js', 'src/zip.js', 'src/qrcode.js', 'src/safe-url.js',
-  'src/publications.js', 'src/friend-contact.js', 'src/friend-directory.js', 'src/friend-activities.js', 'src/friend-gallery.js', 'src/avatar-color.js',
+  'src/publications.js', 'src/friend-contact.js', 'src/friend-directory.js', 'src/friend-activities.js', 'src/friend-gallery.js', 'src/avatar-color.js', 'src/branding-colors.js',
   'src/model.js', 'src/user-store.js', 'src/json-schema.js',
   'src/vcard.js', 'src/migrations.js',
   'src/vendor/qr-scanner/qr-scanner.min.js',

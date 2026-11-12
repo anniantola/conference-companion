@@ -25,6 +25,7 @@
     "darkMode": {"type": "boolean"},
     "trackColors": {"type": "object"},
     "locationColors": {"type": "object"},
+    "dayColors": {"type": "object", "propertyNames": {"pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"}, "additionalProperties": {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"}},
     "sponsorAssets": {"type": "array", "items": {"type": "string"}},
     "sponsorLogos": {"type": "array", "items": {"type": "object", "required": ["height"], "properties": {"name": {"type": "string"}, "light": {"type": ["string", "null"]}, "dark": {"type": ["string", "null"]}, "height": {"type": "integer", "minimum": 20, "maximum": 120}}, "additionalProperties": true}}
   }

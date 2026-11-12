@@ -3,6 +3,14 @@ import {readFile} from 'node:fs/promises';
 import {buildPackage,packageZip,workflowText} from '../src/builder/package.js';
 import {rowsFromStructuredPackage} from '../src/builder/importers.js';
 import {readStoredZip,textEntry} from '../src/zip.js';
+import {automaticDayColor,resolveDayColor,conferenceDates,presentationPalette,contrastRatio} from '../src/branding-colors.js';
+
+assert.deepEqual(conferenceDates({startDate:'2027-03-15',endDate:'2027-03-17'}),['2027-03-15','2027-03-16','2027-03-17']);
+assert.notEqual(automaticDayColor('2027-03-15'),automaticDayColor('2027-03-16'));
+assert.equal(resolveDayColor({dayColors:{'2027-03-15':'#123456'}},'2027-03-15'),'#123456');
+assert.equal(resolveDayColor({},'2027-03-16'),automaticDayColor('2027-03-16'));
+assert.ok(contrastRatio(presentationPalette({primary:'#ffffff'},'light').primaryText,'#ffffff')>=4.5);
+assert.ok(contrastRatio(presentationPalette({primary:'#000000'},'dark').primaryText,presentationPalette({},'dark').surface)>=4.5);
 
 const base='fixtures/multiple-poster-sessions',fixture={};
 for(const name of ['conference','programme','people','locations','branding'])fixture[name]=JSON.parse(await readFile(base+'/'+name+'.json','utf8'));
@@ -21,7 +29,7 @@ try{
   const darkSvg=lightSvg.replace('#123456','#abcdef');
   const sponsorSvg=lightSvg.replace('#123456','#765432');
   const asset=(name,content)=>({name,type:'image/svg+xml',extension:'.svg',bytes:new TextEncoder().encode(content)});
-  const project={...legacy,branding:{...legacy.branding,defaultAppearance:'light',previewAppearance:'dark',brandMode:'combined',logoAlignment:'right',logoSize:48,headerBackgroundLight:'#ffffff',headerBackgroundDark:'#222222',headingFont:'space-grotesk',bodyFont:'source-sans-3',primary:'#134679',secondary:'#237755',accent:'#c43168'},logoLight:asset('light.svg',lightSvg),logoDark:asset('dark.svg',darkSvg),appIcon:asset('icon.svg',sponsorSvg),sponsorFiles:[{id:'s1',name:'First sponsor',light:asset('sponsor.svg',sponsorSvg),dark:asset('dark-sponsor.svg',darkSvg),height:64},{id:'s2',name:'Second sponsor',light:asset('second.svg',lightSvg),dark:null,height:40}]};
+  const project={...legacy,branding:{...legacy.branding,dayColors:{[fixture.conference.startDate]:'#123456'},defaultAppearance:'light',previewAppearance:'dark',brandMode:'combined',logoAlignment:'right',logoSize:48,headerBackgroundLight:'#ffffff',headerBackgroundDark:'#222222',headingFont:'space-grotesk',bodyFont:'source-sans-3',primary:'#134679',secondary:'#237755',accent:'#c43168'},logoLight:asset('light.svg',lightSvg),logoDark:asset('dark.svg',darkSvg),appIcon:asset('icon.svg',sponsorSvg),sponsorFiles:[{id:'s1',name:'First sponsor',light:asset('sponsor.svg',sponsorSvg),dark:asset('dark-sponsor.svg',darkSvg),height:64},{id:'s2',name:'Second sponsor',light:asset('second.svg',lightSvg),dark:null,height:40}]};
   const built=await buildPackage(project);
   assert.deepEqual(built.report.errors,[]);
   assert.equal(built.pkg.branding.defaultAppearance,'light');
@@ -36,6 +44,7 @@ try{
   assert.equal(published.defaultAppearance,'light');assert.equal(published.previewAppearance,undefined);
   assert.equal(published.headingFont,'space-grotesk');assert.equal(published.bodyFont,'source-sans-3');
   assert.equal(published.sponsorLogos[0].height,64);assert.equal(published.sponsorLogos[1].name,'Second sponsor');
+  assert.equal(published.dayColors[fixture.conference.startDate],'#123456');
   assert.equal(new TextDecoder().decode(entries.get('conference/'+published.logoLight)),lightSvg);
   assert.equal(new TextDecoder().decode(entries.get('conference/'+published.logoDark)),darkSvg);
   assert.ok(!entries.has('assets/fonts/fonts.css'));assert.ok(!entries.has('index.html'));assert.ok(!entries.has('service-worker.js'));

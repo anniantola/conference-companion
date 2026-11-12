@@ -22,6 +22,25 @@ async function openPilotPreview(page,{expectReady=true}={}){
 }
 const previewValue=(page,callback)=>page.evaluate(callback);
 
+test('Builder conference-day colors persist and reset to stable automatic dates',async({page})=>{
+  await page.goto('/builder.html');await expect(page.locator('body')).toHaveAttribute('data-builder-ready','true');
+  await page.locator('[data-config="name"]').fill('Day Color Conference');
+  await page.locator('[data-config="startDate"]').fill('2032-03-01');
+  await page.locator('[data-config="endDate"]').fill('2032-03-03');
+  await page.locator('[data-goto-step="6"]').click();
+  await expect(page.locator('#dayColorList [data-day-color]')).toHaveCount(3);
+  const first=page.locator('#dayColorList [data-day-color="2032-03-01"]'),original=await first.inputValue();
+  await first.fill('#a14367');
+  await expect(page.locator('#brandingPreviews [data-theme="light"]')).toHaveCSS('--preview-day',/#a14367/i);
+  await expect.poll(()=>page.evaluate(async()=>{const {loadProject}=await import('/src/builder/project-store.js');return (await loadProject())?.branding?.dayColors?.['2032-03-01'];})).toBe('#a14367');
+  await page.reload();await expect(page.locator('body')).toHaveAttribute('data-builder-ready','true');
+  await page.locator('[data-goto-step="6"]').click();
+  await expect(page.locator('#dayColorList [data-day-color="2032-03-01"]')).toHaveValue('#a14367');
+  await page.locator('#dayColorList [data-reset-day-color="2032-03-01"]').click();
+  await expect(page.locator('#dayColorList [data-day-color="2032-03-01"]')).toHaveValue(original);
+  await expect(page.locator('#dayColorList [data-reset-day-color="2032-03-01"]')).toBeDisabled();
+});
+
 test('live Builder preview uses attendee UI, branding, filters and isolated personal data',async({page})=>{
   await page.goto('/builder.html');
   await page.locator('[data-config="name"]').fill('Synthetic Preview Conference');

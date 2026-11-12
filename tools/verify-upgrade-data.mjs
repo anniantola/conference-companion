@@ -23,7 +23,7 @@ try{
         const store=window.CONFERENCE_SERVICES.userStore,profile=await store.getProfile(),friends=await store.listFriends(),friend=friends.find(row=>row.id==='v1216-upgrade-contact');
         return {version:window.CONFERENCE_CONFIG.engineVersion,profile:profile.name,profileAvatarId:profile.avatarId,profileAvatarColor:profile.avatarColor,friend:friend?.name,friendAvatarId:friend?.avatarId,friendAvatarColor:friend?.avatarColor,note:friend?.privateNotes,tags:friend?.tags,photoSize:friend?.privatePhotos?.[0]?.blob?.size,cover:friend?.privateCoverPhotoId};
       });
-      assert.equal(saved.version,'1.2.21');
+      assert.equal(saved.version,'1.2.22');
       assert.equal(saved.profile,'v1.2.17 upgrade verification');
       assert.equal(saved.profileAvatarId,undefined);
       assert.equal(saved.profileAvatarColor,'#8264B5');

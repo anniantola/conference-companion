@@ -7,6 +7,7 @@ import {validConferenceIdentity,identityCandidates,automaticIdentity,personActiv
 import {AVATAR_PRESETS,DEFAULT_AVATAR_COLOR,avatarColors,cleanAvatarRecord,normalizeAvatarColor} from './src/avatar-color.js';
 import {galleryForContact,coverPhoto,galleryChange} from './src/friend-gallery.js';
 import {aggregateFriendActivities} from './src/friend-activities.js';
+import {resolveDayColor,hexColor,readableColor,presentationPalette,brandingFont} from './src/branding-colors.js';
 
 (() => {
   const CONFIG = window.CONFERENCE_CONFIG || {};
@@ -1606,7 +1607,7 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
 
   function renderDays() {
     $("#dayTabs").innerHTML = DAYS.map(d => `
-      <button class="day-tab ${state.day===d.day?"active":""}" data-day="${d.day}">
+      <button class="day-tab ${state.day===d.day?"active":""}" data-day="${d.day}" data-date="${d.date}" style="--day-color:${resolveDayColor(BRANDING,d.date)}">
         <strong>${esc(d.weekday.slice(0,3))}</strong>
         <span>${esc(d.dateLabel)}</span>
       </button>`).join("");
@@ -1678,7 +1679,7 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     const person = e.speaker ? `${esc(e.speaker)}${e.affiliation ? ` · ${esc(e.affiliation)}` : ""}` : "";
     const accent = eventAccent(e);
     return `
-      <article class="event-card kind-${esc(e.kind)}" ${accent&&["talk","plenary","special"].includes(e.kind)?`style="border-left-color:${esc(accent)}"`:""} data-event="${e.id}" tabindex="0">
+      <article class="event-card kind-${esc(e.kind)}" style="--event-day-color:${resolveDayColor(BRANDING,e.date)}${accent&&["talk","plenary","special"].includes(e.kind)?`;border-left-color:${esc(accent)}`:""}" data-event="${e.id}" tabindex="0">
         <button class="star-btn ${fav?"on":""}" data-star-event="${e.id}" aria-label="${fav?"Remove from":"Add to"} my schedule">${fav?"★":"☆"}</button>
         <div class="card-kicker">${locationPill(e.locationId)}${session}</div>
         <div class="event-title">${esc(e.title)}</div>
@@ -1999,8 +2000,12 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     return `<p:sp><p:nvSpPr><p:cNvPr id="${shapeId}" name="${xmlEsc(name)}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${emu(x)}" y="${emu(y)}"/><a:ext cx="${emu(w)}" cy="${emu(h)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom>${fill}${line}</p:spPr><p:txBody><a:bodyPr wrap="square" lIns="91440" tIns="68580" rIns="91440" bIns="68580" anchor="t"><a:normAutofit/></a:bodyPr><a:lstStyle/>${textToParagraphs(text,fontSize,bold,color,opts.fontFamily||'')}</p:txBody></p:sp>`;
   }
 
-  function pptPicture(picId, relId, x, y, w, h, name="Photo") {
-    return `<p:pic><p:nvPicPr><p:cNvPr id="${picId}" name="${xmlEsc(name)}"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${relId}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm><a:off x="${emu(x)}" y="${emu(y)}"/><a:ext cx="${emu(w)}" cy="${emu(h)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:ln><a:solidFill><a:srgbClr val="d1d5db"/></a:solidFill></a:ln></p:spPr></p:pic>`;
+  function pptPicture(picId, relId, x, y, w, h, name="Photo",border=true) {
+    return `<p:pic><p:nvPicPr><p:cNvPr id="${picId}" name="${xmlEsc(name)}"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${relId}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm><a:off x="${emu(x)}" y="${emu(y)}"/><a:ext cx="${emu(w)}" cy="${emu(h)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom>${border?'<a:ln><a:solidFill><a:srgbClr val="d1d5db"/></a:solidFill></a:ln>':'<a:ln><a:noFill/></a:ln>'}</p:spPr></p:pic>`;
+  }
+
+  function pptShape(id,name,x,y,w,h,fill,{geometry='rect',line=''}={}) {
+    return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${xmlEsc(name)}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${emu(x)}" y="${emu(y)}"/><a:ext cx="${emu(w)}" cy="${emu(h)}"/></a:xfrm><a:prstGeom prst="${geometry}"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="${fill}"/></a:solidFill>${line?`<a:ln><a:solidFill><a:srgbClr val="${line}"/></a:solidFill></a:ln>`:'<a:ln><a:noFill/></a:ln>'}</p:spPr></p:sp>`;
   }
 
   function fitInBox(imgW, imgH, x, y, w, h) {
@@ -2018,6 +2023,11 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     return `${date}|${time}|${added}|${id}`;
   }
 
+  function pptActivityLabel(kind,chair=''){
+    const labels={talk:'Oral presentation',oral:'Oral presentation',poster:'Poster presentation','poster-session':'Poster session',session:chair?'Chaired session':'Session',special:'Special session',registration:'Registration',break:'Break',meal:'Meal',social:'Social activity'};
+    return labels[kind]||String(kind||'Programme activity').replace(/[-_]/g,' ');
+  }
+
   function ownerInfoForExport(type, id) {
     if (type === "unclassified") {
       return {title:"Unclassified photos", meta:"Photos not assigned to a conference item", sortKey:"9999-12-31|23:59:59|9|unclassified"};
@@ -2028,6 +2038,7 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
       return {
         title:`Poster #${p.number} · ${p.title}`,
         meta:`${posterSessionMeta(p)}${p.author ? ` · ${p.author}` : ""}`,
+        date:posterSessionFor(p)?.date||'',start:posterSessionFor(p)?.start||'',locationId:posterSessionFor(p)?.locationId||'',trackId:posterSessionFor(p)?.trackId||'',trackName:posterSessionFor(p)?.trackName||'',type:'Poster presentation',speaker:p.author||'',
         sortKey:`${posterSessionFor(p)?.date || "9999-12-31"}|${posterSessionFor(p)?.start || "23:59"}:00|1|${String(p.number || 999).padStart(3,"0")}`
       };
     }
@@ -2038,6 +2049,7 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     return {
       title:e.title,
       meta:`${e.weekday} ${e.dateLabel} · ${e.start}–${e.end}${room}${person}`,
+      date:e.date,start:e.start,end:e.end,locationId:e.locationId||'',trackId:e.trackId||'',trackName:e.trackName||'',type:pptActivityLabel(e.kind||e.sessionType,e.chair),speaker:e.speaker||'',
       sortKey:`${e.date}|${e.start}:00|0|${String(e.track || 0).padStart(2,"0")}|${e.id}`
     };
   }
@@ -2103,12 +2115,12 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     const contacts=friends.map(friend=>{
       const identity=currentIdentity(friend),person=identity?MODEL.person(identity.personId):null;
       const affiliation=person?.affiliations?.[0]||person?.affiliation||friend.affiliation||(friend.affiliations||[])[0]||'';
-      return {id:friend.id,name:friend.name||'Contact',affiliation,conferencePerson:person?.name||'',conferencePersonId:identity?.personId||''};
+      return {id:friend.id,name:friend.name||'Contact',affiliation,conferencePerson:person?.name||'',conferencePersonId:identity?.personId||'',avatarColor:normalizeAvatarColor(friend.avatarColor)};
     });
     const activities=aggregateFriendActivities(friends,CONFERENCE,MODEL).map(activity=>({
       role:activity.role,type:activity.type,id:activity.id,title:activity.title||'',date:activity.date||'',start:activity.start||'',end:activity.end||'',
-      location:activity.locationId?locationLabel(activity.locationId):'Location to be announced',posterNumber:activity.posterNumber||'',
-      friends:activity.friends.map(friend=>friend.name)
+      location:activity.locationId?locationLabel(activity.locationId):'Location to be announced',locationId:activity.locationId||'',trackId:activity.trackId||(activity.type==='event'?byId.get(activity.id)?.trackId:activity.type==='poster'?posterSessionFor(posterById.get(activity.id))?.trackId:MODEL.programme?.sessions?.find(session=>session.id===activity.id)?.trackId)||'',posterNumber:activity.posterNumber||'',
+      friends:activity.friends.map(friend=>friend.name),friendIds:activity.friends.map(friend=>friend.id)
     }));
     return {contacts,activities};
   }
@@ -2251,7 +2263,7 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
   function contentTypesXml(slideCount) {
     let overrides = `<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/presProps.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presProps+xml"/><Override PartName="/ppt/viewProps.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.viewProps+xml"/><Override PartName="/ppt/tableStyles.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.tableStyles+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>`;
     for (let i=1;i<=slideCount;i++) overrides += `<Override PartName="/ppt/slides/slide${i}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`;
-    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="jpg" ContentType="image/jpeg"/><Default Extension="jpeg" ContentType="image/jpeg"/>${overrides}</Types>`;
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="jpg" ContentType="image/jpeg"/><Default Extension="jpeg" ContentType="image/jpeg"/><Default Extension="png" ContentType="image/png"/>${overrides}</Types>`;
   }
 
   function rootRelsXml() {
@@ -2291,16 +2303,17 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sldLayout xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" type="blank" preserve="1"><p:cSld name="Blank"><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/></p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>`;
   }
 
-  function themeXml() {
-    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Conference Companion"><a:themeElements><a:clrScheme name="Conference Companion"><a:dk1><a:srgbClr val="111827"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="1f2937"/></a:dk2><a:lt2><a:srgbClr val="f3f4f6"/></a:lt2><a:accent1><a:srgbClr val="1769E0"/></a:accent1><a:accent2><a:srgbClr val="9B5B08"/></a:accent2><a:accent3><a:srgbClr val="58A56C"/></a:accent3><a:accent4><a:srgbClr val="E7A400"/></a:accent4><a:accent5><a:srgbClr val="73767C"/></a:accent5><a:accent6><a:srgbClr val="000000"/></a:accent6><a:hlink><a:srgbClr val="1769E0"/></a:hlink><a:folHlink><a:srgbClr val="1769E0"/></a:folHlink></a:clrScheme><a:fontScheme name="Aptos"><a:majorFont><a:latin typeface="Aptos Display"/></a:majorFont><a:minorFont><a:latin typeface="Aptos"/></a:minorFont></a:fontScheme><a:fmtScheme name="Conference Companion"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w="9525"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>`;
+  function themeXml(palette) {
+    const value=color=>hexColor(color,'#000000').slice(1);
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Conference branding"><a:themeElements><a:clrScheme name="Conference branding"><a:dk1><a:srgbClr val="${value(palette.ink)}"/></a:dk1><a:lt1><a:srgbClr val="${value(palette.bg)}"/></a:lt1><a:dk2><a:srgbClr val="${value(palette.muted)}"/></a:dk2><a:lt2><a:srgbClr val="${value(palette.surface)}"/></a:lt2><a:accent1><a:srgbClr val="${value(palette.primary)}"/></a:accent1><a:accent2><a:srgbClr val="${value(palette.secondary)}"/></a:accent2><a:accent3><a:srgbClr val="${value(palette.accent)}"/></a:accent3><a:accent4><a:srgbClr val="${value(palette.primaryText)}"/></a:accent4><a:accent5><a:srgbClr val="${value(palette.secondaryText)}"/></a:accent5><a:accent6><a:srgbClr val="${value(palette.accentText)}"/></a:accent6><a:hlink><a:srgbClr val="${value(palette.accentText)}"/></a:hlink><a:folHlink><a:srgbClr val="${value(palette.primaryText)}"/></a:folHlink></a:clrScheme><a:fontScheme name="Conference branding"><a:majorFont><a:latin typeface="${xmlEsc(palette.headingFont)}"/></a:majorFont><a:minorFont><a:latin typeface="${xmlEsc(palette.bodyFont)}"/></a:minorFont></a:fontScheme><a:fmtScheme name="Conference branding"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w="9525"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>`;
   }
 
-  async function makeConferencePptx({items=[],friendRows=[],activities=[],privateRows=[],template='standard'}) {
+  async function makeConferencePptx({items=[],friendRows=[],activities=[],privateRows=[],template='standard',appearance='light'}) {
     const files = [];
     const slideData = [];
     const mediaFiles = [];
     let mediaIndex = 1;
-    const utu=template==='utu',templateParts=utu?await loadUtuTemplate():null;
+    const utu=template==='utu',templateParts=utu?await loadUtuTemplate():null,palette=presentationPalette(BRANDING,appearance);
     const layoutNames=new Map();
     if(utu)for(const [name,data] of templateParts){if(/^ppt\/slideLayouts\/slideLayout\d+\.xml$/.test(name)){const xml=new TextDecoder().decode(data),match=xml.match(/<p:cSld\b[^>]*\bname="([^"]*)"/);if(match)layoutNames.set(match[1],name.split('/').pop());}}
     const layout=(name)=>layoutNames.get(name)||layoutNames.get('Title and Content White')||'slideLayout1.xml';
@@ -2309,7 +2322,7 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     const ink=utu?'004A43':'17202C',muted=utu?'536862':'596579',soft=utu?'E9E3CF':'F3F6FA';
     const chunksOf=(value,max=760)=>{
       const text=String(value||'').trim();if(!text)return[];const out=[];
-      for(const para of text.split(/\n+/)){let line='';for(const word of para.split(/\s+/)){if(!word)continue;if(line&&line.length+word.length+1>max){out.push(line);line=word;}else line=line?`${line} ${word}`:word;}if(line)out.push(line);}
+      for(const para of text.split(/\n+/)){let line='';for(const token of para.split(/\s+/)){if(!token)continue;for(const word of token.match(new RegExp(`.{1,${max}}`,'gu'))||[]){if(line&&line.length+word.length+1>max){out.push(line);line=word;}else line=line?`${line} ${word}`:word;}}if(line)out.push(line);}
       const pages=[];let page='';for(const part of out){if(page&&page.length+part.length+2>max){pages.push(page);page='';}page=page?`${page}\n\n${part}`:part;}if(page)pages.push(page);return pages;
     };
     const textBlockHeight=(text,charsPerLine,lineHeight,maxHeight)=>{
@@ -2358,6 +2371,7 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
       for(let i=1;i<notePages.length;i++){const noteHeight=textBlockHeight(notePages[i],112,.34,utu?4.2:5.35);addSlide(heading(`${displayTitle} · notes continued`,meta)+pptTextShape(4,'Notes',.65,1.62,utu?10.1:12,noteHeight,notePages[i],{fontSize:1550,color:ink,fill:soft}),[],'Heading and text');}
     };
 
+    if(utu){
     const coverSections='Personal conference archive';
     const coverDate=CONFERENCE.startDate?(CONFERENCE.endDate&&CONFERENCE.endDate!==CONFERENCE.startDate?`${CONFERENCE.startDate} – ${CONFERENCE.endDate}`:CONFERENCE.startDate):'';
     const coverMeta=[coverDate,CONFERENCE.location||CONFERENCE.city||BRANDING.location||BRANDING.city].filter(Boolean).join(' · ');
@@ -2395,6 +2409,92 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
       const photos=await preparePhotos(entry.photos||[]);
       addPhotoSlides(`${entry.name} · photographs`,'Personal Friend Book photos',photos);
     }
+    }else{
+      let nextShapeId=2;
+      const rgb=color=>hexColor(color,'#64748B').slice(1);
+      const shape=(name,x,y,w,h,color,options)=>pptShape(nextShapeId++,name,x,y,w,h,rgb(color),options);
+      const text=(name,x,y,w,h,value,size=1400,{bold=false,color=palette.ink,heading=false,fill}={})=>pptTextShape(nextShapeId++,name,x,y,w,h,value,{fontSize:size,bold,color:rgb(color),fontFamily:heading?palette.headingFont:palette.bodyFont,fill:fill?rgb(fill):undefined});
+      const background=()=>shape('Slide background',0,0,13.333,7.5,palette.bg);
+      const brandSlide=(title,meta='',date='',body='',rels=[])=>{
+        const day=date?resolveDayColor(BRANDING,date):palette.primary;
+        let base=background()+shape('Day color indicator',0,0,13.333,.075,day)+shape('Title divider',.62,1.33,12.07,.022,palette.dark?'#43505B':'#DDE4E9');
+        base+=text('Slide title',.6,.28,12.05,.78,title,2250,{bold:true,heading:true});
+        if(meta)base+=text('Slide details',.63,1.0,11.9,.3,meta,1020,{color:palette.muted});
+        base+=body;
+        addSlide(base,rels);
+      };
+      const logoPath=palette.dark?(BRANDING.logoDark||BRANDING.logoLight||BRANDING.logo):(BRANDING.logoLight||BRANDING.logoDark||BRANDING.logo);
+      const configuredSponsors=Array.isArray(BRANDING.sponsorLogos)&&BRANDING.sponsorLogos.length?BRANDING.sponsorLogos:(BRANDING.sponsorAssets||[]).map((path,index)=>({name:`Sponsor ${index+1}`,light:path,height:48}));
+      const sponsorPaths=configuredSponsors.map(item=>({name:item.name||'Sponsor',path:palette.dark?(item.dark||item.light):(item.light||item.dark),displayHeight:Math.max(20,Math.min(120,Number(item.height)||48)),needsPlate:palette.dark&&!item.dark&&!!item.light})).filter(item=>item.path);
+      const loadBrandAsset=async(path,name)=>{
+        if(!path||/^\w+:|^\/|\.\./.test(path))return null;
+        let response;try{response=await fetch(packageAssetUrl(path));}catch{return null;}if(!response.ok)return null;
+        const blob=await response.blob();let bitmap,image,objectUrl='';
+        try{bitmap=await createImageBitmap(blob);}catch{
+          objectUrl=URL.createObjectURL(blob);image=new Image();image.src=objectUrl;
+          try{await image.decode();}catch{URL.revokeObjectURL(objectUrl);return null;}
+        }
+        const source=bitmap||image,scale=Math.min(1,1600/Math.max(source.width,source.height)),width=Math.max(1,Math.round(source.width*scale)),height=Math.max(1,Math.round(source.height*scale));
+        const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;canvas.getContext('2d').drawImage(source,0,0,width,height);bitmap?.close();if(objectUrl)URL.revokeObjectURL(objectUrl);
+        const png=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!png)return null;
+        const file=`brand${mediaIndex++}.png`;mediaFiles.push({name:`ppt/media/${file}`,data:await blobToU8(png)});
+        return {file,width,height,name};
+      };
+      const logo=(BRANDING.brandMode||BRANDING.headerStyle)==='text'?null:await loadBrandAsset(logoPath,'Conference logo');
+      const sponsors=[];for(const item of sponsorPaths){const image=await loadBrandAsset(item.path,item.name);if(image)sponsors.push({...image,displayHeight:item.displayHeight,needsPlate:item.needsPlate});}
+      const coverRels=[];let cover=shape('Cover background',0,0,13.333,7.5,palette.header)+shape('Conference primary stripe',0,0,.16,7.5,palette.primary)+shape('Conference secondary stripe',.16,0,.04,7.5,palette.secondary);
+      if(logo){const align=BRANDING.logoAlignment||'left',box={x:align==='right'?9.7:align==='center'?5.1:.8,y:.55,w:2.8,h:1.15},fit=fitInBox(logo.width,logo.height,box.x,box.y,box.w,box.h),rel='rId2';coverRels.push({rId:rel,file:logo.file});cover+=pptPicture(nextShapeId++,rel,fit.x,fit.y,fit.w,fit.h,logo.name,false);}
+      const coverInk=palette.headerInk,coverAccent=readableColor(palette.accent,palette.header,4.5);
+      cover+=text('Conference title',.78,2.05,11.75,1.72,CONFERENCE.name||'Conference',3500,{bold:true,color:coverInk,heading:true});
+      cover+=shape('Cover accent',.82,3.93,1.32,.055,coverAccent);
+      cover+=text('Archive subtitle',.8,4.25,11.5,.58,'Personal conference archive',1850,{color:coverInk});
+      const coverDate=CONFERENCE.startDate?(CONFERENCE.endDate&&CONFERENCE.endDate!==CONFERENCE.startDate?`${CONFERENCE.startDate} – ${CONFERENCE.endDate}`:CONFERENCE.startDate):'';
+      const coverMeta=[coverDate,CONFERENCE.location||CONFERENCE.city||BRANDING.location||BRANDING.city].filter(Boolean).join(' · ');
+      if(coverMeta)cover+=text('Conference dates and location',.8,5.05,11.5,.42,coverMeta,1200,{color:coverInk});
+      for(let i=0;i<Math.min(sponsors.length,3);i++){const item=sponsors[i],height=Math.max(.4,Math.min(.82,.56*item.displayHeight/48)),box={x:.82+i*2.35,y:6.87-height,w:1.95,h:height},fit=fitInBox(item.width,item.height,box.x,box.y,box.w,box.h),rel=`rId${coverRels.length+2}`;coverRels.push({rId:rel,file:item.file});if(item.needsPlate)cover+=shape('Sponsor contrast plate',box.x-.08,box.y-.06,box.w+.16,box.h+.12,'#FFFFFF');cover+=pptPicture(nextShapeId++,rel,fit.x,fit.y,fit.w,fit.h,item.name,false);}
+      addSlide(cover,coverRels);
+      if(sponsors.length>3){for(let offset=0;offset<sponsors.length;offset+=8){let body='',rels=[];for(const [index,item] of sponsors.slice(offset,offset+8).entries()){const col=index%4,row=Math.floor(index/4),box={x:.8+col*3.15,y:1.8+row*2.2,w:2.5,h:1.35},fit=fitInBox(item.width,item.height,box.x,box.y,box.w,box.h),rel=`rId${rels.length+2}`;rels.push({rId:rel,file:item.file});body+=pptPicture(nextShapeId++,rel,fit.x,fit.y,fit.w,fit.h,item.name,false)+text('Sponsor name',box.x,box.y+1.43,box.w,.32,item.name,940,{color:palette.muted});}brandSlide('Sponsors and partners','', '',body,rels);}}
+      const metaParts=info=>[info.date,info.start&&`${info.start}${info.end?`–${info.end}`:''}`,info.speaker,info.locationId&&locationLabel(info.locationId)].filter(Boolean).join(' · ');
+      const indicators=(info,y=1.52)=>{
+        let result='',x=.68;
+        const entries=[['Day',info.date,resolveDayColor(BRANDING,info.date)],['Track',info.trackName||info.trackId,hexColor(BRANDING.trackColors?.[info.trackId],palette.secondary)],['Location',info.locationId&&locationLabel(info.locationId),hexColor(BRANDING.locationColors?.[info.locationId],palette.accent)],['Type',info.type,palette.primary]];
+        for(const [label,value,color] of entries){if(!value)continue;const caption=`${label}: ${value}`.slice(0,37),w=Math.min(3.3,Math.max(1.18,caption.length*.071+.28));if(x+w>12.75)break;result+=shape(`${label} color`,x,y+.055,.06,.25,color)+text(`${label} label`,x+.07,y,w-.07,.38,caption,900,{color:palette.muted});x+=w+.15;}
+        return result;
+      };
+      const addTextPages=(title,meta,date,content,info)=>{
+        const pages=chunksOf(content,550);
+        for(let i=0;i<pages.length;i++){const page=pages[i],panelHeight=Math.min(4.85,Math.max(1.45,textBlockHeight(page,88,.34,4.45)+.42));let body=info?indicators(info):'';body+=shape('Notes surface',.62,2.05,12.08,panelHeight,palette.surface)+shape('Notes accent',.62,2.05,.045,panelHeight,palette.secondary)+text('Editable notes',.85,2.22,11.5,panelHeight-.32,page,1550,{color:palette.ink});brandSlide(`${title}${i?' · continued':''}`,meta,date,body);}
+      };
+      const addBrandedPhotoSlides=(title,meta,date,photos,note='',info=null)=>{
+        const notePages=chunksOf(note,photos.length?380:550);
+        if(!photos.length){addTextPages(title,meta,date,note,info);return;}
+        for(let offset=0;offset<photos.length;offset+=notePages.length&&offset===0?1:4){
+          const includeNote=offset===0&&notePages.length>0,chunk=photos.slice(offset,offset+(includeNote?1:4));
+          let body=info?indicators(info):'',rels=[];
+          if(includeNote){body+=shape('Notes surface',.64,2.03,4.43,4.81,palette.surface)+text('Personal notes',.78,2.2,4.1,4.45,notePages[0],1380,{color:palette.ink});}
+          for(const [index,photo] of chunk.entries()){
+            const col=index%2,row=Math.floor(index/2),box=includeNote?{x:5.35,y:2.03,w:7.25,h:4.8}:{x:.65+col*6.05,y:2.03+row*2.43,w:5.85,h:2.28};
+            const caption=[photo.caption,photo.note].filter(Boolean).join(' · '),capH=caption?.45:0,fit=fitInBox(photo.width,photo.height,box.x,box.y,box.w,box.h-capH-.06),rel=`rId${rels.length+2}`;
+            rels.push({rId:rel,file:photo.file});body+=pptPicture(nextShapeId++,rel,fit.x,fit.y,fit.w,fit.h,photo.caption||'Conference photograph',false);
+            if(caption)body+=text('Photograph caption',box.x,box.y+box.h-capH,box.w,capH,caption.slice(0,105),950,{color:palette.ink});
+            if(caption.length>105)addTextPages('Photograph details',title,date,caption,null);
+          }
+          brandSlide(offset?`${title} · photographs continued`:title,meta,date,body,rels);
+        }
+        for(let i=1;i<notePages.length;i++)addTextPages(`${title} · notes continued`,meta,date,notePages[i],info);
+      };
+      for(const item of items){const info=item.info||{},photos=await preparePhotos(item.photos||[]),titlePages=chunksOf(info.title||'Conference programme',90);for(let i=1;i<titlePages.length;i++)addTextPages('Presentation title · continued',info.meta||'',info.date||'',titlePages[i],info);addBrandedPhotoSlides(titlePages.length>1?`${titlePages[0]}…`:info.title||'Conference programme',metaParts(info)||info.meta||'',info.date||'',photos,String(item.note||'').trim(),info);}
+      for(let offset=0;offset<friendRows.length;offset+=2){let body='';const chunk=friendRows.slice(offset,offset+2);for(const [index,contact] of chunk.entries()){
+        const y=1.63+index*2.62,avatar=avatarColors(contact.avatarColor),avatarBg=hexColor(avatar.background,DEFAULT_AVATAR_COLOR),avatarInk=hexColor(avatar.silhouette,'#FFFFFF');
+        body+=shape('Profile surface',.64,y,12.04,2.42,palette.surface)+shape('Avatar background',.83,y+.22,.84,.84,avatarBg,{geometry:'ellipse'})+shape('Avatar head',1.13,y+.39,.24,.24,avatarInk,{geometry:'ellipse'})+shape('Avatar shoulders',1.02,y+.66,.46,.24,avatarInk,{geometry:'ellipse'});
+        body+=text('Friend name',1.85,y+.17,10.3,.48,contact.name||'Contact',1900,{bold:true,heading:true})+text('Affiliation',1.86,y+.66,10.2,.36,contact.affiliation||'',1060,{color:palette.muted});
+        const related=activities.filter(activity=>(activity.friendIds||[]).includes(contact.id));
+        let lineY=y+1.19;for(const activity of related.slice(0,2)){const color=resolveDayColor(BRANDING,activity.date);body+=shape('Activity day',1.88,lineY+.06,.055,.25,color)+text('Conference activity',2.02,lineY,10.1,.37,[activity.date,activity.start,activity.role,activity.title].filter(Boolean).join(' · ').slice(0,125),940,{color:palette.ink});lineY+=.45;}
+        if(related.length>2)body+=text('More activities',1.89,y+2.06,10,.23,`and ${related.length-2} more conference activities`,860,{color:palette.muted});
+      }brandSlide('Friend Book','Saved conference contacts','',body);}
+      for(let offset=0;offset<activities.length;offset+=4){const chunk=activities.slice(offset,offset+4);let body='';for(const [index,activity] of chunk.entries()){const y=1.72+index*1.23,day=resolveDayColor(BRANDING,activity.date),track=hexColor(BRANDING.trackColors?.[activity.trackId],palette.secondary),room=hexColor(BRANDING.locationColors?.[activity.locationId],palette.accent);body+=shape('Activity surface',.65,y,12.02,1.08,palette.surface)+shape('Activity day color',.65,y,.055,1.08,day)+text('Activity title',.84,y+.08,11.4,.42,`${activity.posterNumber?`Poster ${activity.posterNumber}: `:''}${activity.title||'Conference activity'}`,1450,{bold:true})+shape('Track marker',.89,y+.6,.055,.24,track)+shape('Location marker',1.01,y+.6,.055,.24,room)+text('Activity details',1.18,y+.55,11.25,.39,[activity.role,activity.type,activity.date,activity.start,activity.location,(activity.friends||[]).join(', ')].filter(Boolean).join(' · '),940,{color:palette.muted});}brandSlide("Friends' conference activities",'',chunk[0]?.date||'',body);}
+      for(const entry of privateRows){const pages=chunksOf((entry.fields||[]).join('\n'),550);for(const [index,page] of pages.entries())addTextPages(`${entry.name} · personal notes${index?' continued':''}`,'Private Friend Book memories','',page,null);const photos=await preparePhotos(entry.photos||[]);addBrandedPhotoSlides(`${entry.name} · photographs`,'Private Friend Book memories','',photos);}
+    }
 
     const slideCount = slideData.length;
     if(utu){
@@ -2420,7 +2520,7 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     files.push({name:"ppt/viewProps.xml", data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:viewPr xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>`});
     files.push({name:"ppt/tableStyles.xml", data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><a:tblStyleLst xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" def="{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}"/>`});
     if(!utu){
-      files.push({name:"ppt/theme/theme1.xml", data:themeXml()});
+      files.push({name:"ppt/theme/theme1.xml", data:themeXml(palette)});
       files.push({name:"ppt/slideMasters/slideMaster1.xml", data:slideMasterXml()});
       files.push({name:"ppt/slideMasters/_rels/slideMaster1.xml.rels", data:`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/></Relationships>`});
       files.push({name:"ppt/slideLayouts/slideLayout1.xml", data:slideLayoutXml()});
@@ -2437,6 +2537,34 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
   }
 
   let pptxExportData=null;
+  function selectedPptxAppearance(){
+    const choice=$('#exportPptxAppearance')?.value||'match';
+    return choice==='match'?(document.documentElement.dataset.theme==='dark'?'dark':'light'):choice;
+  }
+
+  function renderPptxPreview(){
+    const root=$('#exportPptxPreview');if(!root)return;
+    const utu=$('#exportPptxTemplate')?.value==='utu',palette=presentationPalette(BRANDING,selectedPptxAppearance());
+    $('#exportPptxAppearanceRow').hidden=utu;$('#exportPptxAppearance').disabled=utu;
+    root.replaceChildren();
+    root.style.setProperty('--preview-bg',utu?'#e9e3cf':palette.bg);
+    root.style.setProperty('--preview-ink',utu?'#004a43':palette.ink);
+    root.style.setProperty('--preview-header',utu?'#004a43':palette.header);
+    root.style.setProperty('--preview-header-ink',utu?'#ffffff':palette.headerInk);
+    root.style.setProperty('--preview-accent',utu?'#004a43':palette.accentText);
+    root.style.setProperty('--preview-day',resolveDayColor(BRANDING,CONFERENCE.startDate));
+    root.style.setProperty('--preview-heading',utu?'Playfair Display SemiBold':palette.headingFont);
+    root.style.setProperty('--preview-body',utu?'Noto Sans':palette.bodyFont);
+    const slide=(kind,title,detail)=>{const el=document.createElement('div');el.className=`presentation-preview-slide ${kind}${utu?' utu':''}`;const rule=document.createElement('span');rule.className='preview-rule';el.append(rule);const heading=document.createElement('strong');heading.textContent=title;el.append(heading);const small=document.createElement('small');small.textContent=detail;el.append(small);root.append(el);return el;};
+    const cover=slide('cover',CONFERENCE.name||'Conference','Personal conference archive');
+    if(utu){const label=document.createElement('small');label.className='preview-university';label.textContent='University of Turku';cover.insertBefore(label,cover.querySelector('strong'));}
+    const source=selectedPptxAppearance()==='dark'?(BRANDING.logoDark||BRANDING.logoLight||BRANDING.logo):(BRANDING.logoLight||BRANDING.logoDark||BRANDING.logo);
+    if(!utu&&source&&!/^https?:/i.test(source)){const img=document.createElement('img');img.src=packageAssetUrl(source);img.alt='Conference logo';cover.insertBefore(img,cover.querySelector('strong'));}
+    const content=slide('content',pptxExportData?.items?.[0]?.info?.title||'Programme notes','Speaker · date and time · location');
+    const marker=document.createElement('span');marker.className='preview-tag';marker.textContent='Day 1 · Programme';content.insertBefore(marker,content.querySelector('strong'));
+    if($('#exportPptxFriends')?.checked){const profile=slide('content','Friend Book','Saved contacts and conference activities');profile.querySelector('.preview-rule').style.background=DEFAULT_AVATAR_COLOR;}
+  }
+
   function updatePptxOptionState(){
     const data=pptxExportData;if(!data)return;
     const friendsSelected=$('#exportPptxFriends').checked;
@@ -2454,15 +2582,18 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     if(friendsSelected&&!data.contacts.length)selectedEmpty.push('Friend Book has no saved contacts');
     if($('#exportPptxPrivate').checked&&!data.privateCount)selectedEmpty.push('No private contact content is available');
     $('#exportPptxStatus').textContent=selectedEmpty.join('. ')+(selectedEmpty.length?'.':'');
+    renderPptxPreview();
   }
 
   async function openPptxExportOptions(){
     const dialog=$('#exportPptxDialog');if(!dialog)return;
-    const templateSelect=$('#exportPptxTemplate'),templateKey=`conferenceCompanion:${storageId}:presentation-template:v1`;
+    const templateSelect=$('#exportPptxTemplate'),templateKey=`conferenceCompanion:${storageId}:presentation-template:v1`,appearanceKey=`conferenceCompanion:${storageId}:presentation-appearance:v1`;
     try{const saved=localStorage.getItem(templateKey);templateSelect.value=saved==='utu'?'utu':'standard';}catch{templateSelect.value='standard';}
+    try{const saved=localStorage.getItem(appearanceKey);$('#exportPptxAppearance').value=['light','dark'].includes(saved)?saved:'match';}catch{$('#exportPptxAppearance').value='match';}
     $('#exportPptxProgramme').checked=true;$('#exportPptxFriends').checked=false;$('#exportPptxPrivate').checked=false;$('#exportPptxPrivate').disabled=true;
     $('#exportPptxStatus').textContent='Checking available content…';$('#exportPptxConfirm').disabled=true;
     if(!dialog.open)dialog.showModal();
+    renderPptxPreview();
     try{
       const [items,friendData]=await Promise.all([collectNotesPhotosForPptx(),Promise.resolve(friendPublicArchiveData())]);
       const privateRows=friendPrivateArchiveData();
@@ -2484,7 +2615,9 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     try{
       const template=$('#exportPptxTemplate').value==='utu'?'utu':'standard';
       try{localStorage.setItem(`conferenceCompanion:${storageId}:presentation-template:v1`,template);}catch{}
-      const pptx=await makeConferencePptx({items,friendRows:contacts,activities,privateRows,template});
+      const appearance=selectedPptxAppearance();
+      try{localStorage.setItem(`conferenceCompanion:${storageId}:presentation-appearance:v1`,$('#exportPptxAppearance').value);}catch{}
+      const pptx=await makeConferencePptx({items,friendRows:contacts,activities,privateRows,template,appearance});
       const anchor=document.createElement('a'),url=URL.createObjectURL(pptx);anchor.href=url;
       anchor.download=`${safeFilenamePart(CONFERENCE.id||CONFERENCE.name||'conference')}-conference-presentation-${new Date().toISOString().slice(0,10)}.pptx`;
       anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);$('#exportPptxDialog').close();toast('Conference presentation exported');
@@ -3237,7 +3370,8 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
     $("#exportBtn").addEventListener("click",exportState);
     $("#exportPptxBtn").addEventListener("click",openPptxExportOptions);
     ['#exportPptxProgramme','#exportPptxFriends','#exportPptxPrivate'].forEach(selector=>$(selector)?.addEventListener('change',updatePptxOptionState));
-    $('#exportPptxTemplate')?.addEventListener('change',()=>{try{localStorage.setItem(`conferenceCompanion:${storageId}:presentation-template:v1`,$('#exportPptxTemplate').value==='utu'?'utu':'standard');}catch{}});
+    $('#exportPptxTemplate')?.addEventListener('change',()=>{try{localStorage.setItem(`conferenceCompanion:${storageId}:presentation-template:v1`,$('#exportPptxTemplate').value==='utu'?'utu':'standard');}catch{}renderPptxPreview();});
+    $('#exportPptxAppearance')?.addEventListener('change',()=>{try{localStorage.setItem(`conferenceCompanion:${storageId}:presentation-appearance:v1`,$('#exportPptxAppearance').value);}catch{}renderPptxPreview();});
     $('#exportPptxConfirm')?.addEventListener('click',exportConferencePresentation);
     $('#exportPptxCancel')?.addEventListener('click',()=>$('#exportPptxDialog').close());
     $('#exportPptxClose')?.addEventListener('click',()=>$('#exportPptxDialog').close());
@@ -3563,7 +3697,7 @@ import {aggregateFriendActivities} from './src/friend-activities.js';
       else if(currentModal.type==='poster')togglePosterFavorite(currentModal.id);
     });
 
-    matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change",()=>{if(state.theme==="system")applyTheme();});
+    matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change",()=>{if(state.theme==="system"){applyTheme();if($('#exportPptxDialog')?.open)renderPptxPreview();}});
     matchMedia("(display-mode: standalone)").addEventListener?.("change",updateInstallUI);
     document.addEventListener("visibilitychange",()=>{if(document.hidden&&($("#qrScanDialog")?.open||qrScanner))stopFriendQrScan();});
     window.addEventListener("pagehide",()=>stopFriendQrScan());

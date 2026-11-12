@@ -10,6 +10,7 @@ import {mergePersonProfilesMany,identityReviewGroups,applyPersonIdentityDecision
 import {describeValidationMessage} from './validation-ui.js';
 import {validatePackage} from '../validation.js';
 import {validatePackageSchemas} from '../json-schema.js';
+import {automaticDayColor,conferenceDates,hexColor,resolveDayColor} from '../branding-colors.js';
 
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const FIELDS=['date','start','end','type','session','title','speaker','chair','affiliation','location','track','posterNumber','abstract','doi'];
@@ -17,13 +18,14 @@ const MAPPING_FIELDS=[...FIELDS,'speakerId','chairId'];
 const LABELS={date:'Date',start:'Start',end:'End',type:'Type',session:'Session',title:'Title',speaker:'Speaker / author',chair:'Chair',affiliation:'Affiliation',location:'Location',track:'Track',posterNumber:'Poster #',abstract:'Abstract',doi:'DOI / link',speakerId:'Speaker / author ID (optional)',chairId:'Chair ID (optional)'};
 const defaults={
   conference:{name:'',shortName:'',startDate:'',endDate:'',timezone:'Europe/Helsinki',city:'',country:'',officialWebsite:'',contactEmail:'',venueName:'',venueAddress:''},
-  rows:[],features:{photos:true,notes:true,pptxExport:true,friendBook:true,calendarExport:true,announcements:true},policy:{requireAffiliation:false,requireAbstract:false,requireChair:false},branding:{primary:'#5b4b9a',secondary:'#2f7d68',accent:'#5b4b9a',trackColors:{},locationColors:{},headerStyle:'combined',brandMode:'combined',defaultAppearance:'light',previewAppearance:'light',headingFont:'inter',bodyFont:'inter',headerBackgroundLight:'#ffffff',headerBackgroundDark:'#191a1d',logoAlignment:'left',logoSize:36},peopleOverrides:{},locationOverrides:{},sessionOverrides:{},peoplePhotos:{},extraPeople:[],extraLocations:[],announcements:[],deletedSourceIds:[],sourceFiles:[],dataVersion:1,lastPublishedVersion:0,lastExportedVersion:0,confirmedPublications:[],changelog:[],releaseMessage:'Initial Builder release',sourceState:[],mapping:{},identityRegistry:{people:{},locations:{},tracks:{}},identityDecisions:{pairs:{}},logo:null,logoLight:null,logoDark:null,appIcon:null,sponsorFiles:[]
+  rows:[],features:{photos:true,notes:true,pptxExport:true,friendBook:true,calendarExport:true,announcements:true},policy:{requireAffiliation:false,requireAbstract:false,requireChair:false},branding:{primary:'#5b4b9a',secondary:'#2f7d68',accent:'#5b4b9a',trackColors:{},locationColors:{},dayColors:{},headerStyle:'combined',brandMode:'combined',defaultAppearance:'light',previewAppearance:'light',headingFont:'inter',bodyFont:'inter',headerBackgroundLight:'#ffffff',headerBackgroundDark:'#191a1d',logoAlignment:'left',logoSize:36},peopleOverrides:{},locationOverrides:{},sessionOverrides:{},peoplePhotos:{},extraPeople:[],extraLocations:[],announcements:[],deletedSourceIds:[],sourceFiles:[],dataVersion:1,lastPublishedVersion:0,lastExportedVersion:0,confirmedPublications:[],changelog:[],releaseMessage:'Initial Builder release',sourceState:[],mapping:{},identityRegistry:{people:{},locations:{},tracks:{}},identityDecisions:{pairs:{}},logo:null,logoLight:null,logoDark:null,appIcon:null,sponsorFiles:[]
 };
 const FONT_CHOICES=[['inter','Inter'],['source-sans-3','Source Sans 3'],['space-grotesk','Space Grotesk'],['ibm-plex-sans','IBM Plex Sans'],['ibm-plex-sans-condensed','IBM Plex Sans Condensed'],['noto-serif','Noto Serif']];
 const FONT_STACK=Object.fromEntries(FONT_CHOICES.map(([key,label])=>[key,"'"+label+"',system-ui,sans-serif"]));
 const LEGACY_FONT=value=>value==='serif'?'noto-serif':value==='condensed'?'ibm-plex-sans-condensed':'inter';
 function normalizeBranding(source={}){
   const b={...structuredClone(defaults.branding),...(source||{})};
+  b.dayColors={...(source?.dayColors||{})};
   if(!Object.hasOwn(source||{},'defaultAppearance'))b.defaultAppearance=source?.darkMode===true?'dark':source?.darkMode===false?'system':'light';
   if(!Object.hasOwn(source||{},'brandMode'))b.brandMode=source?.headerStyle==='logo'?'logo':'combined';
   if(!Object.hasOwn(source||{},'headingFont'))b.headingFont=LEGACY_FONT(source?.typography);
@@ -60,7 +62,7 @@ function initWizard(){
   setStep(project.activeStep||1);
 }
 function bindConfig(){
-  $$('[data-config]').forEach(input=>{input.value=project.conference[input.dataset.config]||'';input.addEventListener('input',()=>{project.conference[input.dataset.config]=input.value;scheduleSave();renderDerived();});});
+  $$('[data-config]').forEach(input=>{input.value=project.conference[input.dataset.config]||'';input.addEventListener('input',()=>{project.conference[input.dataset.config]=input.value;if(input.dataset.config==='startDate'||input.dataset.config==='endDate'){renderDayColors();updateBrandingPreviews();}scheduleSave();renderDerived();});});
   $$('[data-feature]').forEach(input=>{input.checked=project.features[input.dataset.feature]!==false;input.addEventListener('change',()=>{project.features[input.dataset.feature]=input.checked;scheduleSave();renderDerived();});});
   $$('[data-policy]').forEach(input=>{input.checked=!!project.policy?.[input.dataset.policy];input.addEventListener('change',()=>{project.policy={...(project.policy||{}),[input.dataset.policy]:input.checked};scheduleSave();renderDerived();});});
   $('#primaryColor').value=project.branding.primary;$('#secondaryColor').value=project.branding.secondary;$('#accentColor').value=project.branding.accent;
@@ -85,16 +87,33 @@ function updateContrastWarnings(){
 }
 function updateBrandingPreviews(){
   const root=$('#brandingPreviews');if(!root)return;for(const url of brandingPreviewUrls)URL.revokeObjectURL(url);brandingPreviewUrls=[];
-  const b=project.branding,c=project.conference,track=Object.values(b.trackColors||{})[0]||b.secondary,room=Object.values(b.locationColors||{})[0]||b.primary;
+  const b=project.branding,c=project.conference,track=Object.values(b.trackColors||{})[0]||b.secondary,room=Object.values(b.locationColors||{})[0]||b.primary,day=resolveDayColor(b,c.startDate);
   const logos={light:brandingAssetUrl(project.logoLight||project.logo||project.logoDark),dark:brandingAssetUrl(project.logoDark||project.logoLight||project.logo)};
   const heading=FONT_STACK[b.headingFont]||FONT_STACK.inter,body=FONT_STACK[b.bodyFont]||FONT_STACK.inter,mode=b.brandMode||'combined';
   let html='';
   for(const theme of ['light','dark']){
     const dark=theme==='dark',bg=dark?b.headerBackgroundDark:b.headerBackgroundLight,ink=contrastText(bg),logo=logos[theme];
     const sponsorHtml=normalizeSponsorFiles(project.sponsorFiles||[]).map(item=>{const src=brandingAssetUrl(item[theme]||item.light||item.dark);return src?'<img src="'+src+'" alt="'+escapeHtml(item.name)+'" style="height:'+item.height+'px">':'';}).join('');
-    html+='<article class="brand-theme-card '+(dark?'dark':'light')+'" data-theme="'+theme+'" style="--preview-bg:'+(dark?'#111216':'#f5f6f8')+';--preview-surface:'+(dark?'#1c1e23':'#fff')+';--preview-ink:'+(dark?'#f5f5f7':'#17181c')+';--preview-muted:'+(dark?'#b8bbc5':'#626571')+';--preview-header:'+bg+';--preview-header-ink:'+ink+';--preview-primary:'+b.primary+';--preview-primary-ink:'+contrastText(b.primary)+';--preview-secondary:'+b.secondary+';--preview-secondary-ink:'+contrastText(b.secondary)+';--preview-accent:'+b.accent+';--preview-track:'+track+';--preview-room:'+room+';--preview-heading:'+heading+';--preview-body:'+body+'"><header class="brand-theme-header" data-mode="'+mode+'" data-align="'+b.logoAlignment+'">'+(logo&&mode!=='text'?'<img src="'+logo+'" alt="'+theme+' theme logo" style="height:'+b.logoSize+'px">':'')+'<div class="brand-theme-name"><strong>'+escapeHtml(c.shortName||c.name||'Conference name')+'</strong><small>'+escapeHtml(c.city||'Conference location')+'</small></div></header><div class="brand-theme-content"><nav><span>Programme</span><span>Posters</span><span>My Schedule</span></nav><h4>'+escapeHtml(c.name||'Conference programme')+'</h4><div class="brand-example-card"><small>09:30 · '+escapeHtml(c.startDate||'Programme date')+'</small><strong>Scientific programme example</strong><p>Dr. Renée Åström · ΔE / β-catenin · Room 2</p><div class="brand-chips"><span>Track</span><span>Room</span></div></div><div class="brand-theme-actions"><button>Primary action</button><button class="secondary">Secondary</button><span>Accent</span></div><div class="brand-theme-sponsors">'+(sponsorHtml||'<small>Sponsor marks appear here</small>')+'</div></div></article>';
+    html+='<article class="brand-theme-card '+(dark?'dark':'light')+'" data-theme="'+theme+'" style="--preview-bg:'+(dark?'#111216':'#f5f6f8')+';--preview-surface:'+(dark?'#1c1e23':'#fff')+';--preview-ink:'+(dark?'#f5f5f7':'#17181c')+';--preview-muted:'+(dark?'#b8bbc5':'#626571')+';--preview-header:'+bg+';--preview-header-ink:'+ink+';--preview-primary:'+b.primary+';--preview-primary-ink:'+contrastText(b.primary)+';--preview-secondary:'+b.secondary+';--preview-secondary-ink:'+contrastText(b.secondary)+';--preview-accent:'+b.accent+';--preview-day:'+day+';--preview-track:'+track+';--preview-room:'+room+';--preview-heading:'+heading+';--preview-body:'+body+'"><header class="brand-theme-header" data-mode="'+mode+'" data-align="'+b.logoAlignment+'">'+(logo&&mode!=='text'?'<img src="'+logo+'" alt="'+theme+' theme logo" style="height:'+b.logoSize+'px">':'')+'<div class="brand-theme-name"><strong>'+escapeHtml(c.shortName||c.name||'Conference name')+'</strong><small>'+escapeHtml(c.city||'Conference location')+'</small></div></header><div class="brand-theme-content"><nav><span>Programme</span><span>Posters</span><span>My Schedule</span></nav><h4>'+escapeHtml(c.name||'Conference programme')+'</h4><div class="brand-example-card"><small>09:30 · '+escapeHtml(c.startDate||'Programme date')+'</small><strong>Scientific programme example</strong><p>Dr. Renée Åström · ΔE / β-catenin · Room 2</p><div class="brand-chips"><span>Track</span><span>Room</span></div></div><div class="brand-theme-actions"><button>Primary action</button><button class="secondary">Secondary</button><span>Accent</span></div><div class="brand-theme-sponsors">'+(sponsorHtml||'<small>Sponsor marks appear here</small>')+'</div></div></article>';
   }
   root.innerHTML=html;updateContrastWarnings();
+}
+function renderDayColors(){
+  const root=$('#dayColorList');if(!root)return;
+  const dates=conferenceDates(project.conference);
+  root.innerHTML=dates.length?dates.map((date,index)=>{
+    const explicit=hexColor(project.branding.dayColors?.[date]);
+    return `<div class="day-color-row"><div><strong>Day ${index+1}</strong><span>${escapeHtml(date)}</span></div><input type="color" data-day-color="${date}" aria-label="Color for conference day ${index+1}, ${date}" value="${explicit||automaticDayColor(date)}"><button type="button" data-reset-day-color="${date}" ${explicit?'':'disabled'}>Reset to automatic</button></div>`;
+  }).join(''):'<p class="muted">Set the conference start and end dates to configure day colors.</p>';
+  root.querySelectorAll('[data-day-color]').forEach(input=>input.addEventListener('input',()=>{
+    project.branding.dayColors={...(project.branding.dayColors||{}),[input.dataset.dayColor]:input.value};
+    root.querySelector(`[data-reset-day-color="${input.dataset.dayColor}"]`).disabled=false;
+    scheduleSave();updateBrandingPreviews();renderDerivedDebounced();
+  }));
+  root.querySelectorAll('[data-reset-day-color]').forEach(button=>button.addEventListener('click',()=>{
+    const colors={...(project.branding.dayColors||{})};delete colors[button.dataset.resetDayColor];project.branding.dayColors=colors;
+    renderDayColors();scheduleSave();updateBrandingPreviews();renderDerivedDebounced();
+  }));
 }
 function syncBrandingControls(){
   const b=project.branding;for(const [id,key] of [['primaryColor','primary'],['secondaryColor','secondary'],['accentColor','accent'],['headerStyle','brandMode'],['defaultAppearance','defaultAppearance'],['brandingPreviewAppearance','previewAppearance'],['logoAlignment','logoAlignment'],['logoSize','logoSize'],['headerBackgroundLight','headerBackgroundLight'],['headerBackgroundDark','headerBackgroundDark'],['headingFont','headingFont'],['bodyFont','bodyFont']])if($('#'+id))$('#'+id).value=b[key]??'';
@@ -109,7 +128,7 @@ function renderSponsorAssets(){
 async function chooseThemeLogo(theme,file){const key=theme==='light'?'logoLight':'logoDark';pendingPreviewAssets++;try{project[key]=file?await assetFromFile(file):null;if(theme==='light'&&!file)project.logo=null;scheduleSave();syncBrandingControls();updateBrandingPreviews();}finally{finishPreviewAssetRead();}}
 function setupBrandingEditor(){
   const choices=FONT_CHOICES.map(([value,label])=>'<option value="'+value+'">'+label+'</option>').join('');$('#headingFont').innerHTML=choices;$('#bodyFont').innerHTML=choices;
-  project.branding=normalizeBranding(project.branding);project.sponsorFiles=normalizeSponsorFiles(project.sponsorFiles||[]);syncBrandingControls();renderSponsorAssets();updateBrandingPreviews();
+  project.branding=normalizeBranding(project.branding);project.sponsorFiles=normalizeSponsorFiles(project.sponsorFiles||[]);syncBrandingControls();renderSponsorAssets();renderDayColors();updateBrandingPreviews();
   const store=(key,value)=>{project.branding[key]=value;if(key==='defaultAppearance')delete project.branding.darkMode;if(key==='brandMode')project.branding.headerStyle=value;if(key==='previewAppearance')$('#previewAppearance').value=value;scheduleSave();updateBrandingPreviews();renderDerived();if(key==='previewAppearance'&&activeStep===8)refreshPreview();};
   [['primaryColor','primary'],['secondaryColor','secondary'],['accentColor','accent'],['headerBackgroundLight','headerBackgroundLight'],['headerBackgroundDark','headerBackgroundDark']].forEach(([id,key])=>$('#'+id).addEventListener('input',e=>store(key,e.target.value)));
   [['headerStyle','brandMode'],['defaultAppearance','defaultAppearance'],['brandingPreviewAppearance','previewAppearance'],['logoAlignment','logoAlignment'],['headingFont','headingFont'],['bodyFont','bodyFont']].forEach(([id,key])=>$('#'+id).addEventListener('change',e=>store(key,e.target.value)));
@@ -123,7 +142,7 @@ function setupBrandingEditor(){
   $('#sponsorAssetList').addEventListener('click',event=>{const button=event.target.closest('[data-sponsor-clear]');if(!button)return;const row=button.closest('[data-sponsor-index]');project.sponsorFiles[Number(row.dataset.sponsorIndex)][button.dataset.sponsorClear]=null;scheduleSave();renderSponsorAssets();updateBrandingPreviews();renderDerived();});
   $('#sponsorAssetList').addEventListener('change',async event=>{const input=event.target.closest('[data-sponsor-file]');if(!input)return;const index=Number(input.closest('[data-sponsor-index]').dataset.sponsorIndex);pendingPreviewAssets++;try{project.sponsorFiles[index][input.dataset.sponsorFile]=await assetFromFile(input.files?.[0]);scheduleSave();renderSponsorAssets();updateBrandingPreviews();}finally{finishPreviewAssetRead();}});
   $('#sponsorAssetList').addEventListener('input',event=>{const row=event.target.closest('[data-sponsor-index]');if(!row)return;const item=project.sponsorFiles[Number(row.dataset.sponsorIndex)];if(event.target.matches('[data-sponsor-name]'))item.name=event.target.value;if(event.target.matches('[data-sponsor-height]'))item.height=Math.max(20,Math.min(120,Number(event.target.value)||48));scheduleSave();updateBrandingPreviews();renderDerivedDebounced();});
-  $('#resetBranding').addEventListener('click',()=>{const keep={trackColors:project.branding.trackColors||{},locationColors:project.branding.locationColors||{}};project.branding={...structuredClone(defaults.branding),...keep};syncBrandingControls();scheduleSave();updateBrandingPreviews();renderDerived();});
+  $('#resetBranding').addEventListener('click',()=>{const keep={trackColors:project.branding.trackColors||{},locationColors:project.branding.locationColors||{},dayColors:project.branding.dayColors||{}};project.branding={...structuredClone(defaults.branding),...keep};syncBrandingControls();renderDayColors();scheduleSave();updateBrandingPreviews();renderDerived();});
   $('#brandingPreset').addEventListener('change',event=>{const presets={indigo:['#4d46a8','#237c75','#bc3f74'],ocean:['#145c91','#147b78','#df633d'],forest:['#246b50','#7c6725','#a74632'],mono:['#24262c','#565b66','#0a6fa6']},values=presets[event.target.value];if(!values)return;[project.branding.primary,project.branding.secondary,project.branding.accent]=values;syncBrandingControls();scheduleSave();updateBrandingPreviews();renderDerived();});
 }
 

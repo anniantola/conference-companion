@@ -379,7 +379,9 @@
   <dialog id="exportPptxDialog" class="export-options-dialog" aria-labelledby="exportPptxTitle">
     <div class="export-options-card">
       <div class="modal-top"><strong id="exportPptxTitle">Export conference presentation</strong><button id="exportPptxClose" class="icon-btn ghost" type="button" aria-label="Close export options">×</button></div>
-      <label class="export-template-choice" for="exportPptxTemplate"><strong>Presentation template</strong><select id="exportPptxTemplate"><option value="standard">Standard conference template</option><option value="utu">University of Turku</option></select></label>
+      <label class="export-template-choice" for="exportPptxTemplate"><strong>Presentation template</strong><select id="exportPptxTemplate"><option value="standard">Conference branding</option><option value="utu">University of Turku</option></select></label>
+      <label class="export-template-choice" id="exportPptxAppearanceRow" for="exportPptxAppearance"><strong>Presentation appearance</strong><select id="exportPptxAppearance"><option value="match">Match app appearance</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+      <div id="exportPptxPreview" class="presentation-preview" aria-label="Presentation preview"></div>
       <label class="export-option"><input id="exportPptxProgramme" type="checkbox" checked><span><strong>Programme notes and photos</strong><small id="exportPptxProgrammeStatus">Checking available notes and photos…</small></span></label>
       <label class="export-option"><input id="exportPptxFriends" type="checkbox"><span><strong>Friend Book and conference activities</strong><small id="exportPptxFriendsStatus">Checking saved contacts…</small></span></label>
       <label class="export-option export-option-private"><input id="exportPptxPrivate" type="checkbox" disabled><span><strong>Private contact notes and photographs</strong><small id="exportPptxPrivateStatus">Includes notes, meeting context, contact details, and private gallery photographs. Select Friend Book to enable.</small></span></label>
