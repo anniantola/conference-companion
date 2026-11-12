@@ -2465,25 +2465,26 @@ import {resolveDayColor,hexColor,readableColor,presentationPalette,brandingFont}
         const pages=chunksOf(content,550);
         for(let i=0;i<pages.length;i++){const page=pages[i],panelHeight=Math.min(4.85,Math.max(1.45,textBlockHeight(page,88,.34,4.45)+.42));let body=info?indicators(info):'';body+=shape('Notes surface',.62,2.05,12.08,panelHeight,palette.surface)+shape('Notes accent',.62,2.05,.045,panelHeight,palette.secondary)+text('Editable notes',.85,2.22,11.5,panelHeight-.32,page,1550,{color:palette.ink});brandSlide(`${title}${i?' · continued':''}`,meta,date,body);}
       };
-      const addBrandedPhotoSlides=(title,meta,date,photos,note='',info=null)=>{
+      const addBrandedPhotoSlides=(title,meta,date,photos,note='',info=null,originalTitle='')=>{
         const notePages=chunksOf(note,photos.length?380:550);
         if(!photos.length){addTextPages(title,meta,date,note,info);return;}
         for(let offset=0;offset<photos.length;offset+=notePages.length&&offset===0?1:4){
           const includeNote=offset===0&&notePages.length>0,chunk=photos.slice(offset,offset+(includeNote?1:4));
-          let body=info?indicators(info):'',rels=[];
+          let body=info?indicators(info):'',rels=[],details=[];
           if(includeNote){body+=shape('Notes surface',.64,2.03,4.43,4.81,palette.surface)+text('Personal notes',.78,2.2,4.1,4.45,notePages[0],1380,{color:palette.ink});}
           for(const [index,photo] of chunk.entries()){
-            const col=index%2,row=Math.floor(index/2),box=includeNote?{x:5.35,y:2.03,w:7.25,h:4.8}:{x:.65+col*6.05,y:2.03+row*2.43,w:5.85,h:2.28};
-            const caption=[photo.caption,photo.note].filter(Boolean).join(' · '),capH=caption?.45:0,fit=fitInBox(photo.width,photo.height,box.x,box.y,box.w,box.h-capH-.06),rel=`rId${rels.length+2}`;
+            const col=index%2,row=Math.floor(index/2),box=includeNote?{x:5.35,y:2.03,w:7.25,h:4.8}:chunk.length===1?{x:.65,y:2.03,w:12.0,h:4.8}:chunk.length===2?{x:.65+col*6.05,y:2.03,w:5.85,h:4.8}:{x:.65+col*6.05,y:2.03+row*2.43,w:5.85,h:2.28};
+            const caption=[photo.caption,photo.note].filter(Boolean).join(' · '),titleAlreadyShown=originalTitle.length>110&&photo.caption===originalTitle,visibleCaption=titleAlreadyShown?photo.note:caption,capH=visibleCaption?.45:0,fit=fitInBox(photo.width,photo.height,box.x,box.y,box.w,box.h-capH-.06),rel=`rId${rels.length+2}`;
             rels.push({rId:rel,file:photo.file});body+=pptPicture(nextShapeId++,rel,fit.x,fit.y,fit.w,fit.h,photo.caption||'Conference photograph',false);
-            if(caption)body+=text('Photograph caption',box.x,box.y+box.h-capH,box.w,capH,caption.slice(0,105),950,{color:palette.ink});
-            if(caption.length>105)addTextPages('Photograph details',title,date,caption,null);
+            if(visibleCaption)body+=text('Photograph caption',chunk.length===1&&!includeNote?fit.x:box.x,box.y+box.h-capH,chunk.length===1&&!includeNote?fit.w:box.w,capH,visibleCaption.slice(0,105),950,{color:palette.ink});
+            if(visibleCaption.length>105)details.push(titleAlreadyShown?photo.note:caption);
           }
           brandSlide(offset?`${title} · photographs continued`:title,meta,date,body,rels);
+          for(const detail of details)addTextPages('Photograph details',title,date,detail,null);
         }
         for(let i=1;i<notePages.length;i++)addTextPages(`${title} · notes continued`,meta,date,notePages[i],info);
       };
-      for(const item of items){const info=item.info||{},photos=await preparePhotos(item.photos||[]),titlePages=chunksOf(info.title||'Conference programme',90);for(let i=1;i<titlePages.length;i++)addTextPages('Presentation title · continued',info.meta||'',info.date||'',titlePages[i],info);addBrandedPhotoSlides(titlePages.length>1?`${titlePages[0]}…`:info.title||'Conference programme',metaParts(info)||info.meta||'',info.date||'',photos,String(item.note||'').trim(),info);}
+      for(const item of items){const info=item.info||{},photos=await preparePhotos(item.photos||[]),fullTitle=info.title||'Conference programme',longTitle=fullTitle.length>110;if(longTitle)addTextPages('Presentation title',info.meta||'',info.date||'',fullTitle,info);addBrandedPhotoSlides(longTitle?`${fullTitle.slice(0,107)}…`:fullTitle,metaParts(info)||info.meta||'',info.date||'',photos,String(item.note||'').trim(),info,fullTitle);}
       for(let offset=0;offset<friendRows.length;offset+=2){let body='';const chunk=friendRows.slice(offset,offset+2);for(const [index,contact] of chunk.entries()){
         const y=1.63+index*2.62,avatar=avatarColors(contact.avatarColor),avatarBg=hexColor(avatar.background,DEFAULT_AVATAR_COLOR),avatarInk=hexColor(avatar.silhouette,'#FFFFFF');
         body+=shape('Profile surface',.64,y,12.04,2.42,palette.surface)+shape('Avatar background',.83,y+.22,.84,.84,avatarBg,{geometry:'ellipse'})+shape('Avatar head',1.13,y+.39,.24,.24,avatarInk,{geometry:'ellipse'})+shape('Avatar shoulders',1.02,y+.66,.46,.24,avatarInk,{geometry:'ellipse'});
