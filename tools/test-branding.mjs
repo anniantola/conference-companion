@@ -52,4 +52,6 @@ try{
   assert.match(workflowText(),/repository: anniantola\/conference-companion/);
   assert.match(workflowText(),/run: npm run stage/);
 }finally{globalThis.fetch=oldFetch;}
+const attendeeCss=await readFile('styles.css','utf8');
+assert.match(attendeeCss,/\.conference-logo-fallback\{[^}]*color:var\(--header-text/,'Header fallback must use computed header text contrast in both themes');
 console.log('Branding regressions passed: legacy appearance/logo migration, theme assets, sponsor order, offline fonts and deployment parity');
