@@ -1633,7 +1633,11 @@ import {resolveDayColor,hexColor,readableColor,presentationPalette,brandingFont}
     const last = events.reduce((a,b)=>timeValue(a.end)>timeValue(b.end)?a:b, events[0]);
 
     if (now.date < DAYS[0].date) {
-      return {title:`Conference starts ${DAYS[0].weekday}`, sub:`First item ${DAYS[0].dateLabel} at ${first.start} · ${CONFERENCE.timezoneLabel || "Conference time"}`};
+      // The status card describes the selected day, not always day one.
+      return {
+        title:day.day===DAYS[0].day?`Conference starts ${day.weekday}`:`${day.weekday}, ${day.dateLabel}`,
+        sub:`First item ${day.dateLabel} at ${first.start} · ${CONFERENCE.timezoneLabel || "Conference time"}`
+      };
     }
     if (now.date > DAYS.at(-1).date) {
       return {title:"Conference finished", sub:"Your starred talks and posters remain saved on this device."};

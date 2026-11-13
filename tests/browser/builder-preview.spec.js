@@ -22,6 +22,20 @@ async function openPilotPreview(page,{expectReady=true}={}){
 }
 const previewValue=(page,callback)=>page.evaluate(callback);
 
+test('pre-conference preview status uses each selected day and its first item',async({page})=>{
+  // Keep the simulated current date before both programme days.
+  await page.clock.setFixedTime(new Date('2027-01-01T12:00:00Z'));
+  await openPilotPreview(page);
+  const status=page.frameLocator('#attendeePreview').locator('#statusCard');
+  await expect(status).toContainText('Conference starts Monday');
+  await expect(status).toContainText('First item 1 March at 09:00');
+  await page.locator('#previewDate').selectOption('2032-03-02');
+  await expect(status).toContainText('Tuesday, 2 March');
+  await expect(status).toContainText('First item 2 March at 10:00');
+  await expect(status).not.toContainText('Conference starts Monday');
+});
+
+
 test('Builder conference-day colors persist and reset to stable automatic dates',async({page})=>{
   await page.goto('/builder.html');await expect(page.locator('body')).toHaveAttribute('data-builder-ready','true');
   await page.locator('[data-config="name"]').fill('Day Color Conference');
