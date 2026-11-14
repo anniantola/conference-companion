@@ -44,6 +44,9 @@ test('PowerPoint templates retain editable content, University master/layouts an
   await expect(page.locator('#exportPptxPrivate')).not.toBeChecked();
   const offlineBlob=await page.evaluate(async()=>{const r=await fetch('./assets/utu-template.zip');return {ok:r.ok,size:(await r.blob()).size};});
   expect(offlineBlob.ok).toBeTruthy();expect(offlineBlob.size).toBeGreaterThan(100000);
+  // The offline export requires the installed precaching worker to control this page.
+  // An online fetch does not establish that its cache is ready.
+  await expect.poll(()=>page.evaluate(()=>Boolean(navigator.serviceWorker?.controller)),{timeout:30000}).toBe(true);
   await context.setOffline(true);
   const result=await inspectDownload(page,'utu');
   await context.setOffline(false);
